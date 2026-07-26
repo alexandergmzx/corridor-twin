@@ -4,40 +4,35 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   source-and-ros:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: ros-tooling/setup-ros@v0.7
         with:
           required-ros-distributions: jazzy
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Python tooling
-        run: python -m pip install --upgrade pip -r requirements-dev.txt
+      - name: Create ROS-compatible Python environment
+        shell: bash
+        run: |
+          python3 -m venv --system-site-packages .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r requirements-dev.txt
 
       - name: Install ROS dependencies
         shell: bash
         run: |
           source /opt/ros/jazzy/setup.bash
+          if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then
+            sudo rosdep init
+          fi
+          rosdep update --rosdistro jazzy
           rosdep install --from-paths src --ignore-src -r -y --rosdistro jazzy
 
-      - name: Lint
-        run: ruff check .
-
-      - name: Repository contract tests
-        run: pytest -q
-
-      - name: Build and test ROS workspace
-        shell: bash
-        run: |
-          source /opt/ros/jazzy/setup.bash
-          colcon build --symlink-install --event-handlers console_direct+
-          source install/setup.bash
-          colcon test --event-handlers console_direct+
-          colcon test-result --verbose
+      - name: Lint, test, and build workspace
+        run: bash tools/check_workspace.sh
