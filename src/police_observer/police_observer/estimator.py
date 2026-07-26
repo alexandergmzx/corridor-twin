@@ -1,0 +1,326 @@
+"""ROS-independent ArUco pose, gate-speed, and violation estimation."""
+
+from __future__ import annotations
+
+import json
+import math
+from dataclasses import dataclass
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+
+@dataclass(frozen=True)
+class Calibration:
+    """Camera intrinsics for the pixels delivered to the observer."""
+
+    width: int
+    height: int
+    matrix: np.ndarray
+    distortion: np.ndarray
+    frame_id: str
+
+
+@dataclass(frozen=True)
+class PoseObservation:
+    """Camera station inferred only from image pixels and the survey."""
+
+    timestamp_s: float
+    station_m: float
+    station_stddev_m: float
+    reprojection_rmse_px: float
+    marker_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class SpeedMeasurement:
+    """Speed between two surveyed station gates."""
+
+    timestamp_s: float
+    station_m: float
+    speed_mps: float
+    speed_stddev_mps: float
+    corridor_width_m: float
+    speed_limit_mps: float
+    gate_from_id: int
+    gate_to_id: int
+    observation_count: int
+
+
+@dataclass(frozen=True)
+class Violation:
+    """Debounced, conservative policy exceedance."""
+
+    event_id: int
+    estimate: SpeedMeasurement
+    exceedance_mps: float
+    confirmation_duration_s: float
+
+
+@dataclass(frozen=True)
+class MarkerMap:
+    """Survey and policy read from the generated manifest."""
+
+    profile_name: str
+    marker_corners: dict[int, np.ndarray]
+    gate_stations_m: tuple[float, ...]
+    corridor_length_m: float
+    entry_width_m: float
+    corner_width_m: float
+    speed_rules: tuple[tuple[float, float], ...]
+    confidence_sigma: float
+    consecutive_estimates: int
+
+    @classmethod
+    def from_manifest(cls, path: Path, profile_name: str | None = None) -> MarkerMap:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        selected = profile_name or str(raw["selected_profile"])
+        profile = raw["profiles"][selected]
+        marker_corners = {
+            int(marker["id"]): np.asarray(marker["aruco_corner_order_xyz_m"], dtype=np.float64)
+            for marker in profile["markers"]
+        }
+        stations = tuple(sorted({float(marker["station_m"]) for marker in profile["markers"]}))
+        policy = raw["speed_policy"]
+        rules = tuple(
+            (float(rule["maximum_width_m"]), float(rule["limit_mps"])) for rule in policy["rules"]
+        )
+        return cls(
+            profile_name=selected,
+            marker_corners=marker_corners,
+            gate_stations_m=stations,
+            corridor_length_m=float(raw["corridor_length_m"]),
+            entry_width_m=float(profile["entry_width_m"]),
+            corner_width_m=float(profile["corner_width_m"]),
+            speed_rules=rules,
+            confidence_sigma=float(policy["confidence_sigma"]),
+            consecutive_estimates=int(policy["consecutive_estimates"]),
+        )
+
+    def width_at(self, station_m: float) -> float:
+        fraction = min(max(station_m / self.corridor_length_m, 0.0), 1.0)
+        return self.entry_width_m + fraction * (self.corner_width_m - self.entry_width_m)
+
+    def limit_at(self, station_m: float) -> float:
+        width = self.width_at(station_m)
+        for maximum_width, limit in self.speed_rules:
+            if width <= maximum_width:
+                return limit
+        raise ValueError(f"speed policy does not cover corridor width {width}")
+
+
+def _aruco_dictionary(name: str):
+    if not hasattr(cv2.aruco, name):
+        raise ValueError(f"OpenCV does not provide ArUco dictionary {name!r}")
+    dictionary_id = getattr(cv2.aruco, name)
+    if hasattr(cv2.aruco, "getPredefinedDictionary"):
+        return cv2.aruco.getPredefinedDictionary(dictionary_id)
+    return cv2.aruco.Dictionary_get(dictionary_id)
+
+
+class ArucoStationEstimator:
+    """Estimate camera station without access to robot or simulator pose."""
+
+    def __init__(
+        self,
+        marker_map: MarkerMap,
+        dictionary_name: str,
+        maximum_reprojection_rmse_px: float = 3.0,
+    ) -> None:
+        self.marker_map = marker_map
+        self.dictionary = _aruco_dictionary(dictionary_name)
+        self.maximum_reprojection_rmse_px = maximum_reprojection_rmse_px
+        if hasattr(cv2.aruco, "DetectorParameters_create"):
+            self.parameters = cv2.aruco.DetectorParameters_create()
+        else:
+            self.parameters = cv2.aruco.DetectorParameters()
+        self.detector = (
+            cv2.aruco.ArucoDetector(self.dictionary, self.parameters)
+            if hasattr(cv2.aruco, "ArucoDetector")
+            else None
+        )
+
+    def detect(self, image: np.ndarray) -> tuple[list[np.ndarray], np.ndarray | None]:
+        if image.ndim == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        elif image.ndim == 2:
+            gray = image
+        else:
+            raise ValueError("image must be mono8 or BGR8")
+        if self.detector is not None:
+            corners, ids, _ = self.detector.detectMarkers(gray)
+        else:
+            corners, ids, _ = cv2.aruco.detectMarkers(
+                gray, self.dictionary, parameters=self.parameters
+            )
+        return corners, ids
+
+    def estimate(
+        self, image: np.ndarray, calibration: Calibration, timestamp_s: float
+    ) -> PoseObservation | None:
+        if not math.isfinite(timestamp_s) or timestamp_s <= 0.0:
+            return None
+        if image.shape[0] != calibration.height or image.shape[1] != calibration.width:
+            raise ValueError("image dimensions do not match calibration")
+        corners, identifiers = self.detect(image)
+        if identifiers is None:
+            return None
+        object_points: list[np.ndarray] = []
+        image_points: list[np.ndarray] = []
+        used_ids: list[int] = []
+        for detected_corners, identifier_array in zip(corners, identifiers, strict=True):
+            marker_id = int(identifier_array[0])
+            surveyed = self.marker_map.marker_corners.get(marker_id)
+            if surveyed is None:
+                continue
+            pixels = np.asarray(detected_corners, dtype=np.float64).reshape(4, 2)
+            if cv2.contourArea(pixels.astype(np.float32)) < 16.0:
+                continue
+            if np.any(pixels[:, 0] < 1.0) or np.any(pixels[:, 0] >= calibration.width - 1.0):
+                continue
+            if np.any(pixels[:, 1] < 1.0) or np.any(pixels[:, 1] >= calibration.height - 1.0):
+                continue
+            object_points.append(surveyed)
+            image_points.append(pixels)
+            used_ids.append(marker_id)
+        if not object_points:
+            return None
+
+        world = np.concatenate(object_points).astype(np.float64)
+        pixels = np.concatenate(image_points).astype(np.float64)
+        flag = cv2.SOLVEPNP_ITERATIVE if len(world) >= 6 else cv2.SOLVEPNP_IPPE
+        success, rotation_vector, translation = cv2.solvePnP(
+            world,
+            pixels,
+            calibration.matrix,
+            calibration.distortion,
+            flags=flag,
+        )
+        if not success:
+            return None
+        projected, _ = cv2.projectPoints(
+            world,
+            rotation_vector,
+            translation,
+            calibration.matrix,
+            calibration.distortion,
+        )
+        residual = projected.reshape(-1, 2) - pixels
+        rmse = float(np.sqrt(np.mean(np.sum(residual * residual, axis=1))))
+        if not math.isfinite(rmse) or rmse > self.maximum_reprojection_rmse_px:
+            return None
+        rotation, _ = cv2.Rodrigues(rotation_vector)
+        camera_center = -rotation.T @ translation
+        station = float(camera_center[0, 0])
+        depths = (rotation @ world.T + translation).T[:, 2]
+        if np.any(depths <= 0.0):
+            return None
+        median_depth = float(np.median(depths))
+        focal = float(calibration.matrix[0, 0])
+        station_sigma = max(0.005, rmse * max(median_depth, 1.0) / focal)
+        return PoseObservation(
+            timestamp_s=timestamp_s,
+            station_m=station,
+            station_stddev_m=station_sigma,
+            reprojection_rmse_px=rmse,
+            marker_ids=tuple(sorted(used_ids)),
+        )
+
+
+class GateSpeedEstimator:
+    """Interpolate surveyed gate crossings and differentiate their times."""
+
+    def __init__(self, marker_map: MarkerMap) -> None:
+        self.marker_map = marker_map
+        self.previous: PoseObservation | None = None
+        self.last_crossing: tuple[int, float, float] | None = None
+        self.observation_count = 0
+
+    def reset(self) -> None:
+        self.previous = None
+        self.last_crossing = None
+        self.observation_count = 0
+
+    def update(self, observation: PoseObservation) -> list[SpeedMeasurement]:
+        previous = self.previous
+        time_reversed = previous is not None and observation.timestamp_s <= previous.timestamp_s
+        station_reversed = previous is not None and observation.station_m < previous.station_m
+        if time_reversed or station_reversed:
+            self.reset()
+            previous = None
+        self.previous = observation
+        self.observation_count += 1
+        if previous is None or observation.station_m <= previous.station_m:
+            return []
+
+        delta_station = observation.station_m - previous.station_m
+        delta_time = observation.timestamp_s - previous.timestamp_s
+        results: list[SpeedMeasurement] = []
+        for gate_id, gate_station in enumerate(self.marker_map.gate_stations_m):
+            if not (previous.station_m < gate_station <= observation.station_m):
+                continue
+            fraction = (gate_station - previous.station_m) / delta_station
+            crossing_time = previous.timestamp_s + fraction * delta_time
+            crossing_sigma = (
+                1.0 - fraction
+            ) * previous.station_stddev_m + fraction * observation.station_stddev_m
+            if self.last_crossing is not None:
+                from_id, from_time, from_sigma = self.last_crossing
+                elapsed = crossing_time - from_time
+                distance = gate_station - self.marker_map.gate_stations_m[from_id]
+                if elapsed > 1e-6 and distance > 0.0:
+                    speed = distance / elapsed
+                    speed_sigma = math.sqrt(from_sigma**2 + crossing_sigma**2) / elapsed
+                    results.append(
+                        SpeedMeasurement(
+                            timestamp_s=crossing_time,
+                            station_m=gate_station,
+                            speed_mps=speed,
+                            speed_stddev_mps=speed_sigma,
+                            corridor_width_m=self.marker_map.width_at(gate_station),
+                            speed_limit_mps=self.marker_map.limit_at(gate_station),
+                            gate_from_id=from_id,
+                            gate_to_id=gate_id,
+                            observation_count=self.observation_count,
+                        )
+                    )
+            self.last_crossing = (gate_id, crossing_time, crossing_sigma)
+        return results
+
+
+class ViolationDetector:
+    """Require consecutive conservative exceedances before emitting an event."""
+
+    def __init__(self, marker_map: MarkerMap) -> None:
+        self.marker_map = marker_map
+        self.consecutive = 0
+        self.first_time_s: float | None = None
+        self.event_id = 0
+
+    def reset(self) -> None:
+        self.consecutive = 0
+        self.first_time_s = None
+
+    def update(self, measurement: SpeedMeasurement) -> Violation | None:
+        conservative_speed = (
+            measurement.speed_mps - self.marker_map.confidence_sigma * measurement.speed_stddev_mps
+        )
+        if conservative_speed <= measurement.speed_limit_mps:
+            self.reset()
+            return None
+        if self.consecutive == 0:
+            self.first_time_s = measurement.timestamp_s
+        self.consecutive += 1
+        if self.consecutive < self.marker_map.consecutive_estimates:
+            return None
+        self.event_id += 1
+        first = self.first_time_s if self.first_time_s is not None else measurement.timestamp_s
+        event = Violation(
+            event_id=self.event_id,
+            estimate=measurement,
+            exceedance_mps=conservative_speed - measurement.speed_limit_mps,
+            confirmation_duration_s=max(0.0, measurement.timestamp_s - first),
+        )
+        self.reset()
+        return event

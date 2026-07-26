@@ -1,0 +1,11 @@
+police_observer:
+  ros__parameters:
+    use_sim_time: false
+    manifest_path: ""
+    corridor_profile: ""
+    marker_dictionary: DICT_5X5_100
+    pose_reprojection_error_px: 3.0
+    image_topic: robot/front_camera/image_raw
+    camera_info_topic: robot/front_camera/camera_info
+    estimate_topic: police/speed_estimate
+    violation_topic: police/speed_violation
