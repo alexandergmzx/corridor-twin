@@ -1,0 +1,5 @@
+-r requirements.txt
+# ROS 2 Jazzy's launch_testing plugin still implements a hook removed by pytest 9.
+pytest>=8.3,<9
+pytest-cov>=6,<8
+ruff>=0.12,<1

@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["test", "src/corridor_scene/test", "src/police_observer/test"]
+pythonpath = ["src/corridor_scene", "src/police_observer"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["build", "install", "log", "out"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

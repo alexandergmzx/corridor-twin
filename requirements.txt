@@ -1,0 +1,4 @@
+# Phase 1 scene authoring. Keep this environment separate from Isaac Sim's Python.
+usd-core==26.5
+numpy>=1.26,<2
+PyYAML>=6.0,<7

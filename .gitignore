@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+
+# ROS 2 / colcon
+build/
+install/
+log/
+
+# Generated scene outputs
+out/*
+!out/.gitkeep
+
+# Isaac Sim and Omniverse local state
+.cache/
+isaacsim/
+kit/cache/
+kit/logs/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
