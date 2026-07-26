@@ -200,6 +200,7 @@ of scope for this interview demo.
 - [System design](docs/DESIGN.md)
 - [Sensor-feed contract](docs/SENSOR-FEED.md)
 - [Hardware and Isaac activation record](docs/ACTIVATION.md)
+- [Development workflow, CI recovery, and commit history](docs/DEVELOPMENT.md)
 - [Architecture decisions](docs/adr/README.md)
 
 ## License

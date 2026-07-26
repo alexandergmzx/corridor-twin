@@ -8,6 +8,7 @@ def test_required_documents_exist() -> None:
     required = [
         "README.md",
         "docs/DESIGN.md",
+        "docs/DEVELOPMENT.md",
         "docs/SENSOR-FEED.md",
         "docs/adr/README.md",
     ]
