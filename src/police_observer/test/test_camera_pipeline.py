@@ -88,9 +88,30 @@ def test_single_marker_frames_are_rejected(pipeline) -> None:
     assert strict.minimum_markers >= 2
 
     station = 5.5333
-    image = camera.render(station)
-    corners, identifiers = strict.detect(image)
-    assert identifiers is not None and len(identifiers) == 1
+    rendered = camera.render(station)
+    corners, identifiers = strict.detect(rendered)
+    assert identifiers is not None
+
+    # The production-sized plates deliberately make adjacent tags readable at
+    # this station. Build the impairment under test by retaining only tag 9
+    # and a quiet-zone margin from the otherwise unchanged synthetic frame.
+    # This keeps the regression independent of future target-size changes.
+    marker_index = next(
+        index for index, identifier in enumerate(identifiers.reshape(-1)) if int(identifier) == 9
+    )
+    marker_corners = corners[marker_index].reshape(4, 2)
+    margin_px = 8
+    x_min = max(int(marker_corners[:, 0].min()) - margin_px, 0)
+    x_max = min(int(marker_corners[:, 0].max()) + margin_px + 1, rendered.shape[1])
+    y_min = max(int(marker_corners[:, 1].min()) - margin_px, 0)
+    y_max = min(int(marker_corners[:, 1].max()) + margin_px + 1, rendered.shape[0])
+    image = rendered.copy()
+    image[:] = 210
+    image[y_min:y_max, x_min:x_max] = rendered[y_min:y_max, x_min:x_max]
+
+    _, isolated_identifiers = strict.detect(image)
+    assert isolated_identifiers is not None
+    assert isolated_identifiers.reshape(-1).tolist() == [9]
 
     loose = permissive.estimate(image, camera.calibration, timestamp_s=1.0)
     assert loose is not None
