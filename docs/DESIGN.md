@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.6.1 |
+| Design version | 0.6.2 |
 | Status | Renderer/camera contract corrected; static renderer claim invalidated pending requalification; enforcement coverage does not yet reach the corner |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
@@ -334,12 +334,24 @@ flowchart LR
     Estimate --> Evaluate
 ```
 
-The accepted nominal run passed 3/3 selected frames at every world-X dwell
+The 2026-07-27 nominal run passed 3/3 selected frames at every world-X dwell
 `0.5, 1.5, 3.0, 5.0, 7.0 m`. Maximum station error was 0.010563 m, corner RMSE
 1.550047 px, and estimator reprojection RMSE 1.091647 px. The delivered K matrix
 and 14.999999 Hz rate were constant, and no unsurveyed ID appeared. Mirroring
-the same captured frames produced zero passing frames. The curated evidence is
-under [static fiducial evidence](evidence/static-fiducials/NOTES.md).
+the same captured frames produced zero passing frames.
+
+Those results stand as historical evidence, but **the run is not a current
+qualification**: it predates the renderer readback fix, so its render mode was
+requested rather than measured. Its summary is preserved unmodified under an
+invalidated name and **no canonical static qualification exists** until a fresh
+paired run passes on the corrected geometry. See
+[static fiducial evidence](evidence/static-fiducials/NOTES.md).
+
+Two limits also apply to what that run can support. It sampled only
+`0.5 … 7.0 m`, so it says nothing about the corner; and past camera x ≈ 7.5 the
+wall markers leave the 75° frustum entirely, which is why gates 8.0 and 10.0
+currently produce no estimate and the 0.8 m/s corner rule cannot be exercised
+from camera evidence.
 
 ## Occlusion verification
 
@@ -433,6 +445,16 @@ The installed real-time renderer reports anti-aliasing/super-resolution enum 3
 shader warm-up updates, then asserts the active and default values after warm-up
 and at each admitted static dwell. This avoids recording a requested startup
 value as though it were observed renderer state.
+
+Since `5bc1c99` the **render mode** is read back the same way, from
+`/rtx/rendermode` and `/rtx-defaults/rendermode`. The active tree carries the
+acceptance value and a populated defaults tree that disagrees is a violation,
+while an empty one is not, because the installed
+`SimulationApp._set_render_settings(default=...)` only writes the defaults tree
+when called with `default=True`. Comparison is case-insensitive: Isaac writes
+`RaytracedLighting` from `simulation_app.py` and `RayTracedLighting` from its own
+Replicator examples. The policy lives in `tools/renderer_contract.py`, free of
+Omniverse imports, so its rejecting branches are exercised without a GPU.
 
 Isaac's Python 3.11 process uses the bridge extension's bundled Jazzy libraries.
 The external observer/probe uses system Jazzy under Python 3.12. The adapter
@@ -548,7 +570,9 @@ Phase 1 packages. The version-specific tools are isolated in
 | Time reset behavior | Non-monotonic stamp and backward-station unit tests |
 | Demo GPU is qualified | 5070 Ti checker component results, headless/GUI smoke, and measured VRAM snapshots |
 | Live camera contract is correct | External ROS probe of paired stamps, frames, dimensions, encoding, calibration, QoS, rate, clocks, and publisher cardinality |
-| Rendered fiducials are measurable | Five static Isaac dwells pass station, reprojection, corner-order, calibration, and rate gates; the mirrored actual capture fails |
+| Rendered fiducials are measurable | Five static Isaac dwells over `0.5 … 7.0 m` pass station, reprojection, corner-order, calibration, and rate gates; the mirrored actual capture fails. Historical: that run's renderer mode was not measured |
+| The active render mode is ray-traced | **Not currently evidenced.** The readback exists since `5bc1c99` but has not yet produced a committed paired run |
+| Every surveyed gate is measurable | **False today.** Gates 8.0 and 10.0 fall outside the frustum, so the 0.8 m/s corner rule cannot be exercised from camera evidence |
 | GPU constraints are explicit | One camera, 640×360, real-time rendering, no path tracing, and a 14 GB soft ceiling |
 
 ## Risks and mitigations

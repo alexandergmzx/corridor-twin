@@ -26,13 +26,20 @@ corner mass, and a continuous line-arc-line delivery trajectory. P is placed
 from the occluding wall faces, so it follows the geometry when a different
 `(m,n)` profile is selected.
 
-**Static production-camera fiducials qualified — 2026-07-27.** The existing
-one-product Isaac ROS graph now passes surveyed station recovery at five nominal
-approach dwells. All 15 selected frames passed; maximum station error was
-0.010563 m, the delivered rate was 14.999999 Hz, and a mirror applied to the
-same capture produced zero passing frames. The final run used 3,024 MiB. This
-gate exposed and corrected buried, undersampled marker plates before motion was
-added. Deterministic motion along the authored trajectory is next.
+**Static production-camera fiducials — historical run, renderer unqualified.**
+On 2026-07-27 the one-product Isaac ROS graph recovered surveyed station at five
+nominal approach dwells: all 15 selected frames passed, maximum station error
+0.010563 m, delivered rate 14.999999 Hz, and a mirror applied to the same
+capture produced zero passing frames. Those pixel, calibration, rate and control
+results remain valid. The run's **renderer mode was requested, never read back**,
+so it is not a current qualification; its summary is preserved unmodified as
+`qualification-summary-v1-request-echo-invalidated.json`. **There is no canonical
+static qualification until the planned requalification passes.**
+
+The gate did expose and correct buried, undersampled marker plates. Two things
+now precede motion: enforcement coverage must reach the corner, since gates 8.0
+and 10.0 currently fall outside the camera frustum, and the static qualification
+must be re-earned on the corrected geometry.
 
 ## Architecture at a glance
 

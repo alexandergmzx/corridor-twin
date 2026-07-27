@@ -6,11 +6,11 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.3.0 |
+| Map version | 1.3.1 |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | Production-camera fiducials qualified at five static approach dwells |
-| Next milestone | Move A deterministically on the authored trajectory |
+| Current milestone | Renderer/camera contract corrected; static renderer claim invalidated, so no canonical qualification exists |
+| Next milestone | Corner coverage, then GPU requalification, then motion |
 
 ## Read the documentation in this order
 
@@ -33,12 +33,16 @@ increments without requiring a reader to reconstruct status from commit history.
 flowchart LR
     P1["1. Simulation-independent foundation<br/>USD + variants + colliders<br/>observer + synthetic feed<br/>occlusion proof<br/><b>WORKING</b>"]
     P2["2. GPU activation<br/>RTX 5070 Ti<br/>headless + visible smoke<br/><b>QUALIFIED*</b>"]
-    P3["3. Production camera gate<br/>ROS pixels + calibration + clock<br/>five static station dwells<br/><b>QUALIFIED</b>"]
-    P4["4. Robot motion<br/>follow delivery path<br/>controlled speed profile<br/><b>NEXT</b>"]
+    P3["3. Production camera gate<br/>pixels valid, renderer claim<br/>invalidated<br/><b>REQUALIFY</b>"]
+    P3b["3b. Corner coverage<br/>gates 8 and 10 unreachable<br/>reference fiducials<br/><b>NEXT</b>"]
+    P4["4. Robot motion<br/>follow delivery path<br/>controlled speed profile<br/><b>BLOCKED</b>"]
     P5["5. Live estimation<br/>Isaac pixels to observer<br/>error and violation evidence<br/><b>PENDING</b>"]
     P6["6. Demo hardening<br/>failure cases + evidence pack<br/>launch path + rehearsal<br/><b>PENDING</b>"]
 
-    P1 --> P2 --> P3 --> P4 --> P5 --> P6
+    P1 --> P2 --> P3 --> P3b --> P4 --> P5 --> P6
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+    class P4 blocked;
 ```
 
 `QUALIFIED*` means all hardware gates passed, but NVIDIA's checker still rejects
@@ -55,8 +59,9 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Camera-only station/speed estimator | Working on synthetic motion and static Isaac pixels | Synthetic 1.8 m/s within 0.0161 m/s, limited by a weak two-plate band near station 5.5; static Isaac station error at most 0.010563 m | Measure speed during deterministic Isaac motion |
 | P occlusion | Working | Conservative arc enclosure over P's full volume, curved-source false-pass regression, 204 composed-mesh rays, and a visible control | Re-run after any geometry/path change |
 | GPU and real-time scene | Conditionally qualified | Hardware gates, headless/visible stage smokes, measured VRAM | Retain Ubuntu fallback because Mint is unsupported |
-| Isaac ROS camera contract | Qualified through rendered fiducials | 640×360 RGB at 15 Hz; paired calibration; five static dwells pass; mirrored actual capture fails | Connect deterministic motion without adding sensors |
-| Robot delivery motion | Next | Authored delivery path exists | Deterministic path follower and speed profile |
+| Isaac ROS camera contract | Pixels qualified; **renderer claim invalidated** | 640×360 RGB at 15 Hz; paired calibration; five static dwells pass; mirrored actual capture fails. The run's renderer mode was requested, never read back | Fresh paired requalification with measured renderer state |
+| Corner enforcement coverage | **Broken** | Past camera x ≈ 7.5 wall markers leave the 75° frustum, so gates 8.0 and 10.0 never yield an estimate and the 0.8 m/s corner rule is unreachable | Reference fiducials on the north-wall extension and east building face |
+| Robot delivery motion | Blocked | Authored delivery path exists | Coverage and requalification first; then a deterministic path follower and speed profile |
 | Live end-to-end violation | Pending | Synthetic end-to-end path already works | Isaac camera → observer → estimate/violation comparison |
 
 ## Evidence boundary

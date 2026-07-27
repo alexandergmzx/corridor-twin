@@ -86,10 +86,18 @@ profiles still pass; the nominal result remains 78 certified pairs, 204 audit
 rays, zero failures, and a 3.116 m nearest blocking surface. A new curved-source
 negative control now fails where the old endpoint-only method falsely passed.
 
-## Static rendered-fiducial qualification — 2026-07-27
+## Static rendered-fiducial run — 2026-07-27 — historical, renderer unqualified
+
+> This run predates the renderer readback fix in `5bc1c99`. Its pixel,
+> calibration, rate, station-error and mirror-control results below remain valid
+> historical evidence. Its **renderer mode was requested, never measured**, so
+> the run is not a current qualification and its summary is preserved unmodified
+> as `qualification-summary-v1-request-echo-invalidated.json`. **No canonical
+> static qualification exists until the planned requalification passes on the
+> corrected geometry.**
 
 The camera contract alone proved message delivery, not that the pixels supported
-the intended measurement. The next gate reused the same one-product OmniGraph
+the intended measurement. This gate reused the same one-product OmniGraph
 and held A at five world-X stations while a separate system-Jazzy process saved
 actual `Image`, `CameraInfo`, and `/clock` messages.
 
@@ -113,7 +121,8 @@ decision and rejected alternatives.
 | Maximum K-matrix error | 0.0000149 px |
 | Unsurveyed marker IDs | 0 |
 | Mirrored actual-capture control | Gate failed; 0 passing frames |
-| Active/default renderer enum | 3 / 3 after 12 warm-up updates |
+| Active/default anti-aliasing enum | 3 / 3 after 12 warm-up updates |
+| Active render mode | **Not measured in this run** — requested only |
 | Total GPU memory | 3,024 MiB |
 
 The acceptance limits were fixed before the run: 0.05 m station error, 3.0 px
