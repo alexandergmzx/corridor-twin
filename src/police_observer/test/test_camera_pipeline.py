@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
@@ -151,6 +152,49 @@ def test_measured_speed_is_path_speed_not_axis_speed(pipeline) -> None:
     axis_only = [value.speed_mps * marker_map.path_axis_fraction for value in measurements]
     assert max(abs(value.speed_mps - 1.8) for value in measurements) < 0.02
     assert min(abs(value - 1.8) for value in axis_only) > 0.01
+
+
+def _crossing_sequence(estimator: GateSpeedEstimator, wobble_m: float) -> list:
+    """Cross gate 2, step backward by ``wobble_m``, then cross gate 4."""
+
+    sigma = 0.01
+    results = []
+    for timestamp_s, station_m in (
+        (1.0, 1.0),
+        (2.0, 3.0),  # crosses gate 2 and arms last_crossing
+        (2.1, 3.0 - wobble_m),  # the step under test
+        (3.0, 5.0),  # crosses gate 4; needs last_crossing to yield a speed
+    ):
+        observation = PoseObservation(timestamp_s, station_m, sigma, 0.2, (0, 1))
+        results.extend(estimator.update(observation))
+    return results
+
+
+def test_a_backward_step_inside_the_noise_keeps_the_gate_history(pipeline) -> None:
+    """Strict monotonicity is not satisfiable against this estimator's noise.
+
+    At 0.6 m/s the camera advances 0.0397 m per frame while the p95 station
+    error is 0.0414 m, so backward-looking pairs are expected rather than
+    exceptional. Treating each one as a pose jump discarded the gate history
+    and silently dropped the next speed measurement, which is how a corner
+    violation would fail to appear in a live run.
+    """
+
+    _, marker_map, _ = pipeline
+    sigma = 0.01
+    tolerance_m = GateSpeedEstimator(marker_map).station_regression_sigma * math.hypot(sigma, sigma)
+
+    # A step well inside the combined uncertainty is noise: history survives
+    # and gate 4 still produces a speed.
+    kept = _crossing_sequence(GateSpeedEstimator(marker_map), wobble_m=tolerance_m / 4.0)
+    assert len(kept) == 1
+    assert kept[0].station_m == 4.0
+    assert kept[0].speed_mps > 0.0
+
+    # A step well outside it is a genuine discontinuity and must still reset,
+    # so this is a threshold rather than a removal of the guard.
+    lost = _crossing_sequence(GateSpeedEstimator(marker_map), wobble_m=tolerance_m * 10.0)
+    assert lost == []
 
 
 def test_timestamp_and_backward_station_reset_history(pipeline) -> None:

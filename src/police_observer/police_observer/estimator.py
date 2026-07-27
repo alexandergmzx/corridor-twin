@@ -277,11 +277,33 @@ class ArucoStationEstimator:
         )
 
 
+# A backward station step is evidence of a pose jump only when it is larger
+# than the observations' own stated uncertainty. Strict monotonicity is not a
+# satisfiable requirement here: at 0.6 m/s the camera advances 0.0397 m per
+# frame against a p95 station error of 0.0414 m, so noise alone produces
+# backward-looking pairs. Each one used to discard the gate history and
+# silently drop the next speed measurement.
+#
+# Three sigma is the conventional significance threshold. Measured noise steps
+# sit at or below 0.5 sigma of the combined uncertainty, while the ambiguous
+# single-marker pose this guard was installed against sits at 3.4 sigma -- and
+# is already rejected upstream on correspondence rank before it can reach here.
+# The scaling also works in the right direction: an ambiguous planar fit
+# reports a *low* reprojection residual, so its sigma is small and its ratio
+# large.
+STATION_REGRESSION_SIGMA = 3.0
+
+
 class GateSpeedEstimator:
     """Interpolate surveyed gate crossings and differentiate their times."""
 
-    def __init__(self, marker_map: MarkerMap) -> None:
+    def __init__(
+        self,
+        marker_map: MarkerMap,
+        station_regression_sigma: float = STATION_REGRESSION_SIGMA,
+    ) -> None:
         self.marker_map = marker_map
+        self.station_regression_sigma = station_regression_sigma
         self.previous: PoseObservation | None = None
         self.last_crossing: tuple[int, float, float] | None = None
         self.observation_count = 0
@@ -298,15 +320,25 @@ class GateSpeedEstimator:
         own. ``update`` resets itself internally, and that used to be invisible
         to the violation detector, which then carried an open episode across a
         clock jump and suppressed the next genuine offense.
+
+        Time is judged strictly: a stalled or reversed stamp is always a break.
+        Station is judged against the observations' own uncertainty, because a
+        regression smaller than the estimator's stated noise is not evidence of
+        anything. See ``STATION_REGRESSION_SIGMA``.
         """
 
         previous = self.previous
         if previous is None:
             return False
-        return (
-            observation.timestamp_s <= previous.timestamp_s
-            or observation.station_m < previous.station_m
+        if observation.timestamp_s <= previous.timestamp_s:
+            return True
+        regression_m = previous.station_m - observation.station_m
+        if regression_m <= 0.0:
+            return False
+        tolerance_m = self.station_regression_sigma * math.hypot(
+            previous.station_stddev_m, observation.station_stddev_m
         )
+        return regression_m > tolerance_m
 
     def update(self, observation: PoseObservation) -> list[SpeedMeasurement]:
         previous = self.previous
