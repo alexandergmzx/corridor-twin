@@ -1,5 +1,17 @@
-schema_version: 0.1.0
-status: provisional_geometry_pending_diagram_reconciliation
+schema_version: 0.2.0
+status: topology_reconciled_metric_scale_demo_assumption
+
+provenance:
+  source_document: docs/ROBO_TASK.pdf
+  topology: reconciled_with_supplied_diagram
+  metric_scale: demo_assumption
+  note: >-
+    The supplied drawing labels the corridor widths only as the symbols m and n
+    and carries no scale bar or dimension text. Every metric length below is an
+    explicit project choice, not a surveyed value recovered from the diagram.
+    What the diagram does fix is topology: one straight corridor face and one
+    tapering face, a perpendicular next street, B farther along that street, and
+    P at its corner.
 
 stage:
   up_axis: Z
@@ -7,10 +19,18 @@ stage:
   default_prim: /World
 
 geometry:
+  # The supplied drawing shows a straight north face and a sloping south face,
+  # so the taper is carried entirely by the south wall.
+  taper_mode: one_sided_south
   corridor_length_m: 12.0
   building_height_m: 4.0
   wall_thickness_m: 0.5
-  cross_street_width_m: 6.0
+  west_margin_m: 2.0
+  next_street:
+    clear_width_m: 6.0
+    length_m: 10.0
+    turn_radius_m: 2.0
+    b_distance_m: 8.0
   profiles:
     nominal_m6_n3:
       entry_width_m: 6.0
@@ -39,20 +59,18 @@ fiducials:
   spacing_m: 2.0
   wall_plate_cant_deg: 35.0
 
-actors:
-  # Provisional coordinates are explicit so every artifact is executable. Reconcile
-  # them with the supplied interview diagram before freezing design version 1.0.
-  a_start_xyz_m: [0.0, 0.0, 0.0]
-  b_xyz_m: [15.0, 8.0, 0.0]
-  p_bounds_min_xyz_m: [12.7, -5.3, 0.0]
-  p_bounds_max_xyz_m: [13.3, -4.7, 1.8]
-  delivery_path_xyz_m:
-    - [0.0, 0.0, 0.0]
-    - [15.0, 0.0, 0.0]
-    - [15.0, 8.0, 0.0]
+police:
+  # P stands at the corner on the non-drivable side of the corner wall. The
+  # placement is expressed as offsets from the occluding wall faces so it
+  # follows the geometry when a different (m,n) profile is selected, instead of
+  # being frozen as absolute coordinates that only suit one profile.
+  body_size_xyz_m: [0.6, 0.6, 1.8]
+  west_offset_m: 0.60
+  south_offset_m: 1.20
+  minimum_clearance_m: 0.25
 
 speed_policy:
-  status: provisional_demo_only
+  status: demonstration_only
   kind: piecewise_constant_by_clear_width
   rules:
     - {maximum_width_m: 3.5, limit_mps: 0.8}

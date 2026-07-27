@@ -1,0 +1,240 @@
+"""Continuous delivery trajectory shared by the USD path and the visibility gate.
+
+A polyline with one heading per segment is not sufficient evidence for the
+"A cannot see P" requirement: an instantaneous heading change at a corner can
+hide a visibility window that a real rotating camera would sweep through. This
+module therefore models the route as line -> circular arc -> line and exposes
+both position and yaw continuously, so the certificate can bound the camera
+over whole intervals of the turn.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from .geometry import a_start_xyz, corridor_centerline, is_clear, person_b_xyz
+from .model import CorridorProfile, Scenario
+
+Vec3 = tuple[float, float, float]
+
+APPROACH = "approach"
+ARC = "arc"
+DEPARTURE = "departure"
+
+
+@dataclass(frozen=True)
+class Pose:
+    """A planar pose on the route."""
+
+    x_m: float
+    y_m: float
+    z_m: float
+    yaw_rad: float
+
+    @property
+    def heading(self) -> tuple[float, float]:
+        """Return the unit forward direction implied by the yaw."""
+
+        return (math.cos(self.yaw_rad), math.sin(self.yaw_rad))
+
+
+@dataclass(frozen=True)
+class Segment:
+    """One continuously differentiable piece of the route."""
+
+    kind: str
+    start_s_m: float
+    end_s_m: float
+
+
+@dataclass(frozen=True)
+class DeliveryTrajectory:
+    """Line-arc-line route from A's start to B, parameterised by arc length.
+
+    Yaw is monotonically non-increasing over the whole route: it is constant on
+    the approach, decreases through the right-hand arc, and is constant on the
+    departure. :meth:`yaw_range` relies on that.
+    """
+
+    start_xyz_m: Vec3
+    approach_heading: tuple[float, float]
+    approach_length_m: float
+    arc_center_xy_m: tuple[float, float]
+    arc_radius_m: float
+    arc_start_angle_rad: float
+    arc_sweep_rad: float
+    departure_length_m: float
+    camera_height_m: float
+
+    @property
+    def length_m(self) -> float:
+        """Total route length."""
+
+        return self.approach_length_m + self.arc_length_m + self.departure_length_m
+
+    @property
+    def arc_length_m(self) -> float:
+        """Arc-length of the turn."""
+
+        return self.arc_radius_m * self.arc_sweep_rad
+
+    def segments(self) -> tuple[Segment, ...]:
+        """Return the route's three pieces as arc-length intervals."""
+
+        first = self.approach_length_m
+        second = first + self.arc_length_m
+        return (
+            Segment(APPROACH, 0.0, first),
+            Segment(ARC, first, second),
+            Segment(DEPARTURE, second, self.length_m),
+        )
+
+    def pose_at(self, s_m: float) -> Pose:
+        """Return the ground pose at arc length ``s_m``, clamped to the route."""
+
+        s_m = min(max(s_m, 0.0), self.length_m)
+        forward_x, forward_y = self.approach_heading
+        approach_yaw = math.atan2(forward_y, forward_x)
+
+        if s_m <= self.approach_length_m:
+            return Pose(
+                self.start_xyz_m[0] + forward_x * s_m,
+                self.start_xyz_m[1] + forward_y * s_m,
+                self.start_xyz_m[2],
+                approach_yaw,
+            )
+
+        arc_s = s_m - self.approach_length_m
+        if arc_s <= self.arc_length_m:
+            # The turn is right-handed, so the polar angle decreases.
+            angle = self.arc_start_angle_rad - arc_s / self.arc_radius_m
+            return Pose(
+                self.arc_center_xy_m[0] + self.arc_radius_m * math.cos(angle),
+                self.arc_center_xy_m[1] + self.arc_radius_m * math.sin(angle),
+                self.start_xyz_m[2],
+                angle - math.pi / 2.0,
+            )
+
+        exit_angle = self.arc_start_angle_rad - self.arc_sweep_rad
+        exit_x = self.arc_center_xy_m[0] + self.arc_radius_m * math.cos(exit_angle)
+        exit_y = self.arc_center_xy_m[1] + self.arc_radius_m * math.sin(exit_angle)
+        yaw = exit_angle - math.pi / 2.0
+        remaining = arc_s - self.arc_length_m
+        return Pose(
+            exit_x + math.cos(yaw) * remaining,
+            exit_y + math.sin(yaw) * remaining,
+            self.start_xyz_m[2],
+            yaw,
+        )
+
+    def camera_pose_at(self, s_m: float) -> Pose:
+        """Return the pose of the camera optical centre at arc length ``s_m``."""
+
+        pose = self.pose_at(s_m)
+        return Pose(pose.x_m, pose.y_m, pose.z_m + self.camera_height_m, pose.yaw_rad)
+
+    def yaw_range(self, start_s_m: float, end_s_m: float) -> tuple[float, float]:
+        """Return the (minimum, maximum) yaw over an arc-length interval.
+
+        Exact because yaw is monotonically non-increasing along the route.
+        """
+
+        low, high = sorted((start_s_m, end_s_m))
+        return (self.pose_at(high).yaw_rad, self.pose_at(low).yaw_rad)
+
+    def polyline(self, samples_per_segment: int = 24) -> tuple[Vec3, ...]:
+        """Sample the route as a ground polyline for USD inspection."""
+
+        points: list[Vec3] = []
+        for segment in self.segments():
+            span = segment.end_s_m - segment.start_s_m
+            count = 1 if segment.kind != ARC else max(samples_per_segment, 2)
+            for index in range(count + 1):
+                pose = self.pose_at(segment.start_s_m + span * index / count)
+                point = (pose.x_m, pose.y_m, pose.z_m)
+                if not points or point != points[-1]:
+                    points.append(point)
+        return tuple(points)
+
+
+def delivery_trajectory(scenario: Scenario, profile: CorridorProfile) -> DeliveryTrajectory:
+    """Build the route from the shared corridor geometry.
+
+    The approach follows the corridor centreline, which under a one-sided taper
+    drifts toward the fixed north face. The arc is tangent to that centreline
+    and to the next street's centreline, so heading is continuous at both joins.
+    """
+
+    length = scenario.corridor_length_m
+    radius = scenario.next_street.turn_radius_m
+    start = a_start_xyz(scenario, profile)
+
+    # The centreline is linear in x, so one sample gives its slope exactly.
+    rise = corridor_centerline(profile, length, length) - corridor_centerline(profile, 0.0, length)
+    norm = math.hypot(length, rise)
+    heading = (length / norm, rise / norm)
+
+    # Place the arc centre one radius to the right of both tangent lines. The
+    # departure line is x = street_center, so the centre's x follows directly.
+    right_normal = (heading[1], -heading[0])
+    center_x = scenario.street_center_x_m - radius
+    approach_length = (center_x - start[0] - radius * right_normal[0]) / heading[0]
+    if approach_length <= 0.0:
+        raise ValueError(
+            f"turn radius {radius} m is too large to fit before the corner on profile "
+            f"{profile.name}"
+        )
+    tangent_x = start[0] + heading[0] * approach_length
+    tangent_y = start[1] + heading[1] * approach_length
+    center_y = tangent_y + radius * right_normal[1]
+
+    start_angle = math.atan2(tangent_y - center_y, tangent_x - center_x)
+    # The departure tangent point is due east of the centre, so it is angle 0.
+    sweep = start_angle
+    if sweep <= 0.0:
+        raise ValueError(f"profile {profile.name}: the corner turn does not sweep forward")
+
+    departure_length = center_y - person_b_xyz(scenario)[1]
+    if departure_length <= 0.0:
+        raise ValueError(f"profile {profile.name}: B is not ahead of the completed turn")
+
+    return DeliveryTrajectory(
+        start_xyz_m=start,
+        approach_heading=heading,
+        approach_length_m=approach_length,
+        arc_center_xy_m=(center_x, center_y),
+        arc_radius_m=radius,
+        arc_start_angle_rad=start_angle,
+        arc_sweep_rad=sweep,
+        departure_length_m=departure_length,
+        camera_height_m=scenario.camera.mount_height_m,
+    )
+
+
+def validate_trajectory(
+    scenario: Scenario,
+    profile: CorridorProfile,
+    trajectory: DeliveryTrajectory,
+    margin_m: float = 0.3,
+    samples: int = 400,
+) -> None:
+    """Reject a route that leaves drivable space.
+
+    The margin is applied perpendicular to the heading, standing in for a
+    vehicle half-width. The turn is the case that matters: a radius that does
+    not fit would put the arc inside the corner mass or through a wall.
+    """
+
+    for index in range(samples + 1):
+        pose = trajectory.pose_at(trajectory.length_m * index / samples)
+        forward_x, forward_y = pose.heading
+        lateral = (forward_y * margin_m, -forward_x * margin_m)
+        for sign in (1.0, -1.0):
+            probe_x = pose.x_m + sign * lateral[0]
+            probe_y = pose.y_m + sign * lateral[1]
+            if not is_clear(scenario, profile, probe_x, probe_y):
+                raise ValueError(
+                    f"profile {profile.name}: the delivery route leaves drivable space near "
+                    f"({pose.x_m:.3f}, {pose.y_m:.3f})"
+                )

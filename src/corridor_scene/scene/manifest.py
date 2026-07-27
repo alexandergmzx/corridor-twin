@@ -1,13 +1,27 @@
-"""Scenario-manifest serialization shared by every runtime consumer."""
+"""Scenario-manifest serialization shared by every runtime consumer.
+
+The manifest is the only scenario input the police observer is permitted to
+read, and it is also what the visibility certificate is computed from, so it
+carries the surveyed markers, the derived actor volumes, the occluding slabs,
+and the delivery trajectory for each corridor profile.
+"""
 
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .geometry import marker_surveys
+from .geometry import (
+    a_start_xyz,
+    marker_surveys,
+    occluders,
+    person_b_xyz,
+    police_bounds,
+)
 from .model import CorridorProfile, Scenario
+from .trajectory import delivery_trajectory
 
 
 def manifest_data(
@@ -20,9 +34,15 @@ def manifest_data(
 
     profile_data: dict[str, Any] = {}
     for profile in profiles:
+        police_min, police_max = police_bounds(scenario, profile)
         profile_data[profile.name] = {
             "entry_width_m": profile.entry_width_m,
             "corner_width_m": profile.corner_width_m,
+            "a_start_xyz_m": a_start_xyz(scenario, profile),
+            "police_bounds_min_xyz_m": police_min,
+            "police_bounds_max_xyz_m": police_max,
+            "occluders": [asdict(slab) for slab in occluders(scenario, profile)],
+            "delivery_trajectory": asdict(delivery_trajectory(scenario, profile)),
             "markers": [
                 {
                     "id": marker.marker_id,
@@ -41,11 +61,24 @@ def manifest_data(
         }
     return {
         "schema_version": scenario.schema_version,
+        "provenance": scenario.provenance,
         "stage": stage_path.name,
         "selected_profile": selected_profile,
+        "taper_mode": scenario.taper_mode,
         "corridor_length_m": scenario.corridor_length_m,
         "building_height_m": scenario.building_height_m,
         "wall_thickness_m": scenario.wall_thickness_m,
+        "west_margin_m": scenario.west_margin_m,
+        "next_street": {
+            "clear_width_m": scenario.next_street.clear_width_m,
+            "length_m": scenario.next_street.length_m,
+            "turn_radius_m": scenario.next_street.turn_radius_m,
+            "b_distance_m": scenario.next_street.b_distance_m,
+            "west_x_m": scenario.street_west_m,
+            "east_x_m": scenario.street_east_m,
+            "center_x_m": scenario.street_center_x_m,
+            "south_y_m": scenario.street_south_m,
+        },
         "profiles": profile_data,
         "camera": {
             "frame_id": scenario.camera.frame_id,
@@ -56,11 +89,7 @@ def manifest_data(
             "mount_height_m": scenario.camera.mount_height_m,
         },
         "actors": {
-            "a_start_xyz_m": scenario.a_start_xyz_m,
-            "b_xyz_m": scenario.b_xyz_m,
-            "p_bounds_min_xyz_m": scenario.p_bounds_min_xyz_m,
-            "p_bounds_max_xyz_m": scenario.p_bounds_max_xyz_m,
-            "delivery_path_xyz_m": scenario.delivery_path_xyz_m,
+            "b_xyz_m": person_b_xyz(scenario),
         },
         "fiducials": {
             "dictionary": scenario.fiducials.dictionary,

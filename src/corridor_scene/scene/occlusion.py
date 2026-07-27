@@ -1,4 +1,22 @@
-"""Continuous camera-visibility certificate and composed-USD raycast audit."""
+"""Continuous camera-visibility certificate and composed-USD raycast audit.
+
+The supplied task states that the robot cannot see the traffic police. This
+module treats that as a hard geometric acceptance gate rather than an assertion,
+and keeps two distinct claims separate:
+
+``direct_line_of_sight_blocked``
+    An opaque wall lies between A's camera optical centre and P's body. This is
+    a reciprocal, orientation-independent property.
+``camera_visible``
+    Some part of P's body lies inside A's camera frustum *and* is unoccluded.
+    This is directional and is the property the written requirement forbids.
+
+An off-screen P is never relabelled as wall-occluded. Coverage is continuous
+over arc-length intervals of the shared delivery trajectory, and the turn is
+swept as a yaw *range* rather than one heading per polyline segment, because an
+instantaneous heading change can otherwise hide a visibility window that a real
+rotating camera would pass through.
+"""
 
 from __future__ import annotations
 
@@ -9,19 +27,28 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from pxr import Gf, Usd, UsdGeom
+from pxr import Gf, Usd, UsdGeom, UsdPhysics
+
+from .geometry import Occluder
+from .trajectory import DeliveryTrajectory
 
 Vec3 = tuple[float, float, float]
+
+MAX_DEPTH = 18
 
 
 @dataclass(frozen=True)
 class Coverage:
-    """One continuously certified source-path interval."""
+    """One certified (trajectory interval, sub-volume of P) pair."""
 
-    segment: int
-    start_fraction: float
-    end_fraction: float
-    method: str
+    segment: str
+    start_s_m: float
+    end_s_m: float
+    target_min_xyz_m: Vec3
+    target_max_xyz_m: Vec3
+    wall_blocked: bool
+    frustum_excluded: bool
+    blocking_prim: str | None = None
     witness_x_m: float | None = None
 
 
@@ -31,18 +58,38 @@ class Certificate:
 
     passed: bool
     profile: str
+    camera_visible_intervals: tuple[tuple[str, float, float], ...]
+    line_of_sight_blocked_everywhere: bool
+    frustum_only_intervals: tuple[tuple[str, float, float], ...]
     coverage: tuple[Coverage, ...]
-    uncertified_intervals: tuple[tuple[int, float, float], ...]
     usd_audit_rays: int
     usd_audit_failures: int
+    usd_audit_prims: tuple[str, ...]
+    nearest_blocking_distance_m: float | None
 
 
-def _point(a: Vec3, b: Vec3, fraction: float) -> Vec3:
-    result = tuple(a[i] + fraction * (b[i] - a[i]) for i in range(3))
-    return result  # type: ignore[return-value]
+def _merge_intervals(
+    intervals: Any,
+) -> tuple[tuple[str, float, float], ...]:
+    """Coalesce touching arc-length intervals so reports stay readable.
+
+    Recursive subdivision can emit thousands of adjacent slivers for one real
+    region; merging keeps the certificate about the geometry rather than about
+    the search.
+    """
+
+    merged: list[list[Any]] = []
+    for kind, start, end in sorted(intervals):
+        if merged and merged[-1][0] == kind and start <= merged[-1][2] + 1e-9:
+            merged[-1][2] = max(merged[-1][2], end)
+        else:
+            merged.append([kind, start, end])
+    return tuple((kind, start, end) for kind, start, end in merged)
 
 
 def _target_vertices(minimum: Vec3, maximum: Vec3) -> tuple[Vec3, ...]:
+    """Return all eight corners of P's body volume."""
+
     return tuple(
         (x, y, z)
         for x in (minimum[0], maximum[0])
@@ -55,187 +102,329 @@ def _frustum_excluded(
     source_start: Vec3,
     source_end: Vec3,
     targets: tuple[Vec3, ...],
-    heading: tuple[float, float],
+    yaw_min: float,
+    yaw_max: float,
     tan_half_fov: float,
     epsilon: float = 1e-8,
 ) -> bool:
-    """Prove a convex source/target product lies outside one frustum plane."""
+    """Prove P lies outside the camera frustum for every yaw in a range.
 
-    forward_x, forward_y = heading
-    right_x, right_y = forward_y, -forward_x
-    values: list[tuple[float, float]] = []
-    for source in (source_start, source_end):
-        for target in targets:
-            dx = target[0] - source[0]
-            dy = target[1] - source[1]
-            forward = dx * forward_x + dy * forward_y
-            right = dx * right_x + dy * right_y
-            values.append((forward, right))
-    if max(forward for forward, _ in values) < -epsilon:
+    Each exclusion half-space is linear in the source-to-target offset, so
+    enumerating the source endpoints against the target corners is exact for a
+    fixed yaw. For a yaw *range* the same condition must hold at both extremes:
+    the half-space constraint is a shifted cosine in yaw, so it is positive
+    across an interval shorter than pi exactly when it is positive at both
+    ends. The turn here sweeps well under pi.
+    """
+
+    def offsets(yaw: float) -> list[tuple[float, float]]:
+        forward_x, forward_y = math.cos(yaw), math.sin(yaw)
+        right_x, right_y = forward_y, -forward_x
+        values: list[tuple[float, float]] = []
+        for source in (source_start, source_end):
+            for target in targets:
+                dx = target[0] - source[0]
+                dy = target[1] - source[1]
+                values.append(
+                    (dx * forward_x + dy * forward_y, dx * right_x + dy * right_y)
+                )
+        return values
+
+    low, high = offsets(yaw_min), offsets(yaw_max)
+
+    # Entirely behind the image plane.
+    if max(f for f, _ in low) < -epsilon and max(f for f, _ in high) < -epsilon:
         return True
-    if min(right - tan_half_fov * forward for forward, right in values) > epsilon:
+    # Entirely beyond the right frustum plane.
+    if (
+        min(r - tan_half_fov * f for f, r in low) > epsilon
+        and min(r - tan_half_fov * f for f, r in high) > epsilon
+    ):
         return True
-    return min(-right - tan_half_fov * forward for forward, right in values) > epsilon
+    # Entirely beyond the left frustum plane.
+    return (
+        min(-r - tan_half_fov * f for f, r in low) > epsilon
+        and min(-r - tan_half_fov * f for f, r in high) > epsilon
+    )
+
+
+def _clip(low: float, high: float, coefficient: float, bound: float) -> tuple[float, float]:
+    """Narrow ``[low, high]`` by the linear constraint ``coefficient*q <= bound``."""
+
+    if abs(coefficient) < 1e-12:
+        return (low, high) if bound >= 0.0 else (1.0, -1.0)
+    if coefficient > 0.0:
+        return low, min(high, bound / coefficient)
+    return max(low, bound / coefficient), high
 
 
 def _wall_witness(
     source_start: Vec3,
     source_end: Vec3,
     targets: tuple[Vec3, ...],
-    entry_width_m: float,
-    corner_width_m: float,
-    corridor_length_m: float,
-    wall_thickness_m: float,
-    building_height_m: float,
+    slab: Occluder,
+    margin: float = 1e-6,
 ) -> float | None:
-    """Find an X plane where every possible sight ray is inside the south wall."""
+    """Find an X plane where every possible sight ray is inside one opaque slab.
 
-    source_x_max = max(source_start[0], source_end[0])
-    target_x_min = min(point[0] for point in targets)
-    low = max(source_x_max + 1e-5, 0.0)
-    high = min(target_x_min - 1e-5, corridor_length_m)
+    Solved in closed form rather than sampled. Where a ray crosses the plane
+    ``x = q`` its Y and Z are linear in ``q``, and the slab's own bounds are
+    linear in ``q`` too, so every containment condition is a linear inequality
+    and the feasible planes form an interval. A sampled search misses this: at
+    the corridor entry the feasible window is only about 8 mm wide.
+
+    Enumerating the source endpoints against the target corners is exact, not
+    conservative. Perspective projection from a point maps a segment to a
+    segment and a convex box to a convex polygon, so the extreme crossings are
+    always attained at an endpoint-corner pair.
+
+    Works in either direction, because on the next street A looks back west
+    toward P while in the corridor it looks east.
+    """
+
+    sources = (source_start, source_end)
+    source_x = [point[0] for point in sources]
+    target_x = [point[0] for point in targets]
+
+    # The witness plane must separate every source point from every target
+    # point, in whichever order they happen to lie along X.
+    low = max(max(source_x), slab.x_min)
+    high = min(min(target_x), slab.x_max)
     if low >= high:
-        return None
+        low = max(max(target_x), slab.x_min)
+        high = min(min(source_x), slab.x_max)
+        if low >= high:
+            return None
+    low += margin
+    high -= margin
 
-    source_y = (source_start[1], source_end[1])
-    source_z = (source_start[2], source_end[2])
-    target_x = (min(p[0] for p in targets), max(p[0] for p in targets))
-    target_y = (min(p[1] for p in targets), max(p[1] for p in targets))
-    target_z = (min(p[2] for p in targets), max(p[2] for p in targets))
-    candidates = 241
-    for index in range(1, candidates):
-        q = low + (high - low) * index / candidates
-        t_values = [
-            (q - sx) / (px - sx)
-            for sx in (source_start[0], source_end[0])
-            for px in target_x
-            if px - sx > 1e-8
-        ]
-        if not t_values:
-            continue
-        t_bounds = (min(t_values), max(t_values))
-        y_values = [(1.0 - t) * sy + t * py for t in t_bounds for sy in source_y for py in target_y]
-        z_values = [(1.0 - t) * sz + t * pz for t in t_bounds for sz in source_z for pz in target_z]
-        fraction = q / corridor_length_m
-        width = entry_width_m + fraction * (corner_width_m - entry_width_m)
-        inner_y = -width / 2.0
-        outer_y = inner_y - wall_thickness_m
-        margin = 1e-7
-        if (
-            min(y_values) >= outer_y + margin
-            and max(y_values) <= inner_y - margin
-            and min(z_values) >= margin
-            and max(z_values) <= building_height_m - margin
-        ):
-            return q
+    for source in sources:
+        for target in targets:
+            span_x = target[0] - source[0]
+            if abs(span_x) < 1e-9:
+                return None
+            # y(q) = y_intercept + y_slope*q, and likewise for z.
+            y_slope = (target[1] - source[1]) / span_x
+            y_intercept = source[1] - y_slope * source[0]
+            z_slope = (target[2] - source[2]) / span_x
+            z_intercept = source[2] - z_slope * source[0]
+
+            # y(q) <= y_high(q) - margin
+            low, high = _clip(
+                low,
+                high,
+                y_slope - slab.y_high_slope,
+                slab.y_high_intercept - y_intercept - margin,
+            )
+            # y(q) >= y_low(q) + margin
+            low, high = _clip(
+                low,
+                high,
+                slab.y_low_slope - y_slope,
+                y_intercept - slab.y_low_intercept - margin,
+            )
+            # 0 + margin <= z(q) <= height - margin
+            low, high = _clip(low, high, z_slope, slab.height_m - z_intercept - margin)
+            low, high = _clip(low, high, -z_slope, z_intercept - margin)
+            if low >= high:
+                return None
+    return (low + high) / 2.0
+
+
+def _wall_witness_crosswise(
+    source_start: Vec3,
+    source_end: Vec3,
+    targets: tuple[Vec3, ...],
+    slab: Occluder,
+    margin: float = 1e-6,
+) -> float | None:
+    """Find a Y plane where every possible sight ray is inside one opaque slab.
+
+    The X-plane witness cannot work where A draws level with P, because no
+    plane of constant X separates them there. At those stations A is north of
+    the wall and P is south of it, so the wall is crossed side-on and a plane
+    of constant Y is the natural witness. Every condition is again linear in
+    the plane coordinate, so the feasible planes form an interval.
+    """
+
+    sources = (source_start, source_end)
+    source_y = [point[1] for point in sources]
+    target_y = [point[1] for point in targets]
+
+    low = max(source_y)
+    high = min(target_y)
+    if low >= high:
+        low = max(target_y)
+        high = min(source_y)
+        if low >= high:
+            return None
+    low += margin
+    high -= margin
+
+    for source in sources:
+        for target in targets:
+            span_y = target[1] - source[1]
+            if abs(span_y) < 1e-9:
+                return None
+            # At plane y = q the crossing is at x(q) and z(q), both linear.
+            x_slope = (target[0] - source[0]) / span_y
+            x_intercept = source[0] - x_slope * source[1]
+            z_slope = (target[2] - source[2]) / span_y
+            z_intercept = source[2] - z_slope * source[1]
+
+            # The crossing must fall within the slab's X extent.
+            low, high = _clip(low, high, x_slope, slab.x_max - x_intercept - margin)
+            low, high = _clip(low, high, -x_slope, x_intercept - slab.x_min - margin)
+            # y_low(x(q)) + margin <= q <= y_high(x(q)) - margin
+            low, high = _clip(
+                low,
+                high,
+                slab.y_low_slope * x_slope - 1.0,
+                -slab.y_low_intercept - slab.y_low_slope * x_intercept - margin,
+            )
+            low, high = _clip(
+                low,
+                high,
+                1.0 - slab.y_high_slope * x_slope,
+                slab.y_high_intercept + slab.y_high_slope * x_intercept - margin,
+            )
+            # margin <= z(q) <= height - margin
+            low, high = _clip(low, high, z_slope, slab.height_m - z_intercept - margin)
+            low, high = _clip(low, high, -z_slope, z_intercept - margin)
+            if low >= high:
+                return None
+    return (low + high) / 2.0
+
+
+def _any_wall_witness(
+    source_start: Vec3,
+    source_end: Vec3,
+    targets: tuple[Vec3, ...],
+    slabs: tuple[Occluder, ...],
+) -> tuple[str, float] | None:
+    """Return the first slab that blocks every ray, with its witness plane."""
+
+    for slab in slabs:
+        for finder in (_wall_witness, _wall_witness_crosswise):
+            witness = finder(source_start, source_end, targets, slab)
+            if witness is not None:
+                return slab.prim_path, witness
     return None
 
 
-def continuous_certificate(manifest: dict[str, Any], profile_name: str) -> Certificate:
-    """Cover every path parameter using conservative interval enclosures."""
+def continuous_certificate(
+    trajectory: DeliveryTrajectory,
+    police_min: Vec3,
+    police_max: Vec3,
+    slabs: tuple[Occluder, ...],
+    horizontal_fov_deg: float,
+    profile_name: str,
+) -> Certificate:
+    """Cover every trajectory interval using conservative enclosures."""
 
-    profile = manifest["profiles"][profile_name]
-    actors = manifest["actors"]
-    camera_height = float(manifest["camera"]["mount_height_m"])
-    path = [
-        (float(x), float(y), float(z) + camera_height) for x, y, z in actors["delivery_path_xyz_m"]
-    ]
-    pmin = tuple(float(value) for value in actors["p_bounds_min_xyz_m"])
-    pmax = tuple(float(value) for value in actors["p_bounds_max_xyz_m"])
-    targets = _target_vertices(pmin, pmax)  # type: ignore[arg-type]
-    target_center = tuple((low + high) / 2.0 for low, high in zip(pmin, pmax, strict=True))
-    half_fov = math.radians(float(manifest["camera"]["horizontal_fov_deg"])) / 2.0
-    tan_half = math.tan(half_fov)
+    tan_half = math.tan(math.radians(horizontal_fov_deg) / 2.0)
     coverage: list[Coverage] = []
-    failures: list[tuple[int, float, float]] = []
+    visible: list[tuple[str, float, float]] = []
 
-    for segment, (path_start, path_end) in enumerate(zip(path[:-1], path[1:], strict=True)):
-        dx = path_end[0] - path_start[0]
-        dy = path_end[1] - path_start[1]
-        length = math.hypot(dx, dy)
-        if length <= 1e-9:
-            failures.append((segment, 0.0, 1.0))
-            continue
-        heading = (dx / length, dy / length)
+    def camera_xyz(s_m: float) -> Vec3:
+        pose = trajectory.camera_pose_at(s_m)
+        return (pose.x_m, pose.y_m, pose.z_m)
 
-        def cover(
-            start_fraction: float,
-            end_fraction: float,
-            depth: int,
-            segment_index: int = segment,
-            segment_start: Vec3 = path_start,
-            segment_end: Vec3 = path_end,
-            segment_heading: tuple[float, float] = heading,
-        ) -> None:
-            source_start = _point(segment_start, segment_end, start_fraction)
-            source_end = _point(segment_start, segment_end, end_fraction)
-            if _frustum_excluded(source_start, source_end, targets, segment_heading, tan_half):
-                coverage.append(
-                    Coverage(segment_index, start_fraction, end_fraction, "frustum_excluded")
+    def cover(
+        kind: str,
+        start_s: float,
+        end_s: float,
+        target_min: Vec3,
+        target_max: Vec3,
+        depth: int,
+    ) -> None:
+        source_start = camera_xyz(start_s)
+        source_end = camera_xyz(end_s)
+        yaw_min, yaw_max = trajectory.yaw_range(start_s, end_s)
+        targets = _target_vertices(target_min, target_max)
+
+        wall = _any_wall_witness(source_start, source_end, targets, slabs)
+        frustum = _frustum_excluded(
+            source_start, source_end, targets, yaw_min, yaw_max, tan_half
+        )
+        def record(blocked: tuple[str, float] | None) -> None:
+            coverage.append(
+                Coverage(
+                    segment=kind,
+                    start_s_m=start_s,
+                    end_s_m=end_s,
+                    target_min_xyz_m=target_min,
+                    target_max_xyz_m=target_max,
+                    wall_blocked=blocked is not None,
+                    frustum_excluded=frustum,
+                    blocking_prim=blocked[0] if blocked else None,
+                    witness_x_m=blocked[1] if blocked else None,
                 )
-                return
-            witness = _wall_witness(
-                source_start,
-                source_end,
-                targets,
-                float(profile["entry_width_m"]),
-                float(profile["corner_width_m"]),
-                float(manifest["corridor_length_m"]),
-                float(manifest["wall_thickness_m"]),
-                float(manifest["building_height_m"]),
             )
-            if witness is not None:
-                coverage.append(
-                    Coverage(segment_index, start_fraction, end_fraction, "south_wall", witness)
-                )
-                return
-            # One demonstrably clear center ray is sufficient to refute the
-            # universal no-visibility claim and makes negative controls cheap.
-            source_middle = _point(source_start, source_end, 0.5)
-            if (
-                not _frustum_excluded(
-                    source_middle, source_middle, (target_center,), segment_heading, tan_half
-                )
-                and _wall_witness(
-                    source_middle,
-                    source_middle,
-                    (target_center,),
-                    float(profile["entry_width_m"]),
-                    float(profile["corner_width_m"]),
-                    float(manifest["corridor_length_m"]),
-                    float(manifest["wall_thickness_m"]),
-                    float(manifest["building_height_m"]),
-                )
-                is None
-            ):
-                middle = (start_fraction + end_fraction) / 2.0
-                failures.append((segment_index, middle, middle))
-                return
-            if depth >= 18:
-                failures.append((segment_index, start_fraction, end_fraction))
-                return
-            middle = (start_fraction + end_fraction) / 2.0
-            cover(start_fraction, middle, depth + 1)
-            cover(middle, end_fraction, depth + 1)
 
-        cover(0.0, 1.0, 0)
+        # Pursue the wall witness even when P is already off-screen. Frustum
+        # exclusion alone would satisfy the written requirement, but the
+        # stronger reciprocal claim is what makes the scene explainable, so
+        # settling for off-screen is a last resort rather than a shortcut.
+        if wall is not None:
+            record(wall)
+            return
+        if depth >= MAX_DEPTH:
+            if frustum:
+                record(None)
+            else:
+                visible.append((kind, start_s, end_s))
+            return
 
+        # Split whichever of the two enclosures is coarser. Subdividing P's
+        # body matters as much as subdividing the route: a single plane cannot
+        # contain rays to opposite corners of P inside one 0.5 m wall, even
+        # though the wall does block each of them at its own depth.
+        span_s = end_s - start_s
+        extents = [high - low for low, high in zip(target_min, target_max, strict=True)]
+        axis = max(range(3), key=lambda index: extents[index])
+        if span_s >= extents[axis]:
+            middle = (start_s + end_s) / 2.0
+            cover(kind, start_s, middle, target_min, target_max, depth + 1)
+            cover(kind, middle, end_s, target_min, target_max, depth + 1)
+            return
+        split = (target_min[axis] + target_max[axis]) / 2.0
+        lower_max = tuple(split if i == axis else v for i, v in enumerate(target_max))
+        upper_min = tuple(split if i == axis else v for i, v in enumerate(target_min))
+        cover(kind, start_s, end_s, target_min, lower_max, depth + 1)  # type: ignore[arg-type]
+        cover(kind, start_s, end_s, upper_min, target_max, depth + 1)  # type: ignore[arg-type]
+
+    for segment in trajectory.segments():
+        if segment.end_s_m - segment.start_s_m <= 1e-9:
+            continue
+        cover(segment.kind, segment.start_s_m, segment.end_s_m, police_min, police_max, 0)
+
+    frustum_only = _merge_intervals(
+        (item.segment, item.start_s_m, item.end_s_m)
+        for item in coverage
+        if not item.wall_blocked
+    )
+    merged_visible = _merge_intervals(visible)
     return Certificate(
-        passed=not failures,
+        passed=not merged_visible and not frustum_only,
         profile=profile_name,
+        camera_visible_intervals=merged_visible,
+        line_of_sight_blocked_everywhere=not frustum_only and not merged_visible,
+        frustum_only_intervals=frustum_only,
         coverage=tuple(coverage),
-        uncertified_intervals=tuple(failures),
         usd_audit_rays=0,
         usd_audit_failures=0,
+        usd_audit_prims=(),
+        nearest_blocking_distance_m=None,
     )
 
 
-def _mesh_triangles(stage: Usd.Stage, path: str) -> list[tuple[Gf.Vec3d, Gf.Vec3d, Gf.Vec3d]]:
-    mesh = UsdGeom.Mesh(stage.GetPrimAtPath(path))
+def _mesh_triangles(prim: Usd.Prim) -> list[tuple[Gf.Vec3d, Gf.Vec3d, Gf.Vec3d]]:
+    mesh = UsdGeom.Mesh(prim)
     points = mesh.GetPointsAttr().Get()
     counts = mesh.GetFaceVertexCountsAttr().Get()
     indices = mesh.GetFaceVertexIndicesAttr().Get()
-    transform = UsdGeom.XformCache().GetLocalToWorldTransform(mesh.GetPrim())
+    transform = UsdGeom.XformCache().GetLocalToWorldTransform(prim)
     world = [transform.Transform(Gf.Vec3d(point)) for point in points]
     triangles: list[tuple[Gf.Vec3d, Gf.Vec3d, Gf.Vec3d]] = []
     offset = 0
@@ -247,9 +436,26 @@ def _mesh_triangles(stage: Usd.Stage, path: str) -> list[tuple[Gf.Vec3d, Gf.Vec3
     return triangles
 
 
+def opaque_mesh_prims(stage: Usd.Stage) -> list[Usd.Prim]:
+    """Return every solid environment mesh, discovered from the composed stage.
+
+    Selecting by applied collision schema rather than by a hard-coded name list
+    means renaming or adding a building cannot silently shrink the audit.
+    """
+
+    root = stage.GetPrimAtPath("/World/Environment")
+    found: list[Usd.Prim] = []
+    for prim in Usd.PrimRange(root):
+        if prim.IsA(UsdGeom.Mesh) and prim.HasAPI(UsdPhysics.CollisionAPI):
+            found.append(prim)
+    return found
+
+
 def _segment_hits_triangle(
     origin: Vec3, target: Vec3, triangle: tuple[Gf.Vec3d, Gf.Vec3d, Gf.Vec3d]
-) -> bool:
+) -> float | None:
+    """Return the ray fraction of a strictly-interior hit, if any."""
+
     epsilon = 1e-9
     ray = Gf.Vec3d(*(target[index] - origin[index] for index in range(3)))
     edge1 = triangle[1] - triangle[0]
@@ -257,69 +463,126 @@ def _segment_hits_triangle(
     h = Gf.Cross(ray, edge2)
     determinant = Gf.Dot(edge1, h)
     if abs(determinant) < epsilon:
-        return False
+        return None
     inverse = 1.0 / determinant
     s = Gf.Vec3d(*origin) - triangle[0]
     u = inverse * Gf.Dot(s, h)
     if u < 0.0 or u > 1.0:
-        return False
+        return None
     q = Gf.Cross(s, edge1)
     v = inverse * Gf.Dot(ray, q)
     if v < 0.0 or u + v > 1.0:
-        return False
+        return None
     distance_fraction = inverse * Gf.Dot(edge2, q)
-    return epsilon < distance_fraction < 1.0 - epsilon
+    if epsilon < distance_fraction < 1.0 - epsilon:
+        return distance_fraction
+    return None
 
 
 def usd_raycast_audit(
-    stage_path: Path, manifest: dict[str, Any], profile_name: str
-) -> tuple[int, int]:
-    """Sample the composed mesh independently as a diagnostic audit."""
+    stage: Usd.Stage,
+    trajectory: DeliveryTrajectory,
+    police_min: Vec3,
+    police_max: Vec3,
+    horizontal_fov_deg: float,
+    samples: int = 96,
+) -> tuple[int, int, tuple[str, ...], float | None]:
+    """Sample the composed mesh independently of the analytic certificate."""
 
-    stage = Usd.Stage.Open(str(stage_path))
-    corridor = stage.GetPrimAtPath("/World/Environment/Corridor")
-    corridor.GetVariantSets().GetVariantSet("corridorProfile").SetVariantSelection(profile_name)
+    prims = opaque_mesh_prims(stage)
     triangles: list[tuple[Gf.Vec3d, Gf.Vec3d, Gf.Vec3d]] = []
-    for building in ("LeftBuilding", "RightBuilding"):
-        triangles.extend(_mesh_triangles(stage, f"/World/Environment/Corridor/{building}"))
-    actors = manifest["actors"]
-    height = float(manifest["camera"]["mount_height_m"])
-    path = [(float(x), float(y), float(z) + height) for x, y, z in actors["delivery_path_xyz_m"]]
-    targets = _target_vertices(
-        tuple(actors["p_bounds_min_xyz_m"]), tuple(actors["p_bounds_max_xyz_m"])
-    )
-    tan_half = math.tan(math.radians(float(manifest["camera"]["horizontal_fov_deg"])) / 2.0)
+    for prim in prims:
+        triangles.extend(_mesh_triangles(prim))
+
+    targets = _target_vertices(police_min, police_max)
+    tan_half = math.tan(math.radians(horizontal_fov_deg) / 2.0)
     tested = 0
     failures = 0
-    for start, end in zip(path[:-1], path[1:], strict=True):
-        dx, dy = end[0] - start[0], end[1] - start[1]
-        norm = math.hypot(dx, dy)
-        heading = (dx / norm, dy / norm)
-        for sample in range(65):
-            source = _point(start, end, sample / 64.0)
-            for target in targets:
-                if _frustum_excluded(source, source, (target,), heading, tan_half):
-                    continue
-                tested += 1
-                if not any(
-                    _segment_hits_triangle(source, target, triangle) for triangle in triangles
-                ):
-                    failures += 1
-    return tested, failures
+    nearest: float | None = None
+
+    for index in range(samples + 1):
+        s_m = trajectory.length_m * index / samples
+        pose = trajectory.camera_pose_at(s_m)
+        source = (pose.x_m, pose.y_m, pose.z_m)
+        for target in targets:
+            if _frustum_excluded(
+                source, source, (target,), pose.yaw_rad, pose.yaw_rad, tan_half
+            ):
+                continue
+            tested += 1
+            hits = [
+                fraction
+                for triangle in triangles
+                if (fraction := _segment_hits_triangle(source, target, triangle)) is not None
+            ]
+            if not hits:
+                failures += 1
+                continue
+            span = math.dist(source, target)
+            distance = min(hits) * span
+            nearest = distance if nearest is None else min(nearest, distance)
+
+    return tested, failures, tuple(str(prim.GetPath()) for prim in prims), nearest
+
+
+def _trajectory_from_manifest(data: dict[str, Any]) -> DeliveryTrajectory:
+    return DeliveryTrajectory(
+        start_xyz_m=tuple(float(v) for v in data["start_xyz_m"]),  # type: ignore[arg-type]
+        approach_heading=tuple(float(v) for v in data["approach_heading"]),  # type: ignore[arg-type]
+        approach_length_m=float(data["approach_length_m"]),
+        arc_center_xy_m=tuple(float(v) for v in data["arc_center_xy_m"]),  # type: ignore[arg-type]
+        arc_radius_m=float(data["arc_radius_m"]),
+        arc_start_angle_rad=float(data["arc_start_angle_rad"]),
+        arc_sweep_rad=float(data["arc_sweep_rad"]),
+        departure_length_m=float(data["departure_length_m"]),
+        camera_height_m=float(data["camera_height_m"]),
+    )
 
 
 def verify(stage_path: Path, manifest_path: Path, profile_name: str | None = None) -> Certificate:
+    """Prove the visibility requirement for one corridor profile."""
+
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     profile = profile_name or str(manifest["selected_profile"])
-    certificate = continuous_certificate(manifest, profile)
-    audited, failed = usd_raycast_audit(stage_path, manifest, profile)
+    block = manifest["profiles"][profile]
+
+    police_min = tuple(float(v) for v in block["police_bounds_min_xyz_m"])
+    police_max = tuple(float(v) for v in block["police_bounds_max_xyz_m"])
+    slabs = tuple(Occluder(**slab) for slab in block["occluders"])
+    trajectory = _trajectory_from_manifest(block["delivery_trajectory"])
+    fov = float(manifest["camera"]["horizontal_fov_deg"])
+
+    certificate = continuous_certificate(
+        trajectory,
+        police_min,  # type: ignore[arg-type]
+        police_max,  # type: ignore[arg-type]
+        slabs,
+        fov,
+        profile,
+    )
+
+    stage = Usd.Stage.Open(str(stage_path))
+    variants = stage.GetPrimAtPath("/World").GetVariantSets().GetVariantSet("corridorProfile")
+    variants.SetVariantSelection(profile)
+    audited, failed, prims, nearest = usd_raycast_audit(
+        stage,
+        trajectory,
+        police_min,  # type: ignore[arg-type]
+        police_max,  # type: ignore[arg-type]
+        fov,
+    )
+
     return Certificate(
         passed=certificate.passed and failed == 0,
         profile=profile,
+        camera_visible_intervals=certificate.camera_visible_intervals,
+        line_of_sight_blocked_everywhere=certificate.line_of_sight_blocked_everywhere,
+        frustum_only_intervals=certificate.frustum_only_intervals,
         coverage=certificate.coverage,
-        uncertified_intervals=certificate.uncertified_intervals,
         usd_audit_rays=audited,
         usd_audit_failures=failed,
+        usd_audit_prims=prims,
+        nearest_blocking_distance_m=nearest,
     )
 
 
@@ -338,6 +601,16 @@ def main(argv: list[str] | None = None) -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(asdict(result), indent=2) + "\n", encoding="utf-8")
     print(f"wrote {args.out}: {'PASS' if result.passed else 'FAIL'}")
+    if not result.passed:
+        for kind, start, end in result.camera_visible_intervals:
+            print(f"  camera can see P on {kind} s=[{start:.3f}, {end:.3f}]")
+        for kind, start, end in result.frustum_only_intervals:
+            print(
+                f"  P is only off-screen, not wall-occluded, on {kind} "
+                f"s=[{start:.3f}, {end:.3f}]"
+            )
+        if result.usd_audit_failures:
+            print(f"  {result.usd_audit_failures} composed-mesh audit rays reached P")
     return 0 if result.passed else 1
 
 

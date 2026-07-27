@@ -7,8 +7,15 @@ from pathlib import Path
 
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 
-from .geometry import building_footprints, marker_surveys
+from .geometry import (
+    building_footprints,
+    corridor_faces,
+    marker_surveys,
+    person_b_xyz,
+    police_bounds,
+)
 from .model import CorridorProfile, Scenario
+from .trajectory import DeliveryTrajectory, delivery_trajectory
 
 
 def _color_material(stage: Usd.Stage, name: str, color: tuple[float, float, float]):
@@ -94,28 +101,70 @@ def _prism_mesh(
     return mesh
 
 
-def _road_mesh(
+def _quad_mesh(
     stage: Usd.Stage,
     path: str,
-    profile: CorridorProfile,
-    length: float,
+    corners_xy: tuple[tuple[float, float], ...],
+    height_m: float,
     material: UsdShade.Material,
 ) -> None:
-    entry = profile.entry_width_m / 2.0
-    corner = profile.corner_width_m / 2.0
     mesh = UsdGeom.Mesh.Define(stage, path)
-    mesh.CreatePointsAttr(
-        [
-            Gf.Vec3f(0.0, -entry, 0.002),
-            Gf.Vec3f(length, -corner, 0.002),
-            Gf.Vec3f(length, corner, 0.002),
-            Gf.Vec3f(0.0, entry, 0.002),
-        ]
-    )
-    mesh.CreateFaceVertexCountsAttr([4])
-    mesh.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+    mesh.CreatePointsAttr([Gf.Vec3f(x, y, height_m) for x, y in corners_xy])
+    mesh.CreateFaceVertexCountsAttr([len(corners_xy)])
+    mesh.CreateFaceVertexIndicesAttr(list(range(len(corners_xy))))
     mesh.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
     UsdShade.MaterialBindingAPI.Apply(mesh.GetPrim()).Bind(material)
+
+
+def _corridor_road(
+    stage: Usd.Stage,
+    path: str,
+    scenario: Scenario,
+    profile: CorridorProfile,
+    material: UsdShade.Material,
+) -> None:
+    """Author the asymmetric corridor road surface between the two faces."""
+
+    length = scenario.corridor_length_m
+    north, south_entry = corridor_faces(profile, 0.0, length)
+    _, south_corner = corridor_faces(profile, length, length)
+    _quad_mesh(
+        stage,
+        path,
+        (
+            (-scenario.west_margin_m, south_entry),
+            (0.0, south_entry),
+            (length, south_corner),
+            (length, north),
+            (-scenario.west_margin_m, north),
+        ),
+        0.002,
+        material,
+    )
+
+
+def _next_street_road(
+    stage: Usd.Stage,
+    path: str,
+    scenario: Scenario,
+    profile: CorridorProfile,
+    material: UsdShade.Material,
+) -> None:
+    """Author the perpendicular street A turns onto to reach B."""
+
+    north, _ = corridor_faces(profile, 0.0, scenario.corridor_length_m)
+    _quad_mesh(
+        stage,
+        path,
+        (
+            (scenario.street_west_m, scenario.street_south_m),
+            (scenario.street_east_m, scenario.street_south_m),
+            (scenario.street_east_m, north),
+            (scenario.street_west_m, north),
+        ),
+        0.002,
+        material,
+    )
 
 
 def _marker_mesh(
@@ -155,11 +204,18 @@ def _author_profile(
     corridor.CreateAttribute("corridor:lengthM", Sdf.ValueTypeNames.Double).Set(
         scenario.corridor_length_m
     )
-    _road_mesh(
+    _corridor_road(
         stage,
         "/World/Environment/Corridor/RoadSurface",
+        scenario,
         profile,
-        scenario.corridor_length_m,
+        road_material,
+    )
+    _next_street_road(
+        stage,
+        "/World/Environment/Corridor/NextStreetSurface",
+        scenario,
+        profile,
         road_material,
     )
     for name, footprint in building_footprints(scenario, profile).items():
@@ -195,11 +251,36 @@ def _camera_aperture(camera: UsdGeom.Camera, scenario: Scenario) -> None:
     camera.CreateClippingRangeAttr(Gf.Vec2f(0.05, 100.0))
 
 
-def _author_actors(stage: Usd.Stage, scenario: Scenario, actor_material: UsdShade.Material) -> None:
+def _author_shared_actors(
+    stage: Usd.Stage, scenario: Scenario, actor_material: UsdShade.Material
+) -> None:
+    """Author the actors whose placement does not depend on the profile."""
+
     UsdGeom.Xform.Define(stage, "/World/Actors")
-    ax, ay, az = scenario.a_start_xyz_m
+    bx, by, bz = person_b_xyz(scenario)
+    _cube(stage, "/World/Actors/B", (0.45, 0.45, 1.7), (bx, by, bz + 0.85), actor_material)
+
+
+def _author_profile_actors(
+    stage: Usd.Stage,
+    scenario: Scenario,
+    profile: CorridorProfile,
+    actor_material: UsdShade.Material,
+) -> None:
+    """Author A, its camera, P, and the delivery path for one corridor profile.
+
+    A's start pose, P's standoff from the corner mass, and the whole route are
+    all derived from the corridor faces, so they are authored inside the
+    ``corridorProfile`` variant. Selecting a different ``(m,n)`` then moves them
+    together and keeps P behind the opaque corner instead of stranding it in a
+    wall or in the road.
+    """
+
+    trajectory = delivery_trajectory(scenario, profile)
+    start = trajectory.pose_at(0.0)
     actor_a = UsdGeom.Xform.Define(stage, "/World/Actors/A")
-    actor_a.AddTranslateOp().Set(Gf.Vec3d(ax, ay, az))
+    actor_a.AddTranslateOp().Set(Gf.Vec3d(start.x_m, start.y_m, start.z_m))
+    actor_a.AddRotateZOp().Set(math.degrees(start.yaw_rad))
     _cube(stage, "/World/Actors/A/Visual", (0.65, 0.45, 0.5), (0.0, 0.0, 0.25), actor_material)
     mount = UsdGeom.Xform.Define(stage, "/World/Actors/A/CameraMount")
     mount.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, scenario.camera.mount_height_m))
@@ -228,22 +309,27 @@ def _author_actors(stage: Usd.Stage, scenario: Scenario, actor_material: UsdShad
     )
     _camera_aperture(camera, scenario)
 
-    bx, by, bz = scenario.b_xyz_m
-    _cube(stage, "/World/Actors/B", (0.45, 0.45, 1.7), (bx, by, bz + 0.85), actor_material)
-    pmin = scenario.p_bounds_min_xyz_m
-    pmax = scenario.p_bounds_max_xyz_m
+    pmin, pmax = police_bounds(scenario, profile)
     psize = tuple(high - low for low, high in zip(pmin, pmax, strict=True))
     pcenter = tuple((low + high) / 2.0 for low, high in zip(pmin, pmax, strict=True))
     _cube(stage, "/World/Actors/P", psize, pcenter, actor_material)
+    _author_path(stage, trajectory)
 
 
-def _author_path(stage: Usd.Stage, scenario: Scenario) -> None:
+def _author_path(stage: Usd.Stage, trajectory: DeliveryTrajectory) -> None:
+    """Author the route as a sampled polyline for visual inspection.
+
+    The certificate consumes the analytic trajectory, not this curve; the curve
+    exists so the turn is visible in the viewport.
+    """
+
     UsdGeom.Xform.Define(stage, "/World/Paths")
+    points = trajectory.polyline()
     curve = UsdGeom.BasisCurves.Define(stage, "/World/Paths/DeliveryPath")
     curve.CreateTypeAttr(UsdGeom.Tokens.linear)
     curve.CreateWrapAttr(UsdGeom.Tokens.nonperiodic)
-    curve.CreateCurveVertexCountsAttr([len(scenario.delivery_path_xyz_m)])
-    curve.CreatePointsAttr([Gf.Vec3f(*point) for point in scenario.delivery_path_xyz_m])
+    curve.CreateCurveVertexCountsAttr([len(points)])
+    curve.CreatePointsAttr([Gf.Vec3f(*point) for point in points])
     curve.CreateWidthsAttr([0.04])
     curve.SetWidthsInterpolation(UsdGeom.Tokens.constant)
 
@@ -285,23 +371,29 @@ def author_stage(
     physics.CreateGravityDirectionAttr(Gf.Vec3f(0.0, 0.0, -1.0))
     physics.CreateGravityMagnitudeAttr(9.81)
     UsdGeom.Xform.Define(stage, "/World/Environment")
+    # Size the ground from the authored extent so it still covers the scene
+    # after the next street was added.
+    pad = 1.0
+    west = -scenario.west_margin_m - pad
+    east = scenario.street_east_m + scenario.wall_thickness_m + pad
+    south = scenario.street_south_m - pad
+    north = max(profile.entry_width_m for profile in profiles) / 2.0
+    north += scenario.wall_thickness_m + pad
     _cube(
         stage,
         "/World/Environment/Ground",
-        (32.0, 24.0, 0.2),
-        (8.0, 1.0, -0.1),
+        (east - west, north - south, 0.2),
+        ((east + west) / 2.0, (north + south) / 2.0, -0.1),
         ground_material,
         collision=True,
     )
-    _cube(
-        stage,
-        "/World/Environment/CrossStreet",
-        (scenario.cross_street_width_m, 20.0, 0.01),
-        (scenario.corridor_length_m + scenario.cross_street_width_m / 2.0, 1.5, 0.001),
-        road_material,
-    )
-    corridor = UsdGeom.Xform.Define(stage, "/World/Environment/Corridor")
-    variants = corridor.GetPrim().GetVariantSets().AddVariantSet("corridorProfile")
+    UsdGeom.Xform.Define(stage, "/World/Environment/Corridor")
+    _author_shared_actors(stage, scenario, actor_material)
+    # The variant set lives on the default prim rather than on the corridor,
+    # because a variant only contributes opinions inside its owning prim's
+    # namespace. A, P, and the delivery path all move with (m,n), and they sit
+    # under /World/Actors and /World/Paths.
+    variants = stage.GetPrimAtPath("/World").GetVariantSets().AddVariantSet("corridorProfile")
     for profile in profiles:
         variants.AddVariant(profile.name)
         variants.SetVariantSelection(profile.name)
@@ -314,8 +406,7 @@ def author_stage(
                 road_material,
                 marker_materials,
             )
+            _author_profile_actors(stage, scenario, profile, actor_material)
     variants.SetVariantSelection(selected_profile)
-    _author_actors(stage, scenario, actor_material)
-    _author_path(stage, scenario)
     _author_lighting(stage)
     stage.GetRootLayer().Save()

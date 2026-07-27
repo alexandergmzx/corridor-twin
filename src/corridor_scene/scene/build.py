@@ -6,10 +6,11 @@ import argparse
 import re
 from pathlib import Path
 
-from .geometry import marker_surveys
+from .geometry import marker_surveys, validate_layout
 from .manifest import manifest_data, write_manifest
 from .marker_assets import generate_marker_images
 from .model import CorridorProfile, load_scenario
+from .trajectory import delivery_trajectory, validate_trajectory
 from .usd_authoring import author_stage
 
 
@@ -40,6 +41,12 @@ def build_scene(config: Path | None, output: Path, m: float, n: float) -> tuple[
         raise ValueError("--out must use the human-readable .usda extension")
     scenario = load_scenario(config)
     profiles, selected = resolve_profiles(scenario.profiles, m, n)
+    # Every authored profile must be a layout the project invariants allow, not
+    # only the selected one: switching variants in the viewport must never put
+    # P inside a wall, in the road, or in A's view.
+    for profile in profiles:
+        validate_layout(scenario, profile)
+        validate_trajectory(scenario, profile, delivery_trajectory(scenario, profile))
     output.parent.mkdir(parents=True, exist_ok=True)
     marker_ids = {
         marker.marker_id for profile in profiles for marker in marker_surveys(scenario, profile)
