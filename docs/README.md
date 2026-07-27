@@ -6,7 +6,7 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.2.0 |
+| Map version | 1.3.0 |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Current milestone | Production-camera fiducials qualified at five static approach dwells |
@@ -18,6 +18,7 @@ increments without requiring a reader to reconstruct status from commit history.
 |---|---|---:|
 | The scenario as supplied | [Source task and diagram](ROBO_TASK.pdf) | 2 minutes |
 | What exists and what comes next | This page | 3 minutes |
+| What the incoming reviewer must verify | [Current handoff](HANDOFF.md) | 6 minutes |
 | Why the system is divided this way | [System design](DESIGN.md) | 8 minutes |
 | Exactly what P may consume | [Sensor-feed contract](SENSOR-FEED.md) | 6 minutes |
 | Whether the workstation is demo-ready | [Activation record](ACTIVATION.md) | 5 minutes |

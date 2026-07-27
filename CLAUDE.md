@@ -89,20 +89,23 @@ bash tools/check_workspace.sh   # ruff, pytest, colcon build, colcon test
 unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 `scene.occlusion` does take `--profile`, meaning the corridor profile.
 
-## Current milestone: qualify the live Isaac camera path
+## Current handoff: audit the static camera gate, then move A
 
-This is the next unfinished milestone. Plan and execute it in the order below;
-do not start with robot motion. A static rendered-fiducial probe is the first
-gate because texture, UV, marker orientation, camera-intrinsic, and optical-frame
-errors can otherwise be mistaken for motion-estimator defects.
+The static rendered-fiducial gate is complete locally. Before changing behavior,
+read [`docs/HANDOFF.md`](docs/HANDOFF.md) and independently audit the local
+commits after `origin/main`. The handoff records the exact commit range, the
+fresh 74-test plus 52-package-test result, GPU evidence, known limits, and the
+questions that must be challenged. Do not start robot motion until the audit has
+a clear go decision or any correction has landed as an additive commit.
 
-| Order | Slice | Required evidence before continuing |
-|---:|---|---|
-| 1 | Static ArUco rendering probe | Place A's existing camera at several surveyed route stations; render the existing wall fiducials through the single 640x360, 15 Hz RGB product; show that detected IDs, image-corner order, and surveyed marker associations agree with the manifest; pass the frames through `ArucoStationEstimator`. |
-| 2 | Deterministic robot motion | Move `/World/Actors/A` continuously along the authored line-arc-line trajectory with position and yaw derived from route station; drive it from simulation time with a configured path-speed profile; reset safely after a corridor-variant change. |
-| 3 | Live camera-to-observer qualification | Feed only the camera contract to `police_observer`. Keep simulator truth in a separate evaluator. Demonstrate 1.0 m/s without a violation, 1.8 m/s with exactly one violation, acceleration through the limit, and dropped/single-marker frames; report speed error, usable-frame coverage, and latency. |
-| 4 | Interview visualization | Show active `(m,n)`, measured speed and uncertainty, local width and speed limit, violation state, A's route, P's location, and the blocking-wall/certificate result. An ordinary viewport may explain the scene, but it must not become a second sensor or ROS render product. |
-| 5 | Demo hardening | Provide one documented launch path, repeat the VRAM measurement on the RTX 5070 Ti, preserve failure evidence, document the Ubuntu fallback, and tag the interview-ready release only after the gates pass. |
+| Status | Slice | Required evidence before continuing |
+|---|---|---|
+| Done | Static ArUco rendering probe | Nominal profile passes five production-pixel dwells; curated evidence and an actual-capture mirror control are recorded. |
+| Gate | Independent review | Challenge implementation, evidence, truth isolation, negative controls, renderer lifecycle, and the single-marker fixture before accepting the local result. |
+| Next | Deterministic robot motion | Move `/World/Actors/A` continuously along the authored line-arc-line trajectory with position and yaw derived from route station; drive it from simulation time with a configured path-speed profile; reset safely after a corridor-variant change. |
+| Later | Live camera-to-observer qualification | Feed only the camera contract to `police_observer`. Keep simulator truth in a separate evaluator. Demonstrate 1.0 m/s without a violation, 1.8 m/s with exactly one violation, acceleration through the limit, and dropped/single-marker frames; report speed error, usable-frame coverage, and latency. |
+| Later | Interview visualization | Show active `(m,n)`, measured speed and uncertainty, local width and speed limit, violation state, A's route, P's location, and the blocking-wall/certificate result. An ordinary viewport may explain the scene, but it must not become a second sensor or ROS render product. |
+| Last | Demo hardening | Provide one documented launch path, repeat the VRAM measurement on the RTX 5070 Ti, preserve failure evidence, document the Ubuntu fallback, and tag the interview-ready release only after the gates pass. |
 
 ### Planning and implementation constraints
 
@@ -130,21 +133,21 @@ errors can otherwise be mistaken for motion-estimator defects.
 
 ### Independent-review handoff
 
-The user intends to hand the resulting work to Codex for an independent audit.
-Do not squash or rewrite the published history for that handoff. Report:
+The current incoming reviewer is Claude. `docs/HANDOFF.md` is the operative
+checklist. Do not squash or rewrite history for this handoff. Report:
 
 1. every new commit hash and subject, in order;
 2. files changed and any deviation from the milestone order above;
 3. exact verification commands with test counts and saved artifact/log paths;
-4. measured camera rate, resolution, estimator error/coverage/latency, and peak
-   VRAM where applicable;
+4. measured camera rate, resolution, estimator error/coverage/latency, and the
+   exact VRAM sampling method where applicable;
 5. known failures, assumptions, skipped checks, and claims that remain
    provisional; and
 6. confirmation that observer-side source and topic audits still exclude pose,
    odometry, TF, configured speed, and other simulator truth.
 
 Passing self-written tests is not the independent review. Leave the worktree
-clean and the evidence reproducible so Codex can inspect the implementation,
+clean and the evidence reproducible so Claude can inspect the implementation,
 challenge the claims with negative controls, rerun the gates, and report any
 corrections as new additive commits.
 

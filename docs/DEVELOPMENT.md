@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.4.0 |
+| Document version | 1.5.0 |
 | Last updated | 2026-07-27 |
 | Local platform | Linux Mint 22.3, ROS 2 Jazzy, Python 3.12 |
 | CI platform | Ubuntu 24.04, ROS 2 Jazzy, Python 3.12 |
@@ -68,9 +68,9 @@ The installed Isaac smoke remains an explicit workstation activation check.
 | Layer | Current local result | Where it runs |
 |---|---|---|
 | Ruff | Pass | Local and every GitHub push/PR |
-| Repository pytest | 58 passed | Local and every GitHub push/PR |
+| Repository pytest | 74 passed | Local and every GitHub push/PR |
 | ROS build | 3 packages built | Local and every GitHub push/PR |
-| ROS package tests | 47 passed, 0 failures | Local and every GitHub push/PR |
+| ROS package tests | 52 passed, 0 failures | Local and every GitHub push/PR |
 | Isaac stage and camera checks | Pass headless and visible | Qualified GPU workstation only |
 | Last published camera-integration gate | [Run 30236111462](https://github.com/alexandergmzx/corridor-twin/actions/runs/30236111462) passed | GitHub Actions |
 
@@ -187,7 +187,7 @@ commit and one documentation commit with distinct rollback boundaries.
 
 ## Why static camera qualification uses separate commits
 
-The static rendered-fiducial milestone has four review boundaries because the
+The static rendered-fiducial milestone has five review boundaries because the
 GPU run was a falsification gate, not a predetermined documentation exercise:
 
 | Commit | Boundary | Reason |
@@ -196,13 +196,28 @@ GPU run was a falsification gate, not a predetermined documentation exercise:
 | `d3cf2db test(isaac): validate rendered fiducials through the ROS camera path` | Capture, evaluator, CPU controls, and truth isolation | Makes the production-path gate reviewable without claiming that the first GPU run will pass |
 | `3f7fa37 fix(scene): mount camera-readable fiducial plates` | Physical target size, quiet zone, wall-relative survey, and direct regressions | Corrects scene defects exposed by real pixels; it can be reviewed or reverted independently of Kit lifecycle handling |
 | `bb203c0 fix(isaac): verify the active render-product contract` | Installed Kit warm-up and observed renderer state | Records the mode that survives Hydra product creation rather than conflating requested and active settings |
-| Following `docs:` commit | ADR 0013, curated result, diagrams, and measured status | Lands only after the positive gate and the actual-capture negative control pass |
+| `95a39bf docs: record static rendered-fiducial qualification` | ADR 0013, curated result, diagrams, and measured status | Lands only after the positive gate and the actual-capture negative control pass |
 
 The last two fixes are intentionally not one commit. A wall-intersecting plate is
 a portable USD/survey defect; post-create renderer verification is specific to
 the installed Isaac 5.1 lifecycle. Their tests and rollback risks differ. The
 documentation commit then records measured consequences without hiding the
 failed runs that motivated those corrections.
+
+## Why handoff verification added a test-only correction
+
+The final workspace rerun before the Claude handoff failed one observer test.
+The accepted 40 cm targets made two adjacent tags visible at a station that the
+older regression assumed would expose exactly one. The production estimator
+still required two tags, but the fixture no longer constructed its advertised
+single-marker impairment.
+
+Commit `391773b` (`test(observer): make single-marker regression deterministic`)
+retains one detected tag and its surrounding pixels from the rendered frame,
+then proves the permissive planar solve has a small residual but a wrong station
+while the default estimator rejects it. This is separate from the scene commit:
+the wall plates are correct production geometry, while deterministic impairment
+construction is test behavior with a different review and rollback boundary.
 
 ## Documentation growth discipline
 
