@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
+import numpy as np
 import pytest
 from pxr import Usd, UsdGeom, UsdPhysics
 from scene.build import build_scene
-from scene.geometry import corridor_faces, is_clear, police_bounds
+from scene.geometry import (
+    MARKER_BACKING_OFFSET_M,
+    MARKER_BACKING_SCALE,
+    MARKER_WALL_CLEARANCE_M,
+    corridor_faces,
+    is_clear,
+    police_bounds,
+)
 from scene.model import load_scenario
 from scene.occlusion import verify
 
@@ -183,20 +192,70 @@ def test_output_is_readable_usda_and_has_marker_assets(generated: tuple[Path, Pa
     )
 
 
-def test_markers_sit_on_the_actual_wall_faces(generated: tuple[Path, Path]) -> None:
-    """Marker survey must come from the shared faces, not a symmetric guess."""
+def test_marker_plates_stay_on_the_corridor_side_of_actual_walls(
+    generated: tuple[Path, Path],
+) -> None:
+    """A canted plate and its quiet zone must not be buried in a wall mesh."""
 
-    _, manifest_path = generated
+    stage_path, manifest_path = generated
+    stage = Usd.Stage.Open(str(stage_path))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     scenario = load_scenario()
+    variants = _variants(stage)
     for name, block in manifest["profiles"].items():
+        assert variants.SetVariantSelection(name)
         profile = next(p for p in scenario.profiles if p.name == name)
         for marker in block["markers"]:
-            north, south = corridor_faces(profile, marker["station_m"], scenario.corridor_length_m)
-            face = north if marker["side"] == "north" else south
-            centre_y = sum(corner[1] for corner in marker["corners_xyz_m"]) / 4.0
-            # Plates are canted and stand slightly off the wall.
-            assert abs(centre_y - face) < 0.05
+            root = "/World/Environment/Corridor/Fiducials"
+            backing = UsdGeom.Mesh(
+                stage.GetPrimAtPath(f"{root}/Marker_{marker['id']:03d}_Backing")
+            )
+            assert backing
+            for point in backing.GetPointsAttr().Get():
+                north, south = corridor_faces(profile, point[0], scenario.corridor_length_m)
+                if marker["side"] == "north":
+                    signed_clearance = north - point[1]
+                else:
+                    slope = (
+                        profile.entry_width_m - profile.corner_width_m
+                    ) / scenario.corridor_length_m
+                    signed_clearance = (point[1] - south) / math.hypot(slope, 1.0)
+                assert signed_clearance >= MARKER_WALL_CLEARANCE_M - 1e-5
+
+
+def test_marker_codes_have_a_geometric_white_quiet_zone(
+    generated: tuple[Path, Path],
+) -> None:
+    """The black code border needs white backing beyond its surveyed corners."""
+
+    stage_path, manifest_path = generated
+    stage = Usd.Stage.Open(str(stage_path))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    variants = _variants(stage)
+    for profile_name, block in manifest["profiles"].items():
+        assert variants.SetVariantSelection(profile_name)
+        for marker in block["markers"]:
+            root = "/World/Environment/Corridor/Fiducials"
+            code = UsdGeom.Mesh(stage.GetPrimAtPath(f"{root}/Marker_{marker['id']:03d}"))
+            backing = UsdGeom.Mesh(
+                stage.GetPrimAtPath(f"{root}/Marker_{marker['id']:03d}_Backing")
+            )
+            assert code and backing
+            code_points = np.asarray(code.GetPointsAttr().Get(), dtype=np.float64)
+            backing_points = np.asarray(backing.GetPointsAttr().Get(), dtype=np.float64)
+            code_center = np.mean(code_points, axis=0)
+            backing_center = np.mean(backing_points, axis=0)
+            code_radius = np.max(np.linalg.norm(code_points - code_center, axis=1))
+            backing_radius = np.max(np.linalg.norm(backing_points - backing_center, axis=1))
+            assert backing_radius / code_radius == pytest.approx(
+                MARKER_BACKING_SCALE,
+                abs=1e-5,
+            )
+            assert np.linalg.norm(backing_center - code_center) == pytest.approx(
+                MARKER_BACKING_OFFSET_M,
+                abs=1e-6,
+            )
+            assert backing.GetDoubleSidedAttr().Get()
 
 
 def test_walls_manifest_and_checker_share_one_geometry_source(

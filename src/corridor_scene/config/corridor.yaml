@@ -54,7 +54,11 @@ camera:
 
 fiducials:
   dictionary: DICT_5X5_100
-  marker_size_m: 0.24
+  # The 40 cm code gives a 5x5 tag plus border at least ~45 px in the
+  # qualified 640x360 oblique views. GPU qualification showed that the earlier
+  # 24 cm prototype was undersampled and its canted plate was mounted too close
+  # to the wall; both defects are covered by scene-generation tests.
+  marker_size_m: 0.40
   first_station_m: 2.0
   spacing_m: 2.0
   wall_plate_cant_deg: 35.0

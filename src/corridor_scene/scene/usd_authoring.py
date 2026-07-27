@@ -8,6 +8,8 @@ from pathlib import Path
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 
 from .geometry import (
+    MARKER_BACKING_OFFSET_M,
+    MARKER_BACKING_SCALE,
     building_footprints,
     corridor_faces,
     marker_surveys,
@@ -171,8 +173,28 @@ def _marker_mesh(
     stage: Usd.Stage,
     path: str,
     corners: tuple[tuple[float, float, float], ...],
+    normal: tuple[float, float, float],
     material: UsdShade.Material,
+    backing_material: UsdShade.Material,
 ) -> None:
+    center = tuple(sum(point[axis] for point in corners) / 4.0 for axis in range(3))
+    backing_corners = tuple(
+        tuple(
+            center[axis]
+            + MARKER_BACKING_SCALE * (point[axis] - center[axis])
+            - normal[axis] * MARKER_BACKING_OFFSET_M
+            for axis in range(3)
+        )
+        for point in corners
+    )
+    backing = UsdGeom.Mesh.Define(stage, f"{path}_Backing")
+    backing.CreatePointsAttr([Gf.Vec3f(*point) for point in backing_corners])
+    backing.CreateFaceVertexCountsAttr([4])
+    backing.CreateFaceVertexIndicesAttr([0, 1, 2, 3])
+    backing.CreateSubdivisionSchemeAttr(UsdGeom.Tokens.none)
+    backing.CreateDoubleSidedAttr(True)
+    UsdShade.MaterialBindingAPI.Apply(backing.GetPrim()).Bind(backing_material)
+
     mesh = UsdGeom.Mesh.Define(stage, path)
     mesh.CreatePointsAttr([Gf.Vec3f(*point) for point in corners])
     mesh.CreateFaceVertexCountsAttr([4])
@@ -193,6 +215,7 @@ def _author_profile(
     building_material: UsdShade.Material,
     road_material: UsdShade.Material,
     marker_materials: dict[int, UsdShade.Material],
+    marker_backing_material: UsdShade.Material,
 ) -> None:
     corridor = stage.GetPrimAtPath("/World/Environment/Corridor")
     corridor.CreateAttribute("corridor:entryWidthM", Sdf.ValueTypeNames.Double).Set(
@@ -232,7 +255,9 @@ def _author_profile(
             stage,
             f"/World/Environment/Corridor/Fiducials/Marker_{survey.marker_id:03d}",
             survey.corners_xyz_m,
+            survey.normal_xyz,
             marker_materials[survey.marker_id],
+            marker_backing_material,
         )
 
 
@@ -361,6 +386,7 @@ def author_stage(
     road_material = _color_material(stage, "Road", (0.10, 0.11, 0.12))
     building_material = _color_material(stage, "Building", (0.52, 0.50, 0.47))
     actor_material = _color_material(stage, "Actors", (0.10, 0.45, 0.90))
+    marker_backing_material = _color_material(stage, "MarkerBacking", (1.0, 1.0, 1.0))
 
     marker_ids = {
         survey.marker_id for profile in profiles for survey in marker_surveys(scenario, profile)
@@ -405,6 +431,7 @@ def author_stage(
                 building_material,
                 road_material,
                 marker_materials,
+                marker_backing_material,
             )
             _author_profile_actors(stage, scenario, profile, actor_material)
     variants.SetVariantSelection(selected_profile)

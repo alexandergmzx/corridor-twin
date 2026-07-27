@@ -17,6 +17,13 @@ Vec3 = tuple[float, float, float]
 Vec2 = tuple[float, float]
 Footprint = list[Vec2]
 
+# A 5x5 ArUco code has one black border module. One additional white module on
+# every side makes the physical plate 9/7 the code size. The backing sits just
+# behind the textured quad, and its nearest edge retains this wall clearance.
+MARKER_BACKING_SCALE = 9.0 / 7.0
+MARKER_BACKING_OFFSET_M = 0.002
+MARKER_WALL_CLEARANCE_M = 0.015
+
 
 @dataclass(frozen=True)
 class MarkerSurvey:
@@ -200,17 +207,41 @@ def marker_surveys(scenario: Scenario, profile: CorridorProfile) -> tuple[Marker
     surveys: list[MarkerSurvey] = []
     cant = math.radians(spec.wall_plate_cant_deg)
     half = spec.marker_size_m / 2.0
+    _, south_slope = _south_face_line(scenario, profile)
     while station < scenario.corridor_length_m:
         north_face, south_face = corridor_faces(profile, station, scenario.corridor_length_m)
         for side_name, side_sign, face_y in (
             ("north", 1.0, north_face),
             ("south", -1.0, south_face),
         ):
-            normal = (-math.sin(cant), -side_sign * math.cos(cant), 0.0)
+            if side_name == "north":
+                wall_normal_xy = (0.0, -1.0)
+            else:
+                magnitude = math.hypot(south_slope, 1.0)
+                wall_normal_xy = (-south_slope / magnitude, 1.0 / magnitude)
+            rotation = -side_sign * cant
+            cosine = math.cos(rotation)
+            sine = math.sin(rotation)
+            normal = (
+                cosine * wall_normal_xy[0] - sine * wall_normal_xy[1],
+                sine * wall_normal_xy[0] + cosine * wall_normal_xy[1],
+                0.0,
+            )
             horizontal = (-normal[1], normal[0], 0.0)
+            wall_dot_normal = (
+                wall_normal_xy[0] * normal[0] + wall_normal_xy[1] * normal[1]
+            )
+            wall_dot_horizontal = abs(
+                wall_normal_xy[0] * horizontal[0]
+                + wall_normal_xy[1] * horizontal[1]
+            )
+            plate_half = half * MARKER_BACKING_SCALE
+            standoff = (
+                plate_half * wall_dot_horizontal + MARKER_WALL_CLEARANCE_M
+            ) / wall_dot_normal + MARKER_BACKING_OFFSET_M
             center = (
-                station + normal[0] * 0.015,
-                face_y + normal[1] * 0.015,
+                station + normal[0] * standoff,
+                face_y + normal[1] * standoff,
                 1.2,
             )
             corners = (
