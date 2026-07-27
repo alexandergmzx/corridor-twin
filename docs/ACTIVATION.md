@@ -71,7 +71,9 @@ true on 2026-07-26.
   an external system Jazzy probe received 12 synchronized 640×360 rgb8
   image/calibration pairs at exactly 15.000 Hz with one publisher per endpoint.
 - The simulator-free ROS demo emitted one violation from a true 1.8 m/s run,
-  measuring 1.7977 m/s against the harness-only truth topic.
+  measuring 1.7977 m/s against the harness-only truth topic. Re-measured after
+  the fiducial plates were enlarged and the principal-point convention aligned,
+  the same demo reports 1.7858 m/s at simulated time 4.368860 s.
 
 The 14,336 MiB soft ceiling is unchanged and the largest reconciled measurement
 uses 22% of it. Mint remains unsupported by NVIDIA; that risk is unaffected.

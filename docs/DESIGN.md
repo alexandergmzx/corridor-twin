@@ -267,12 +267,25 @@ on a test-only topic for the evaluator. A source contract test proves that the
 observer adapter contains no truth or odometry subscription.
 
 The implemented clean synthetic test uses actual ArUco pixels, camera intrinsics,
-detection, PnP, gate interpolation, and the violation debounce. On the
-reconciled geometry, at a true path speed of 1.8 m/s it measured 1.7958 and
-1.7977 m/s (maximum absolute error 0.0042 m/s) and emitted one event; at
-1.0 m/s it measured 1.0009 and 0.9866 m/s and emitted no event. Noise, blur,
+detection, PnP, gate interpolation, and the violation debounce. Re-measured on
+the 0.40 m fiducial plates and the production `cx=width/2` convention, at a true
+path speed of 1.8 m/s it measured 1.8000 and 1.7839 m/s (maximum absolute error
+0.0161 m/s) and emitted one event; at 1.0 m/s it measured 1.0022 and 0.9963 m/s
+(maximum absolute error 0.0037 m/s) and emitted no event. Noise, blur,
 dropped-frame, and acceleration cases remain extensions rather than claimed
 coverage.
+
+The 1.8 m/s figure is four times looser than the 0.0042 m/s recorded before the
+plates were enlarged, and the cause is measured rather than assumed. Feeding
+identical renders through both principal-point conventions gives 0.0170 m/s for
+`(width-1)/2` and 0.0161 m/s for `width/2`, so the convention change slightly
+*improved* accuracy and is not responsible. The degradation comes from the
+fiducial resize: around station 5.5 only two plates remain in view and their
+projected geometry is weak, producing station errors up to 0.043 m there against
+roughly 0.005 m elsewhere. Gate 6.0 is interpolated through that band. This is a
+known weak-geometry region of the synthetic route, not an estimator regression,
+and the live Isaac qualification is unaffected because it dwells at surveyed
+stations rather than crossing this band.
 
 Two accuracy defects were found and fixed while reconciling the geometry, both
 invisible under the previous symmetric corridor:
@@ -282,14 +295,17 @@ invisible under the previous symmetric corridor:
   travelled and every estimate read low by 0.8%, roughly 0.014 m/s at 1.8 m/s.
   Gate spacing is now converted before differentiating.
 - **Single-marker frames are ambiguous.** Four coplanar correspondences let
-  planar PnP fit almost exactly while recovering the wrong pose. One such frame
-  produced a 0.21 m backward station jump at a reprojection error of 0.02 px,
-  which reset the gate history and silently dropped a measurement. A low
-  residual is not evidence here, so a second marker is now required — the
-  mitigation this document already prescribed.
+  planar PnP fit almost exactly while recovering the wrong pose, which reset the
+  gate history and silently dropped a measurement. A second marker is now
+  required — the mitigation this document already prescribed. Re-measured on the
+  0.40 m plates, an isolated tag at station 5.5333 fits at 0.135 px residual
+  while being 0.084 m wrong, whereas the two-plate fit on the same frame reports
+  a *worse* 0.849 px residual and is more accurate at 0.049 m. Residual is
+  anti-correlated with accuracy for a single planar square, which is precisely
+  why a reprojection filter cannot screen these frames.
 
 A live ROS 2 launch was also exercised in both wall-time and synthetic-clock
-modes. The latter produced the same 1.8026 m/s event at simulated time 4.3306 s,
+modes. The latter produced a 1.7858 m/s event at simulated time 4.368860 s,
 confirming that the observer uses image acquisition stamps rather than callback
 arrival time.
 

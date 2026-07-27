@@ -52,7 +52,7 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Next street, junction, corner mass | Working | Convex collider prims per variant; B and P placed from the wall faces | Drive A through the junction |
 | Continuous delivery trajectory | Working | Position and yaw continuous at both joins; every arc sample in drivable space | Follow it in Isaac |
 | Static physics geometry | Working | Ground/building collider schema tests and Isaac smoke | Exercise motion and collision behavior |
-| Camera-only station/speed estimator | Working on synthetic motion and static Isaac pixels | Synthetic 1.8 m/s within 0.0042 m/s; static Isaac station error at most 0.010563 m | Measure speed during deterministic Isaac motion |
+| Camera-only station/speed estimator | Working on synthetic motion and static Isaac pixels | Synthetic 1.8 m/s within 0.0161 m/s, limited by a weak two-plate band near station 5.5; static Isaac station error at most 0.010563 m | Measure speed during deterministic Isaac motion |
 | P occlusion | Working | Conservative arc enclosure over P's full volume, curved-source false-pass regression, 204 composed-mesh rays, and a visible control | Re-run after any geometry/path change |
 | GPU and real-time scene | Conditionally qualified | Hardware gates, headless/visible stage smokes, measured VRAM | Retain Ubuntu fallback because Mint is unsupported |
 | Isaac ROS camera contract | Qualified through rendered fiducials | 640×360 RGB at 15 Hz; paired calibration; five static dwells pass; mirrored actual capture fails | Connect deterministic motion without adding sensors |

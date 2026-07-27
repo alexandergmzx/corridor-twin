@@ -38,8 +38,11 @@ class SyntheticCamera:
         width = int(camera["width_px"])
         height = int(camera["height_px"])
         focal = (width / 2.0) / math.tan(math.radians(float(camera["horizontal_fov_deg"])) / 2.0)
+        # Match the delivered Isaac CameraInfo convention exactly. The adapter
+        # publishes cx=width/2, cy=height/2; using (width-1)/2 here would leave
+        # the comparison path systematically half a pixel from production.
         matrix = np.array(
-            [[focal, 0.0, (width - 1) / 2.0], [0.0, focal, (height - 1) / 2.0], [0, 0, 1]],
+            [[focal, 0.0, width / 2.0], [0.0, focal, height / 2.0], [0, 0, 1]],
             dtype=np.float64,
         )
         self.calibration = Calibration(

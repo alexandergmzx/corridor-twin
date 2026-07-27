@@ -25,6 +25,7 @@ CAPTURE_CONTRACT = {
     "frame_id": "robot_front_camera_optical_frame",
     "width": 640,
     "height": 360,
+    "encoding": "rgb8",
 }
 
 
@@ -152,6 +153,13 @@ class ArucoCameraCapture(Node):
             raise ValueError("camera optical frame differs from capture contract")
         if (image.width, image.height) != (contract["width"], contract["height"]):
             raise ValueError("image dimensions differ from capture contract")
+        # _image_array still converts several encodings so it stays testable,
+        # but a production evidence capture is rgb8 and nothing else.
+        if image.encoding != contract["encoding"]:
+            raise ValueError(
+                f"wire encoding {image.encoding!r} differs from capture contract "
+                f"{contract['encoding']!r}"
+            )
         if (info.width, info.height) != (image.width, image.height):
             raise ValueError("CameraInfo dimensions differ from Image")
         pixels = _image_array(image)

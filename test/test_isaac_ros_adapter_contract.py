@@ -181,6 +181,7 @@ def test_aruco_capture_has_only_the_production_camera_contract() -> None:
         "frame_id": "robot_front_camera_optical_frame",
         "width": 640,
         "height": 360,
+        "encoding": "rgb8",
     }
     source = ARUCO_CAPTURE.read_text(encoding="utf-8").lower()
     assert all(word not in source for word in ("ground_truth", "odometry", "cmd_vel"))

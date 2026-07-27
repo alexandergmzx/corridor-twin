@@ -115,8 +115,18 @@ def test_single_marker_frames_are_rejected(pipeline) -> None:
 
     loose = permissive.estimate(image, camera.calibration, timestamp_s=1.0)
     assert loose is not None
-    assert loose.reprojection_rmse_px < 0.1  # looks excellent, but is not
-    assert abs(loose.station_m - station) > 0.1
+    reference = strict.estimate(rendered, camera.calibration, timestamp_s=1.0)
+    assert reference is not None and len(reference.marker_ids) >= 2
+
+    # State the trap directly instead of pinning incidental pixel values that
+    # move whenever the fiducial geometry or calibration changes: the isolated
+    # tag reports a *better* residual than the multi-tag fit while being *less*
+    # accurate. Residual is anti-correlated with accuracy for a single planar
+    # square, which is exactly why the rmse filter cannot screen these frames.
+    assert loose.reprojection_rmse_px < reference.reprojection_rmse_px
+    assert abs(loose.station_m - station) > abs(reference.station_m - station)
+    # It is also wrong by more than the production render gate would accept.
+    assert abs(loose.station_m - station) > 0.05
     assert strict.estimate(image, camera.calibration, timestamp_s=1.0) is None
 
 

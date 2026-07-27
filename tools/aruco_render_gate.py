@@ -25,6 +25,11 @@ RENDER_GATE_CRITERIA = {
     "expected_width": 640,
     "expected_height": 360,
     "expected_frame_id": "robot_front_camera_optical_frame",
+    "expected_encoding": "rgb8",
+    # Production delivers cx=width/2 to within 1.5e-05 px. A tolerance of 0.5
+    # would silently accept the (width-1)/2 convention, which differs by
+    # exactly 0.5 px, so it could never catch that class of drift.
+    "maximum_intrinsic_error_px": 0.05,
 }
 
 
@@ -110,6 +115,7 @@ def analyse_capture(
             {
                 "stamp_ns": stamp_ns,
                 "image_path": str(frame["image_path"]),
+                "encoding": str(frame["encoding"]),
                 "calibration": {
                     "width": calibration.width,
                     "height": calibration.height,
@@ -200,15 +206,22 @@ def _camera_contract_result(
     matrix_error_px = float(np.max(np.abs(matrix - expected_matrix)))
     distortion = np.asarray(first["d"], dtype=np.float64)
     last_clock_ns = clock.get("last_ns")
+    # Encoding is checked explicitly rather than folded into the calibration
+    # equality test, so a wrong-but-constant encoding cannot hide behind it.
+    encodings = {str(frame["encoding"]) for frame in frames}
+    encoding_constant = len(encodings) == 1
+    encoding_expected = encodings == {criteria["expected_encoding"]}
     passed = all(
         (
             constant,
+            encoding_constant,
+            encoding_expected,
             width == criteria["expected_width"],
             height == criteria["expected_height"],
             first["frame_id"] == criteria["expected_frame_id"],
             first["distortion_model"] == "plumb_bob",
             not np.any(np.abs(distortion) > 1e-9),
-            matrix_error_px <= 0.5,
+            matrix_error_px <= criteria["maximum_intrinsic_error_px"],
             criteria["minimum_rate_hz"] <= rate_hz <= criteria["maximum_rate_hz"],
             last_clock_ns is not None and int(last_clock_ns) >= stamps[-1],
         )
@@ -216,6 +229,9 @@ def _camera_contract_result(
     return {
         "passed": passed,
         "constant": constant,
+        "encodings": sorted(encodings),
+        "encoding_constant": encoding_constant,
+        "encoding_expected": encoding_expected,
         "rate_hz": rate_hz,
         "matrix": matrix.reshape(-1).tolist(),
         "expected_matrix": expected_matrix.reshape(-1).tolist(),

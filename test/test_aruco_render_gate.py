@@ -49,7 +49,7 @@ def rendered_sequence(tmp_path: Path) -> tuple[Path, Path, Path]:
                 {
                     "stamp_ns": stamp_ns,
                     "image_path": relative.as_posix(),
-                    "encoding": "bgr8",
+                    "encoding": "rgb8",
                     "frame_id": calibration.frame_id,
                     "width": calibration.width,
                     "height": calibration.height,
@@ -168,6 +168,85 @@ def test_static_gate_rejects_wrong_camera_info(rendered_sequence) -> None:
     report = _evaluate(changed, truth_path, manifest_path)
     assert not report["gate_passed"]
     assert not report["camera_contract"]["passed"]
+
+
+def test_static_gate_rejects_a_non_production_encoding(rendered_sequence) -> None:
+    """A uniformly wrong encoding must fail even though it is constant."""
+
+    capture_path, truth_path, manifest_path = rendered_sequence
+    capture = json.loads(capture_path.read_text(encoding="utf-8"))
+    for frame in capture["frames"]:
+        frame["encoding"] = "bgr8"
+    changed = capture_path.parent / "bgr8.json"
+    changed.write_text(json.dumps(capture), encoding="utf-8")
+    report = _evaluate(changed, truth_path, manifest_path)
+    assert not report["gate_passed"]
+    assert not report["camera_contract"]["passed"]
+    assert report["camera_contract"]["encoding_constant"]
+    assert not report["camera_contract"]["encoding_expected"]
+
+
+def test_static_gate_rejects_encoding_that_changes_mid_sequence(rendered_sequence) -> None:
+    capture_path, truth_path, manifest_path = rendered_sequence
+    capture = json.loads(capture_path.read_text(encoding="utf-8"))
+    capture["frames"][0]["encoding"] = "mono8"
+    changed = capture_path.parent / "mixed-encoding.json"
+    changed.write_text(json.dumps(capture), encoding="utf-8")
+    report = _evaluate(changed, truth_path, manifest_path)
+    assert not report["gate_passed"]
+    assert not report["camera_contract"]["encoding_constant"]
+
+
+def test_bad_encoding_fails_through_the_public_cli(rendered_sequence, monkeypatch) -> None:
+    """Exercise the entry point operators actually run, not just a helper."""
+
+    capture_path, truth_path, manifest_path = rendered_sequence
+    capture = json.loads(capture_path.read_text(encoding="utf-8"))
+    for frame in capture["frames"]:
+        frame["encoding"] = "bgr8"
+    changed = capture_path.parent / "cli-bgr8.json"
+    changed.write_text(json.dumps(capture), encoding="utf-8")
+    report_path = capture_path.parent / "cli-report.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "aruco_render_gate.py",
+            "--capture",
+            str(changed),
+            "--truth",
+            str(truth_path),
+            "--manifest",
+            str(manifest_path),
+            "--out",
+            str(report_path),
+        ],
+    )
+    assert gate.main() == 1
+    written = json.loads(report_path.read_text(encoding="utf-8"))
+    assert not written["gate_passed"]
+
+
+def test_static_gate_rejects_the_half_pixel_principal_point_convention(
+    rendered_sequence,
+) -> None:
+    """The 0.5 px convention drift must fail the named intrinsic criterion.
+
+    The previous 0.5 px tolerance accepted it exactly, so this class of drift
+    could never be detected.
+    """
+
+    assert gate.RENDER_GATE_CRITERIA["maximum_intrinsic_error_px"] < 0.5
+    capture_path, truth_path, manifest_path = rendered_sequence
+    capture = json.loads(capture_path.read_text(encoding="utf-8"))
+    for frame in capture["frames"]:
+        frame["k"][2] -= 0.5
+        frame["k"][5] -= 0.5
+    changed = capture_path.parent / "half-pixel.json"
+    changed.write_text(json.dumps(capture), encoding="utf-8")
+    report = _evaluate(changed, truth_path, manifest_path)
+    assert not report["camera_contract"]["passed"]
+    assert report["camera_contract"]["maximum_matrix_error_px"] == pytest.approx(0.5)
 
 
 def test_static_gate_rejects_route_distance_as_world_x_truth(rendered_sequence) -> None:

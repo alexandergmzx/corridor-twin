@@ -137,9 +137,9 @@ new one.
 The observer clears all temporal state on backward jumps, non-monotonic image
 stamps, profile changes, and clock initialization transitions.
 
-The synthetic-clock integration test produced a violation stamped at 4.330643489
+The synthetic-clock integration test produced a violation stamped at 4.368859941
 seconds on the generated timeline, rather than host wall time. Its camera-derived
-speed was 1.8026 m/s for a 1.8 m/s truth input.
+speed was 1.7858 m/s for a 1.8 m/s truth input.
 
 ## Message timing sequence
 
