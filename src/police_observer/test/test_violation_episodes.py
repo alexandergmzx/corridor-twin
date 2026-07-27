@@ -10,7 +10,13 @@ ADR 0014.
 from __future__ import annotations
 
 import pytest
-from police_observer.estimator import MarkerMap, SpeedMeasurement, ViolationDetector
+from police_observer.estimator import (
+    MarkerMap,
+    ObserverPipeline,
+    PoseObservation,
+    SpeedMeasurement,
+    ViolationDetector,
+)
 
 
 @pytest.fixture()
@@ -125,13 +131,84 @@ def test_reset_clears_an_open_episode(marker_map) -> None:
     assert second.event_id == 2
 
 
-def test_confirmation_duration_measures_from_the_first_confirming_estimate(
-    marker_map,
-) -> None:
-    """A longer episode shows in the event's own fields, not as repeat events."""
+def test_confirmation_duration_is_latency_not_episode_length(marker_map) -> None:
+    """The field measures confirmation latency and nothing else.
+
+    The event is emitted near the episode's start and never revised, so a longer
+    episode does not grow this value. Pin that so it is not mistaken for episode
+    duration again.
+    """
 
     detector = ViolationDetector(marker_map)
     detector.update(_measure(10.0, 1.8))
     event = detector.update(_measure(11.5, 1.8))
     assert event is not None
     assert event.confirmation_duration_s == pytest.approx(1.5)
+
+    # Six more seconds of the same episode must not change the emitted event.
+    for timestamp_s in (13.0, 15.0, 17.5):
+        assert detector.update(_measure(timestamp_s, 1.8)) is None
+    assert event.confirmation_duration_s == pytest.approx(1.5)
+
+
+def _observe(pipeline: ObserverPipeline, timestamp_s: float, station_m: float):
+    return pipeline.update(
+        PoseObservation(timestamp_s, station_m, 0.005, 0.2, (0, 1))
+    )
+
+
+def test_a_clock_discontinuity_clears_the_open_episode(marker_map) -> None:
+    """Integrated regression for coupled resets.
+
+    ``GateSpeedEstimator.update`` resets its own gate history on a continuity
+    break. When the two stages were driven separately that reset was invisible
+    to the detector, so an episode opened before a backward clock jump stayed
+    open across it. Because the same discontinuity also stops measurements
+    flowing, no compliant measurement ever arrived to rearm the detector and the
+    next genuine offense was suppressed indefinitely.
+    """
+
+    pipeline = ObserverPipeline(marker_map)
+    events = [
+        violation
+        for timestamp_s, station_m in ((1.0, 1.0), (2.0, 2.8), (3.0, 4.6), (4.0, 6.4))
+        for _, violation in _observe(pipeline, timestamp_s, station_m)
+        if violation is not None
+    ]
+    assert len(events) == 1
+    assert pipeline.violation_detector.episode_open
+
+    # Backward clock jump. Gate history resets; the episode must reset with it.
+    assert _observe(pipeline, 0.5, 1.0) == []
+    assert not pipeline.violation_detector.episode_open
+    assert pipeline.speed_estimator.previous is not None
+
+    # The next genuine offense must still be reported.
+    resumed = [
+        violation
+        for timestamp_s, station_m in ((1.5, 2.8), (2.5, 4.6), (3.5, 6.4))
+        for _, violation in _observe(pipeline, timestamp_s, station_m)
+        if violation is not None
+    ]
+    assert len(resumed) == 1
+    assert resumed[0].event_id == 2
+
+
+def test_a_backward_station_also_clears_the_open_episode(marker_map) -> None:
+    pipeline = ObserverPipeline(marker_map)
+    for timestamp_s, station_m in ((1.0, 1.0), (2.0, 2.8), (3.0, 4.6), (4.0, 6.4)):
+        _observe(pipeline, timestamp_s, station_m)
+    assert pipeline.violation_detector.episode_open
+    _observe(pipeline, 5.0, 1.0)  # station reverses while time advances
+    assert not pipeline.violation_detector.episode_open
+
+
+def test_pipeline_reset_clears_both_stages(marker_map) -> None:
+    pipeline = ObserverPipeline(marker_map)
+    for timestamp_s, station_m in ((1.0, 1.0), (2.0, 2.8), (3.0, 4.6), (4.0, 6.4)):
+        _observe(pipeline, timestamp_s, station_m)
+    assert pipeline.violation_detector.episode_open
+    pipeline.reset()
+    assert not pipeline.violation_detector.episode_open
+    assert pipeline.speed_estimator.previous is None
+    assert pipeline.speed_estimator.observation_count == 0

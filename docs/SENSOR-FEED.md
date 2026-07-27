@@ -106,9 +106,15 @@ duration/consecutive-estimate requirement pass.
 further over-limit estimates extend it silently, including across a transition
 into a stricter zone; only a conservative estimate at or below the applicable
 limit rearms the detector. A consumer may therefore read repeat events as
-genuinely separate offenses, and must not infer episode length from event count
-— `confirmation_duration_s` carries that. Temporal resets clear an open episode,
-so continuity is never asserted across a clock or profile discontinuity.
+genuinely separate offenses.
+
+**Episode length is not published.** `confirmation_duration_s` is the interval
+from the first confirming estimate to the one that triggered the event — the
+confirmation latency, not the duration of the episode. The event is emitted near
+the episode's start and is never revised when it ends, so no field carries the
+total. A consumer needing episode length must derive it from the estimate
+stream. Temporal resets clear an open episode, so continuity is never asserted
+across a clock or profile discontinuity.
 
 Restarting the node may reset the event ID; consumers must combine it with the
 header timestamp and publisher identity if global uniqueness is required.

@@ -28,6 +28,67 @@ this repo are explicit demo choices, never surveyed values.
 
 Read `docs/README.md` first; it is the visual map and status tracker.
 
+## Interview objective and definition of done
+
+This repository exists to support a live NVIDIA Omniverse engineering interview,
+not to become a production traffic-enforcement platform. The primary deliverable
+is a short, reliable, visually understandable demonstration backed by enough
+evidence to defend its engineering decisions.
+
+An interviewer should understand in one run:
+
+1. A travels from the tapered corridor toward B on the next street.
+2. The corridor narrows toward the corner and the local demonstration speed limit
+   becomes stricter.
+3. P is physically hidden behind the corner wall and cannot be seen by A's camera.
+4. P nevertheless receives A's one permitted RGB camera stream over ROS 2.
+5. Surveyed fiducials let P estimate station and speed without pose, odometry, TF,
+   depth, or simulator truth.
+6. The UI makes measured speed, uncertainty, local width, limit, and violation
+   state obvious.
+7. Changing the corridor-width USD variant visibly changes the geometry and policy
+   while preserving the scenario invariants.
+
+Interview-ready means:
+
+- one documented command starts the demonstration;
+- A moves continuously on the authored route;
+- the camera-only observer demonstrates a compliant run and one continuous
+  speeding episode;
+- P's concealment is visible and backed by the geometric certificate;
+- one camera remains the only simulated sensor;
+- the RTX 5070 Ti stays within the recorded memory budget;
+- a recorded fallback is available if the live run fails.
+
+Use this decision filter for new work:
+
+- Prioritize a working, explainable, rehearsable demo over production-scale
+  generality.
+- Add complexity only when it strengthens a headline interview claim or prevents
+  a demonstrated failure.
+- Do not create a new blocking gate for a low-severity documentation or polish
+  issue; correct it additively without derailing the current milestone.
+- Do not reopen accepted decisions without new contradictory evidence.
+- Keep large fiducials, overlays, and other scene elements visually credible;
+  numerical success alone is insufficient if the viewport looks contrived.
+- Once a milestone's stated acceptance criteria pass, commit it and advance to
+  the next visible capability.
+
+## Agent roles
+
+Claude is currently the implementation/planning agent. Codex independently
+reviews completed milestone commits. Claude should not repeatedly restart the
+independent audit unless the user explicitly assigns that role.
+
+The active sequence is:
+
+1. close confirmed correctness defects;
+2. restore camera-derived enforcement coverage at the corner;
+3. requalify that final static geometry on the GPU;
+4. implement deterministic motion;
+5. connect the live observer and visualization;
+6. rehearse and harden the interview demonstration.
+
 ## Architectural invariants
 
 1. **Truth isolation.** Simulator pose, odometry, TF, and synthetic ground truth

@@ -49,14 +49,25 @@ A violation event represents **one continuous speeding episode**.
 
 ## Consequences
 
+> **Correction, 2026-07-27.** As first written, this section claimed a longer
+> episode would be "visible in the event's own fields". That was wrong: the
+> event is emitted near the episode's start and never revised, so
+> `confirmation_duration_s` is confirmation latency, not episode length. The
+> corrected consequence is below. The decision itself is unchanged.
+
 - Event count measures behaviour, not fiducial density. Adding surveyed gates
   changes measurement resolution without changing how many offenses are
   reported.
 - The demonstration remains one event for a constant over-limit run, whether it
   crosses three gates or five.
-- An event's `confirmation_duration_s` remains the time from the first
-  confirming measurement, so a longer episode is visible in the event's own
-  fields rather than as a repeated event.
+- **Episode length becomes unpublished.** `confirmation_duration_s` measures the
+  interval from the first confirming estimate to the triggering one, which is
+  confirmation latency. The event is emitted near the episode's start and is
+  never revised when it ends, so no field carries the total. A consumer needing
+  episode length must derive it from the estimate stream. This is a real
+  reduction in what the event alone conveys, accepted because a per-episode
+  event is still the more faithful unit and a closing event would need a new
+  message contract.
 - A genuinely separate second offense — speed up, comply, speed up again — is
   still reported, because compliance is what rearms.
 - `docs/SENSOR-FEED.md` needs no contract change: the topic, message, and QoS

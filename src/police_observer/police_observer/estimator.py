@@ -257,11 +257,26 @@ class GateSpeedEstimator:
         self.last_crossing = None
         self.observation_count = 0
 
+    def is_discontinuous(self, observation: PoseObservation) -> bool:
+        """Report whether this observation breaks temporal or spatial continuity.
+
+        Exposed so a caller can mirror the reset onto state this class does not
+        own. ``update`` resets itself internally, and that used to be invisible
+        to the violation detector, which then carried an open episode across a
+        clock jump and suppressed the next genuine offense.
+        """
+
+        previous = self.previous
+        if previous is None:
+            return False
+        return (
+            observation.timestamp_s <= previous.timestamp_s
+            or observation.station_m < previous.station_m
+        )
+
     def update(self, observation: PoseObservation) -> list[SpeedMeasurement]:
         previous = self.previous
-        time_reversed = previous is not None and observation.timestamp_s <= previous.timestamp_s
-        station_reversed = previous is not None and observation.station_m < previous.station_m
-        if time_reversed or station_reversed:
+        if self.is_discontinuous(observation):
             self.reset()
             previous = None
         self.previous = observation
@@ -367,3 +382,41 @@ class ViolationDetector:
             exceedance_mps=conservative_speed - measurement.speed_limit_mps,
             confirmation_duration_s=max(0.0, measurement.timestamp_s - first),
         )
+
+
+class ObserverPipeline:
+    """Own the gate estimator and the violation detector as one unit.
+
+    ``GateSpeedEstimator.update`` resets its own gate history when an
+    observation breaks continuity. Nothing propagated that to the violation
+    detector, so an episode opened before a clock jump stayed open across it and
+    suppressed the next genuine offense indefinitely — the discontinuity also
+    stops measurements flowing, so no compliant measurement ever arrived to
+    rearm it.
+
+    Routing both through one path is what keeps the two resets coupled. Callers
+    should use this rather than driving the two objects separately.
+    """
+
+    def __init__(self, marker_map: MarkerMap) -> None:
+        self.marker_map = marker_map
+        self.speed_estimator = GateSpeedEstimator(marker_map)
+        self.violation_detector = ViolationDetector(marker_map)
+
+    def reset(self) -> None:
+        """Clear both stages together."""
+
+        self.speed_estimator.reset()
+        self.violation_detector.reset()
+
+    def update(
+        self, observation: PoseObservation
+    ) -> list[tuple[SpeedMeasurement, Violation | None]]:
+        """Advance both stages, mirroring any continuity break onto the detector."""
+
+        if self.speed_estimator.is_discontinuous(observation):
+            self.violation_detector.reset()
+        return [
+            (measurement, self.violation_detector.update(measurement))
+            for measurement in self.speed_estimator.update(observation)
+        ]

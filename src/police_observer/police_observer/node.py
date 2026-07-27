@@ -18,11 +18,10 @@ from corridor_interfaces.msg import SpeedEstimate, SpeedViolation
 from .estimator import (
     ArucoStationEstimator,
     Calibration,
-    GateSpeedEstimator,
     MarkerMap,
+    ObserverPipeline,
     SpeedMeasurement,
     Violation,
-    ViolationDetector,
 )
 
 
@@ -52,8 +51,10 @@ class PoliceObserverNode(Node):
             str(self.get_parameter("marker_dictionary").value),
             float(self.get_parameter("pose_reprojection_error_px").value),
         )
-        self.speed_estimator = GateSpeedEstimator(marker_map)
-        self.violation_detector = ViolationDetector(marker_map)
+        # One pipeline so a continuity break clears gate history and the open
+        # violation episode together. Driving the two stages separately let an
+        # episode survive a clock jump and suppress the next real offense.
+        self.pipeline = ObserverPipeline(marker_map)
         self.bridge = CvBridge()
 
         sensor_qos = QoSProfile(
@@ -103,8 +104,7 @@ class PoliceObserverNode(Node):
             return
         timestamp_s = Time.from_msg(image_message.header.stamp).nanoseconds / 1e9
         if timestamp_s <= 0.0:
-            self.speed_estimator.reset()
-            self.violation_detector.reset()
+            self.pipeline.reset()
             return
         if image_message.encoding not in {"bgr8", "rgb8", "mono8"}:
             self.get_logger().warning(
@@ -125,10 +125,9 @@ class PoliceObserverNode(Node):
         observation = self.station_estimator.estimate(image, calibration, timestamp_s)
         if observation is None:
             return
-        for measurement in self.speed_estimator.update(observation):
+        for measurement, violation in self.pipeline.update(observation):
             estimate_message = self._estimate_message(measurement)
             self.estimate_publisher.publish(estimate_message)
-            violation = self.violation_detector.update(measurement)
             if violation is not None:
                 self.violation_publisher.publish(
                     self._violation_message(violation, estimate_message)
@@ -138,7 +137,7 @@ class PoliceObserverNode(Node):
         message = SpeedEstimate()
         message.header.stamp = Time(nanoseconds=round(value.timestamp_s * 1e9)).to_msg()
         message.header.frame_id = "corridor_map"
-        message.corridor_profile = self.speed_estimator.marker_map.profile_name
+        message.corridor_profile = self.pipeline.marker_map.profile_name
         message.station_m = value.station_m
         message.speed_mps = value.speed_mps
         message.speed_stddev_mps = value.speed_stddev_mps
