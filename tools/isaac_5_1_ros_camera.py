@@ -164,6 +164,19 @@ def arguments() -> argparse.Namespace:
         type=int,
         default=STATIC_PROBE_DEFAULTS["capture_updates"],
     )
+    parser.add_argument(
+        "--drive-speed-mps",
+        type=float,
+        help=(
+            "Drive A continuously along the delivery trajectory at this path speed. "
+            "Mutually exclusive with --static-probe-out."
+        ),
+    )
+    parser.add_argument(
+        "--drive-out",
+        type=Path,
+        help="Write the commanded pose schedule. Simulator truth: evaluator input only.",
+    )
     parser.add_argument("--gui", action="store_true")
     parser.add_argument("--report-gpu-memory", action="store_true")
     return parser.parse_args()
@@ -224,12 +237,120 @@ def _set_actor_pose(stage, pose) -> None:
     rotate_z.Set(math.degrees(pose.yaw_rad))
 
 
-def _static_probe_manifest_path(args: argparse.Namespace, stage_path: Path) -> Path:
+def _manifest_path(args: argparse.Namespace, stage_path: Path) -> Path:
     path = args.manifest or stage_path.with_suffix(".manifest.json")
     resolved = path.resolve()
     if not resolved.is_file():
         raise FileNotFoundError(resolved)
     return resolved
+
+
+def _run_drive(
+    app,
+    stage,
+    args: argparse.Namespace,
+    stage_path: Path,
+    profile: str,
+) -> int:
+    """Drive A continuously along the authored route from simulation time.
+
+    This is the demonstration mode. It reuses the same pieces the static probe
+    already exercises on the GPU -- the manifest trajectory, ``_set_actor_pose``
+    and ``app.update()`` -- and differs only in deriving the route station from
+    the simulation clock instead of stepping through a list of dwells.
+
+    Simulation time, never wall time, sets the station. Wall time may describe
+    how fast the app happens to run, but making it the motion input would
+    couple the demonstrated speed to host load, and the observer differentiates
+    message stamps that come from this same clock.
+
+    Whether the pose written here is composed into the frame that
+    ``app.update()`` renders, or into the one after it, is not measured. No
+    offset is applied to compensate for an unmeasured latency; that measurement
+    is its own piece of work.
+    """
+
+    from isaacsim.core.nodes.bindings import _isaacsim_core_nodes
+
+    scene_source = Path(__file__).resolve().parents[1] / "src/corridor_scene"
+    if str(scene_source) not in sys.path:
+        sys.path.insert(0, str(scene_source))
+    from scene.trajectory import trajectory_from_manifest
+
+    manifest_path = _manifest_path(args, stage_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if profile not in manifest["profiles"]:
+        raise ValueError(f"manifest does not contain selected profile {profile!r}")
+    trajectory = trajectory_from_manifest(manifest["profiles"][profile]["delivery_trajectory"])
+
+    speed_mps = float(args.drive_speed_mps)
+    if speed_mps <= 0.0:
+        raise ValueError("--drive-speed-mps must be positive")
+    route_length_m = trajectory.length_m
+
+    clock = _isaacsim_core_nodes.acquire_interface()
+    epoch_s = float(clock.get_sim_time())
+    samples: list[dict[str, object]] = []
+    completed = 0
+    route_s_m = 0.0
+    # --updates is a safety cap so a stalled clock cannot spin forever; the
+    # route end is the intended stopping condition.
+    for index in range(args.updates):
+        sim_time_s = float(clock.get_sim_time())
+        route_s_m = min(speed_mps * (sim_time_s - epoch_s), route_length_m)
+        pose = trajectory.pose_at(route_s_m)
+        _set_actor_pose(stage, pose)
+        app.update()
+        completed = index + 1
+        samples.append(
+            {
+                "update_index": index,
+                "sim_time_s": sim_time_s,
+                "route_s_m": route_s_m,
+                "x_m": pose.x_m,
+                "y_m": pose.y_m,
+                "yaw_rad": pose.yaw_rad,
+            }
+        )
+        if route_s_m >= route_length_m:
+            break
+
+    print(
+        "ISAAC_ROS_CAMERA_DRIVE",
+        f"speed_mps={speed_mps}",
+        f"route_s_m={route_s_m:.3f}",
+        f"route_length_m={route_length_m:.3f}",
+        f"reached_end={route_s_m >= route_length_m}",
+        f"updates={completed}",
+        f"sim_span_s={samples[-1]['sim_time_s'] - epoch_s:.3f}" if samples else "sim_span_s=0",
+        flush=True,
+    )
+    if args.drive_out is not None:
+        output_path = args.drive_out.resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "kind": "evaluator_only_commanded_pose_schedule",
+                    "stage": str(stage_path),
+                    "manifest": str(manifest_path),
+                    "profile": profile,
+                    "robot_prim": ROBOT_PRIM,
+                    "path_speed_mps": speed_mps,
+                    "route_length_m": route_length_m,
+                    "sim_time_epoch_s": epoch_s,
+                    "pose_update_order": "set_actor_pose_then_app_update; latency unmeasured",
+                    "samples": samples,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print("ISAAC_DRIVE_SCHEDULE_WRITTEN", f"path={output_path}", flush=True)
+    return completed
 
 
 def _run_static_probe(
@@ -251,7 +372,7 @@ def _run_static_probe(
         sys.path.insert(0, str(scene_source))
     from scene.trajectory import trajectory_from_manifest
 
-    manifest_path = _static_probe_manifest_path(args, stage_path)
+    manifest_path = _manifest_path(args, stage_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if profile not in manifest["profiles"]:
         raise ValueError(f"manifest does not contain selected profile {profile!r}")
@@ -522,8 +643,15 @@ def main() -> int:
         raise FileNotFoundError(stage_path)
     if args.updates < 1:
         raise ValueError("--updates must be positive")
-    if args.static_probe_out is not None:
-        _static_probe_manifest_path(args, stage_path)
+    if args.static_probe_out is not None and args.drive_speed_mps is not None:
+        raise ValueError("--static-probe-out and --drive-speed-mps are mutually exclusive")
+    if args.drive_speed_mps is not None and args.drive_speed_mps <= 0.0:
+        raise ValueError("--drive-speed-mps must be positive")
+    if args.drive_out is not None and args.drive_speed_mps is None:
+        raise ValueError("--drive-out requires --drive-speed-mps")
+    # Fail on a missing manifest before paying for a GPU app start.
+    if args.static_probe_out is not None or args.drive_speed_mps is not None:
+        _manifest_path(args, stage_path)
     _validate_environment()
     sys.argv = [sys.argv[0]]
     print(
@@ -625,6 +753,8 @@ def main() -> int:
                 profile,
                 render_warmup_reset_events,
             )
+        elif args.drive_speed_mps is not None:
+            completed_updates = _run_drive(app, stage, args, stage_path, profile)
         else:
             for _ in range(args.updates):
                 app.update()
@@ -645,6 +775,7 @@ def main() -> int:
             f"updates={completed_updates}",
             f"profile={profile}",
             f"static_probe={args.static_probe_out is not None}",
+            f"drive={args.drive_speed_mps is not None}",
             "render_products=1",
             flush=True,
         )

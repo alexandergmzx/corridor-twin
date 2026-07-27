@@ -210,3 +210,64 @@ def test_both_isaac_tools_reuse_one_gpu_snapshot_helper() -> None:
         source = path.read_text(encoding="utf-8")
         assert "from isaac_gpu import gpu_memory_snapshot" in source
         assert '"--query-gpu=' not in source
+
+
+def _function_body(path: Path, name: str) -> str:
+    """Dump a function's executable body, with its docstring removed.
+
+    The docstrings here discuss the very things these tests ban, so matching
+    against prose would either fail on an explanation or push the explanation
+    out of the code.
+    """
+
+    body = _function_def(path, name).body
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+    return "\n".join(ast.dump(statement) for statement in body)
+
+
+def test_drive_mode_derives_motion_from_simulation_time_only() -> None:
+    """A demonstration speed must not depend on how fast the host happens to run.
+
+    The observer differentiates message stamps that come from the simulation
+    clock, so driving the actor from wall time would make the measured speed a
+    function of host load. This cannot be exercised without a GPU, so it is
+    asserted against the source.
+    """
+
+    drive = _function_body(ADAPTER, "_run_drive")
+    assert "get_sim_time" in drive
+    for banned in ("monotonic", "perf_counter", "time.time", "wall"):
+        assert banned not in drive, f"drive mode must not read {banned}"
+
+
+def test_drive_mode_adds_no_sensor_and_reuses_the_authored_route() -> None:
+    """Motion must not smuggle in a second sensor or a parallel geometry model."""
+
+    drive = _function_body(ADAPTER, "_run_drive")
+    assert "trajectory_from_manifest" in drive
+    assert "pose_at" in drive
+    assert "_set_actor_pose" in drive
+    for banned in ("RenderProduct", "Camera", "Lidar", "annotator"):
+        assert banned not in drive, f"drive mode must not create {banned}"
+
+
+def test_drive_and_static_probe_are_mutually_exclusive() -> None:
+    """Two pose schedules writing one actor would silently fight each other."""
+
+    main = _function_body(ADAPTER, "main")
+    assert "mutually exclusive" in main
+    assert "--drive-out requires --drive-speed-mps" in main
+
+
+def test_commanded_pose_schedule_is_labelled_evaluator_only() -> None:
+    """The drive log is simulator truth and must never look like an observer input."""
+
+    source = ADAPTER.read_text(encoding="utf-8")
+    assert '"kind": "evaluator_only_commanded_pose_schedule"' in source
+    assert "latency unmeasured" in source
