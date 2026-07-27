@@ -559,28 +559,57 @@ def test_corner_coverage_uses_unoccluded_non_coplanar_references(
         )
 
 
-def test_coplanar_reference_pair_alone_is_rejected(generated: tuple[Path, Path]) -> None:
+@pytest.mark.parametrize(
+    "profile_name",
+    ["nominal_m6_n3", "wide_corner_m6_n4_5", "uniform_m6_n6"],
+    ids=["nominal", "wide", "uniform"],
+)
+def test_coplanar_reference_pair_alone_is_rejected(
+    generated: tuple[Path, Path], profile_name: str
+) -> None:
     """The estimator must refuse rank-deficient sets, not rely on the layout.
 
     Past the covered window only the two east-face plates remain, and they are
-    coplanar. Counting markers would accept that pair; the rank rule does not.
+    coplanar. Counting markers would accept that pair, since two is already the
+    minimum; the rank rule is what does not.
+
+    This drives ``estimate()`` on a real rendered frame rather than asserting
+    that the corners are rank 2 and the property defaults to 3, which would
+    keep passing if the rank check were deleted from the estimator. The
+    permissive control differs from production in exactly one parameter, so if
+    it accepts the same frame production rejects, the rank rule is the only
+    thing that can be responsible.
     """
 
     _, manifest_path = generated
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    block = manifest["profiles"][manifest["selected_profile"]]
-    east = [m for m in block["markers"] if m["side"] == "east_face"]
-    assert len(east) == 2
+    marker_map = MarkerMap.from_manifest(manifest_path, profile_name)
+    camera = SyntheticCamera(manifest_path, profile_name)
+    surveyed = {
+        marker["id"]: np.asarray(marker["corners_xyz_m"], dtype=np.float64)
+        for marker in manifest["profiles"][profile_name]["markers"]
+    }
 
-    corners = np.concatenate(
-        [np.asarray(m["corners_xyz_m"], dtype=np.float64) for m in east]
+    production = ArucoStationEstimator(marker_map, camera.dictionary_name)
+    permissive = ArucoStationEstimator(
+        marker_map, camera.dictionary_name, minimum_correspondence_rank=2
     )
+    assert production.minimum_markers == permissive.minimum_markers
+    assert production.minimum_correspondence_rank == 3
+
+    # The first station past the covered window on every profile: the corridor
+    # wall gates and the north-wall references have left the frustum and only
+    # the two east-face plates still decode.
+    station_x_m = 11.5
+    image = camera.render(station_x_m)
+
+    accepted = permissive.estimate(image, camera.calibration, timestamp_s=1.0)
+    assert accepted is not None, "the control must accept the frame for the test to mean anything"
+    assert len(accepted.marker_ids) >= permissive.minimum_markers
+    corners = np.concatenate([surveyed[marker_id] for marker_id in accepted.marker_ids])
     assert np.linalg.matrix_rank(corners - corners.mean(axis=0), tol=1e-6) == 2
 
-    estimator = ArucoStationEstimator(
-        MarkerMap.from_manifest(manifest_path), str(manifest["fiducials"]["dictionary"])
-    )
-    assert estimator.minimum_correspondence_rank == 3
+    assert production.estimate(image, camera.calibration, timestamp_s=1.0) is None
 
 
 def test_generated_manifests_declare_the_new_schema(generated: tuple[Path, Path]) -> None:
