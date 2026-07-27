@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import asdict
 
 import pytest
 from scene.geometry import (
@@ -22,7 +23,12 @@ from scene.occlusion import (
     _wall_witness_sources,
     continuous_certificate,
 )
-from scene.trajectory import ARC, DeliveryTrajectory, delivery_trajectory
+from scene.trajectory import (
+    ARC,
+    DeliveryTrajectory,
+    delivery_trajectory,
+    trajectory_from_manifest,
+)
 
 
 def _profiles():
@@ -62,6 +68,27 @@ def test_approach_follows_the_tapered_centerline(scenario, profile) -> None:
         pose = trajectory.pose_at(travelled)
         assert pose.x_m == pytest.approx(station, abs=1e-9)
         assert pose.y_m == pytest.approx(corridor_centerline(profile, station, length), abs=1e-9)
+
+
+@pytest.mark.parametrize("scenario,profile", _profiles())
+def test_manifest_route_round_trip_preserves_coordinate_semantics(scenario, profile) -> None:
+    authored = delivery_trajectory(scenario, profile)
+    restored = trajectory_from_manifest(asdict(authored))
+    assert restored == authored
+
+    route_s_m = 6.0
+    pose = restored.pose_at(route_s_m)
+    assert pose.x_m == pytest.approx(route_s_m * restored.approach_heading[0])
+    assert restored.approach_s_at_x(pose.x_m) == pytest.approx(route_s_m)
+    if restored.approach_heading[0] < 1.0:
+        assert pose.x_m != pytest.approx(route_s_m)
+
+
+def test_world_x_to_route_station_rejects_non_approach_values() -> None:
+    scenario = load_scenario()
+    trajectory = delivery_trajectory(scenario, scenario.profile(scenario.default_profile))
+    with pytest.raises(ValueError, match="outside the approach"):
+        trajectory.approach_s_at_x(100.0)
 
 
 @pytest.mark.parametrize("scenario,profile", _profiles())

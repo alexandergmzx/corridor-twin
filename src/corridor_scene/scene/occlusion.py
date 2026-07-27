@@ -30,7 +30,7 @@ from typing import Any
 from pxr import Gf, Usd, UsdGeom, UsdPhysics
 
 from .geometry import Occluder
-from .trajectory import ARC, DeliveryTrajectory
+from .trajectory import ARC, DeliveryTrajectory, trajectory_from_manifest
 
 Vec3 = tuple[float, float, float]
 
@@ -626,20 +626,6 @@ def usd_raycast_audit(
     return tested, failures, tuple(str(prim.GetPath()) for prim in prims), nearest
 
 
-def _trajectory_from_manifest(data: dict[str, Any]) -> DeliveryTrajectory:
-    return DeliveryTrajectory(
-        start_xyz_m=tuple(float(v) for v in data["start_xyz_m"]),  # type: ignore[arg-type]
-        approach_heading=tuple(float(v) for v in data["approach_heading"]),  # type: ignore[arg-type]
-        approach_length_m=float(data["approach_length_m"]),
-        arc_center_xy_m=tuple(float(v) for v in data["arc_center_xy_m"]),  # type: ignore[arg-type]
-        arc_radius_m=float(data["arc_radius_m"]),
-        arc_start_angle_rad=float(data["arc_start_angle_rad"]),
-        arc_sweep_rad=float(data["arc_sweep_rad"]),
-        departure_length_m=float(data["departure_length_m"]),
-        camera_height_m=float(data["camera_height_m"]),
-    )
-
-
 def verify(stage_path: Path, manifest_path: Path, profile_name: str | None = None) -> Certificate:
     """Prove the visibility requirement for one corridor profile."""
 
@@ -650,7 +636,7 @@ def verify(stage_path: Path, manifest_path: Path, profile_name: str | None = Non
     police_min = tuple(float(v) for v in block["police_bounds_min_xyz_m"])
     police_max = tuple(float(v) for v in block["police_bounds_max_xyz_m"])
     slabs = tuple(Occluder(**slab) for slab in block["occluders"])
-    trajectory = _trajectory_from_manifest(block["delivery_trajectory"])
+    trajectory = trajectory_from_manifest(block["delivery_trajectory"])
     fov = float(manifest["camera"]["horizontal_fov_deg"])
 
     certificate = continuous_certificate(

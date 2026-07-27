@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 from .geometry import a_start_xyz, corridor_centerline, is_clear, person_b_xyz
 from .model import CorridorProfile, Scenario
@@ -134,6 +135,22 @@ class DeliveryTrajectory:
         pose = self.pose_at(s_m)
         return Pose(pose.x_m, pose.y_m, pose.z_m + self.camera_height_m, pose.yaw_rad)
 
+    def approach_s_at_x(self, station_x_m: float) -> float:
+        """Convert a surveyed world-X station to approach arc length.
+
+        The observer's station coordinate is world X, whereas this trajectory
+        is parameterized by traveled distance. Keeping the conversion here
+        prevents static and motion tools from quietly treating them as equal.
+        """
+
+        forward_x = self.approach_heading[0]
+        if abs(forward_x) <= 1e-12:
+            raise ValueError("approach does not advance along world X")
+        route_s_m = (station_x_m - self.start_xyz_m[0]) / forward_x
+        if route_s_m < -1e-9 or route_s_m > self.approach_length_m + 1e-9:
+            raise ValueError(f"world-X station {station_x_m} is outside the approach")
+        return min(max(route_s_m, 0.0), self.approach_length_m)
+
     def yaw_range(self, start_s_m: float, end_s_m: float) -> tuple[float, float]:
         """Return the (minimum, maximum) yaw over an arc-length interval.
 
@@ -156,6 +173,30 @@ class DeliveryTrajectory:
                 if not points or point != points[-1]:
                     points.append(point)
         return tuple(points)
+
+
+def trajectory_from_manifest(data: dict[str, Any]) -> DeliveryTrajectory:
+    """Rebuild the authored route from one manifest trajectory block.
+
+    This parser is intentionally independent of USD and ROS so installed Isaac
+    tools can command the exact route that the author and visibility gate use.
+    """
+
+    return DeliveryTrajectory(
+        start_xyz_m=tuple(float(value) for value in data["start_xyz_m"]),  # type: ignore[arg-type]
+        approach_heading=tuple(  # type: ignore[arg-type]
+            float(value) for value in data["approach_heading"]
+        ),
+        approach_length_m=float(data["approach_length_m"]),
+        arc_center_xy_m=tuple(  # type: ignore[arg-type]
+            float(value) for value in data["arc_center_xy_m"]
+        ),
+        arc_radius_m=float(data["arc_radius_m"]),
+        arc_start_angle_rad=float(data["arc_start_angle_rad"]),
+        arc_sweep_rad=float(data["arc_sweep_rad"]),
+        departure_length_m=float(data["departure_length_m"]),
+        camera_height_m=float(data["camera_height_m"]),
+    )
 
 
 def delivery_trajectory(scenario: Scenario, profile: CorridorProfile) -> DeliveryTrajectory:

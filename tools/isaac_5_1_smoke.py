@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 from pathlib import Path
+
+from isaac_gpu import gpu_memory_snapshot
 
 # The application must start before importing omni, pxr, or Isaac extensions.
 from isaacsim import SimulationApp
@@ -28,20 +29,6 @@ def arguments() -> argparse.Namespace:
         help="Report a loaded-stage nvidia-smi memory snapshot before shutdown.",
     )
     return parser.parse_args()
-
-
-def gpu_memory_snapshot() -> tuple[str, int, int]:
-    output = subprocess.check_output(
-        [
-            "nvidia-smi",
-            "--query-gpu=name,memory.used,memory.total",
-            "--format=csv,noheader,nounits",
-            "--id=0",
-        ],
-        text=True,
-    ).strip()
-    name, used_mib, total_mib = (item.strip() for item in output.split(","))
-    return name, int(used_mib), int(total_mib)
 
 
 def main() -> int:
