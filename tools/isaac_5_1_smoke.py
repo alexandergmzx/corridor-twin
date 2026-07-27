@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,7 +17,31 @@ def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", type=Path)
     parser.add_argument("--updates", type=int, default=10)
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Open a visible viewport while running the same stage validation.",
+    )
+    parser.add_argument(
+        "--report-gpu-memory",
+        action="store_true",
+        help="Report a loaded-stage nvidia-smi memory snapshot before shutdown.",
+    )
     return parser.parse_args()
+
+
+def gpu_memory_snapshot() -> tuple[str, int, int]:
+    output = subprocess.check_output(
+        [
+            "nvidia-smi",
+            "--query-gpu=name,memory.used,memory.total",
+            "--format=csv,noheader,nounits",
+            "--id=0",
+        ],
+        text=True,
+    ).strip()
+    name, used_mib, total_mib = (item.strip() for item in output.split(","))
+    return name, int(used_mib), int(total_mib)
 
 
 def main() -> int:
@@ -30,13 +55,13 @@ def main() -> int:
     print("ISAAC_SMOKE_START", f"stage={stage_path}", flush=True)
     app = SimulationApp(
         {
-            "headless": True,
+            "headless": not args.gui,
             "width": 640,
             "height": 360,
             "renderer": "RaytracedLighting",
             "anti_aliasing": 2,
             "create_new_stage": False,
-            "disable_viewport_updates": True,
+            "disable_viewport_updates": not args.gui,
             "fast_shutdown": True,
             "open_usd": str(stage_path),
         }
@@ -90,6 +115,15 @@ def main() -> int:
                 raise RuntimeError(f"{name} lost its collision schema")
         corridor = stage.GetPrimAtPath("/World/Environment/Corridor")
         variants = corridor.GetVariantSets().GetVariantSet("corridorProfile")
+        if args.report_gpu_memory:
+            gpu_name, used_mib, total_mib = gpu_memory_snapshot()
+            print(
+                "ISAAC_SMOKE_GPU",
+                f"name={gpu_name}",
+                f"used_mib={used_mib}",
+                f"total_mib={total_mib}",
+                flush=True,
+            )
         print(
             "ISAAC_SMOKE_PASS",
             f"stage={stage_path}",
