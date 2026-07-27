@@ -75,6 +75,75 @@ ADAPTER_CONTRACT = {
 
 ROBOT_PRIM = "/World/Actors/A"
 RENDER_PRODUCT_WARMUP_UPDATES = 12
+
+# Settings keys that hold the renderer state actually in force. The installed
+# SimulationApp._set_render_settings(default=...) writes "/rtx-defaults" when
+# called with default=True and "/rtx" otherwise, and reset_render_settings()
+# takes the default=False path, so the active tree is the acceptance value and
+# the defaults tree is lifecycle evidence.
+ACTIVE_RENDER_MODE_KEY = "/rtx/rendermode"
+DEFAULT_RENDER_MODE_KEY = "/rtx-defaults/rendermode"
+ACTIVE_ANTI_ALIASING_KEY = "/rtx/post/aa/op"
+DEFAULT_ANTI_ALIASING_KEY = "/rtx-defaults/post/aa/op"
+
+
+def _normalize_render_mode(value: str) -> str:
+    """Fold the installed tree's inconsistent capitalization to one token.
+
+    Isaac writes "RaytracedLighting" from simulation_app.py, while its own
+    Replicator examples write "RayTracedLighting". Comparing raw strings would
+    fail a correct run.
+    """
+
+    return str(value).strip().lower()
+
+
+def _read_render_state(settings) -> dict[str, object]:
+    """Read the renderer state in force. Never derived from the request."""
+
+    return {
+        "active_anti_aliasing": settings.get_as_int(ACTIVE_ANTI_ALIASING_KEY),
+        "default_anti_aliasing": settings.get_as_int(DEFAULT_ANTI_ALIASING_KEY),
+        "active_render_mode": settings.get_as_string(ACTIVE_RENDER_MODE_KEY),
+        "default_render_mode": settings.get_as_string(DEFAULT_RENDER_MODE_KEY),
+    }
+
+
+def _render_state_violations(state: dict[str, object]) -> list[str]:
+    """Return contract violations; empty means the active renderer is accepted."""
+
+    expected_aa = ADAPTER_CONTRACT["anti_aliasing"]
+    expected_mode = _normalize_render_mode(ADAPTER_CONTRACT["render_mode"])
+    problems: list[str] = []
+    if state["active_anti_aliasing"] != expected_aa:
+        problems.append(
+            "active anti-aliasing mode is "
+            f"{state['active_anti_aliasing']}, expected {expected_aa}"
+        )
+    if state["default_anti_aliasing"] != expected_aa:
+        problems.append(
+            "default anti-aliasing mode is "
+            f"{state['default_anti_aliasing']}, expected {expected_aa}"
+        )
+    active_mode = _normalize_render_mode(state["active_render_mode"])
+    if not active_mode:
+        problems.append(
+            f"{ACTIVE_RENDER_MODE_KEY} is empty; the renderer reported no active mode"
+        )
+    elif active_mode != expected_mode:
+        problems.append(
+            f"active render mode is {state['active_render_mode']!r}, "
+            f"expected {ADAPTER_CONTRACT['render_mode']!r}"
+        )
+    # An unpopulated defaults tree must not veto a valid active readback,
+    # because the ordinary lifecycle path never writes it.
+    default_mode = _normalize_render_mode(state["default_render_mode"])
+    if default_mode and default_mode != expected_mode:
+        problems.append(
+            f"default render mode is {state['default_render_mode']!r}, "
+            f"expected {ADAPTER_CONTRACT['render_mode']!r}"
+        )
+    return problems
 STATIC_PROBE_DEFAULTS = {
     "stations_x_m": (0.5, 1.5, 3.0, 5.0, 7.0),
     "settle_updates": 12,
@@ -235,6 +304,8 @@ def _run_static_probe(
     dwells: list[dict[str, object]] = []
     observed_active_anti_aliasing: set[int] = set()
     observed_default_anti_aliasing: set[int] = set()
+    observed_active_render_modes: set[str] = set()
+    observed_default_render_modes: set[str] = set()
     total_updates = 0
     for index, station_x_m in enumerate(stations_x_m):
         route_s_m = trajectory.approach_s_at_x(station_x_m)
@@ -244,21 +315,15 @@ def _run_static_probe(
         start_s = float(clock.get_sim_time())
         for _ in range(args.static_settle_updates):
             app.update()
-        active_anti_aliasing = settings.get_as_int("/rtx/post/aa/op")
-        default_anti_aliasing = settings.get_as_int("/rtx-defaults/post/aa/op")
-        observed_active_anti_aliasing.add(active_anti_aliasing)
-        observed_default_anti_aliasing.add(default_anti_aliasing)
-        if active_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]:
+        render_state = _read_render_state(settings)
+        observed_active_anti_aliasing.add(int(render_state["active_anti_aliasing"]))
+        observed_default_anti_aliasing.add(int(render_state["default_anti_aliasing"]))
+        observed_active_render_modes.add(str(render_state["active_render_mode"]))
+        observed_default_render_modes.add(str(render_state["default_render_mode"]))
+        violations = _render_state_violations(render_state)
+        if violations:
             raise RuntimeError(
-                "renderer changed the active anti-aliasing mode: "
-                f"expected {ADAPTER_CONTRACT['anti_aliasing']}, "
-                f"found {active_anti_aliasing}"
-            )
-        if default_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]:
-            raise RuntimeError(
-                "renderer changed the default anti-aliasing mode: "
-                f"expected {ADAPTER_CONTRACT['anti_aliasing']}, "
-                f"found {default_anti_aliasing}"
+                f"renderer contract violated before dwell {index}: " + "; ".join(violations)
             )
         settled_start_s = float(clock.get_sim_time())
         for _ in range(args.static_capture_updates):
@@ -319,14 +384,23 @@ def _run_static_probe(
                 "camera_hz": ADAPTER_CONTRACT["camera_hz"],
                 "render_product_warmup_updates": RENDER_PRODUCT_WARMUP_UPDATES,
                 "render_warmup_reset_events": render_warmup_reset_events,
+                # Every "observed_" field below is a readback. The requested
+                # values are recorded separately and under names that cannot be
+                # mistaken for measurements.
                 "render_settings": {
-                    "render_mode": ADAPTER_CONTRACT["render_mode"],
+                    "requested_render_mode": ADAPTER_CONTRACT["render_mode"],
                     "requested_anti_aliasing": ADAPTER_CONTRACT["anti_aliasing"],
+                    "observed_active_render_modes": sorted(observed_active_render_modes),
+                    "observed_default_render_modes": sorted(observed_default_render_modes),
                     "observed_active_anti_aliasing": sorted(
                         observed_active_anti_aliasing
                     ),
                     "observed_default_anti_aliasing": sorted(
                         observed_default_anti_aliasing
+                    ),
+                    "path_tracing": any(
+                        "pathtracing" in _normalize_render_mode(mode)
+                        for mode in observed_active_render_modes
                     ),
                 },
                 "settle_updates": args.static_settle_updates,
@@ -543,29 +617,21 @@ def main() -> int:
         stable_updates = 0
         for _ in range(RENDER_PRODUCT_WARMUP_UPDATES):
             app.update()
-            active_anti_aliasing = settings.get_as_int("/rtx/post/aa/op")
-            default_anti_aliasing = settings.get_as_int("/rtx-defaults/post/aa/op")
-            if (
-                active_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]
-                or default_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]
-            ):
+            if _render_state_violations(_read_render_state(settings)):
                 render_warmup_reset_events += 1
                 stable_updates = 0
             else:
                 stable_updates += 1
-        active_anti_aliasing = settings.get_as_int("/rtx/post/aa/op")
-        default_anti_aliasing = settings.get_as_int("/rtx-defaults/post/aa/op")
-        if (
-            active_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]
-            or default_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]
-        ):
+        render_state = _read_render_state(settings)
+        violations = _render_state_violations(render_state)
+        if violations:
             raise RuntimeError(
-                "post-create render product anti-aliasing does not match the contract: "
-                f"active={active_anti_aliasing}, default={default_anti_aliasing}"
+                "post-create renderer state does not match the contract: "
+                + "; ".join(violations)
             )
         if stable_updates < 3:
             raise RuntimeError(
-                "render product anti-aliasing did not remain stable for three "
+                "renderer state did not remain stable for three "
                 f"warm-up updates; stable_updates={stable_updates}"
             )
         print(
@@ -573,8 +639,10 @@ def main() -> int:
             f"warmup_updates={RENDER_PRODUCT_WARMUP_UPDATES}",
             f"reset_events={render_warmup_reset_events}",
             f"stable_updates={stable_updates}",
-            f"active_anti_aliasing={active_anti_aliasing}",
-            f"default_anti_aliasing={default_anti_aliasing}",
+            f"active_render_mode={render_state['active_render_mode']!r}",
+            f"default_render_mode={render_state['default_render_mode']!r}",
+            f"active_anti_aliasing={render_state['active_anti_aliasing']}",
+            f"default_anti_aliasing={render_state['default_anti_aliasing']}",
             flush=True,
         )
         if args.static_probe_out is not None:

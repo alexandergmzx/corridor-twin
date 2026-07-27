@@ -59,11 +59,93 @@ def test_static_probe_reuses_the_adapter_product_and_records_both_station_coordi
     assert '"expected_station_x_m": camera_pose.x_m' in source
     assert "rep.create.render_product" not in source
     assert "ROS2CameraHelper" in source
-    assert 'settings.get_as_int("/rtx/post/aa/op")' in source
+    assert "settings.get_as_int(ACTIVE_ANTI_ALIASING_KEY)" in source
+    assert literal_assignment(ADAPTER, "ACTIVE_ANTI_ALIASING_KEY") == "/rtx/post/aa/op"
+    assert literal_assignment(ADAPTER, "DEFAULT_ANTI_ALIASING_KEY") == "/rtx-defaults/post/aa/op"
     assert '"observed_active_anti_aliasing": sorted(' in source
     assert '"observed_default_anti_aliasing": sorted(' in source
     assert "IsaacCreateRenderProduct constructs its Hydra product" in source
     assert '"render_product_warmup_updates": RENDER_PRODUCT_WARMUP_UPDATES' in source
+
+
+def _function_def(path: Path, name: str) -> ast.FunctionDef:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"{name} not found in {path}")
+
+
+def _dict_containing(node: ast.AST, key: str) -> ast.Dict:
+    for candidate in ast.walk(node):
+        if isinstance(candidate, ast.Dict):
+            keys = [item.value for item in candidate.keys if isinstance(item, ast.Constant)]
+            if key in keys:
+                return candidate
+    raise AssertionError(f"no dictionary literal carrying {key!r}")
+
+
+def _entries(node: ast.Dict) -> dict[str, ast.AST]:
+    return {
+        key.value: value
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant)
+    }
+
+
+def _reads_contract_render_mode(node: ast.AST) -> bool:
+    for candidate in ast.walk(node):
+        if (
+            isinstance(candidate, ast.Subscript)
+            and isinstance(candidate.value, ast.Name)
+            and candidate.value.id == "ADAPTER_CONTRACT"
+            and isinstance(candidate.slice, ast.Constant)
+            and candidate.slice.value == "render_mode"
+        ):
+            return True
+    return False
+
+
+def test_adapter_reads_both_render_mode_keys() -> None:
+    source = ADAPTER.read_text(encoding="utf-8")
+    assert 'settings.get_as_string(ACTIVE_RENDER_MODE_KEY)' in source
+    assert 'settings.get_as_string(DEFAULT_RENDER_MODE_KEY)' in source
+    assert literal_assignment(ADAPTER, "ACTIVE_RENDER_MODE_KEY") == "/rtx/rendermode"
+    assert literal_assignment(ADAPTER, "DEFAULT_RENDER_MODE_KEY") == "/rtx-defaults/rendermode"
+
+
+def test_static_schedule_never_sources_renderer_evidence_from_the_request() -> None:
+    """Pin the original defect.
+
+    The requested render mode was echoed into the truth schedule under a
+    measured-sounding name. Finding a getter somewhere in the file does not
+    disprove that, so inspect the serialized dictionary itself: no key that
+    reports an observation may be reachable from ADAPTER_CONTRACT["render_mode"].
+    """
+
+    probe = _function_def(ADAPTER, "_run_static_probe")
+    settings = _entries(_dict_containing(probe, "observed_active_render_modes"))
+
+    observed = {name: node for name, node in settings.items() if name.startswith("observed_")}
+    assert {
+        "observed_active_render_modes",
+        "observed_default_render_modes",
+        "observed_active_anti_aliasing",
+        "observed_default_anti_aliasing",
+    } <= set(observed)
+    for name, node in observed.items():
+        assert not _reads_contract_render_mode(node), f"{name} is sourced from the request"
+        assert isinstance(node, ast.Call) and node.func.id == "sorted", (
+            f"{name} must serialize a readback accumulator deterministically"
+        )
+
+    # The request may still be recorded, but only under a name that says so.
+    assert "render_mode" not in settings
+    assert _reads_contract_render_mode(settings["requested_render_mode"])
+
+    # path_tracing must be derived from the readback, not asserted.
+    assert not isinstance(settings["path_tracing"], ast.Constant)
+    assert not _reads_contract_render_mode(settings["path_tracing"])
 
 
 def test_adapter_self_isolates_isaac_python_from_system_ros() -> None:
