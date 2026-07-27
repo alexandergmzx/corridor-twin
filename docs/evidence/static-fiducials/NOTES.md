@@ -1,5 +1,32 @@
 # Static production-camera fiducial qualification
 
+> ## INVALIDATED — there is no canonical static qualification right now
+>
+> This run predates the renderer readback fix in `5bc1c99`. At the time it was
+> captured, the adapter wrote the render mode it had **requested** into the
+> truth schedule; nothing read the value back from the running renderer. Its
+> summary is therefore preserved unmodified as
+> [`qualification-summary-v1-request-echo-invalidated.json`](qualification-summary-v1-request-echo-invalidated.json)
+> and is **not** the current result.
+>
+> | Claim from this run | Status |
+> |---|---|
+> | RGB frames, encoding, resolution, rate, calibration | **Still valid** historical camera evidence |
+> | Recovered station error per dwell | **Still valid**, and independently reproduced bit-for-bit |
+> | Mirror negative control failing | **Still valid** |
+> | `renderer/mode`, `renderer/path_tracing` | **Invalid as measurement.** Requested, never observed |
+>
+> The renderer string was not shown to be *wrong* — it was never verified. A
+> later live readback did report `RaytracedLighting` with AA enum 3, but that
+> observation belongs to a different run and does not retroactively qualify
+> this one.
+>
+> **No file in this directory is the canonical static qualification** until the
+> planned Stage 2 rerun produces a fresh paired capture under the readback,
+> encoding, and tightened intrinsic gates. Do not cite this run as current
+> proof of the active render mode, and do not begin robot motion on the
+> strength of it.
+
 This topic records the first accepted proof that the real Isaac ROS camera path
 delivers pixels from which the production estimator recovers surveyed station.
 Bulk frames and logs remain under `out/evidence/static-fiducials/nominal-final/`.
@@ -112,5 +139,15 @@ difference from the configured pinhole model was 0.0000149 px. The estimator
 analysis had no truth parameter. Only the independent comparison step read the
 commanded static schedule.
 
-The stable machine-readable result is
-[`qualification-summary.json`](qualification-summary.json).
+The preserved machine-readable result is
+[`qualification-summary-v1-request-echo-invalidated.json`](qualification-summary-v1-request-echo-invalidated.json),
+kept byte-for-byte as captured. Read it with the invalidation notice at the top
+of this file: its pixel, calibration, rate, and station-error rows remain
+historical evidence, while its `renderer` block records a requested value that
+was never read back. There is deliberately no `qualification-summary.json` in
+this directory until a fresh Stage 2 run passes under the readback, encoding,
+and 0.05 px intrinsic gates.
+
+Also note that the intrinsic tolerance quoted above was later tightened from
+0.5 px to 0.05 px in `0c4e9b8`. The measured 0.0000149 px passes either way, so
+this run's camera result is unaffected by that change.

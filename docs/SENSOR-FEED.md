@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Contract version | 0.3.1 |
-| Status | Implemented by synthetic and Isaac 5.1 publishers; live Isaac contract validated |
-| Last updated | 2026-07-26 |
+| Contract version | 0.3.2 |
+| Status | Implemented by synthetic and Isaac 5.1 publishers; `rgb8` now gated at the wire and offline, and both publishers share the production `cx=width/2` convention |
+| Last updated | 2026-07-27 |
 
 ## Scope
 

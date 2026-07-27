@@ -26,9 +26,15 @@ location; it must not silently replace the reviewed artifact.
 
 ## Recorded topics
 
-| Topic | Accepted claim | Evidence |
+| Topic | Status | Evidence |
 |---|---|---|
-| Static production-camera fiducials | The one-product Isaac ROS feed supports surveyed station recovery at all five nominal approach dwells; a mirror control fails | [Notes and stable summary](static-fiducials/NOTES.md) |
+| Static production-camera fiducials | **Renderer claim invalidated; no canonical qualification** | [Notes and preserved v1 summary](static-fiducials/NOTES.md) |
+
+The static topic's pixel, calibration, rate, and station-error results remain
+valid historical evidence, but its renderer mode was requested rather than
+observed, so the run is not the current qualification. Its summary is preserved
+unmodified under a name that says so, and no replacement is published until the
+planned rerun passes. A topic in this state must not be cited as current proof.
 
 See [repository conventions](../../CLAUDE.md) for the evidence and authorship
 rules.

@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.6.0 |
-| Status | Static production-camera fiducial gate qualified; deterministic live motion is next |
+| Design version | 0.6.1 |
+| Status | Renderer/camera contract corrected; static renderer claim invalidated pending requalification; enforcement coverage does not yet reach the corner |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Target ROS | ROS 2 Jazzy |
@@ -265,6 +265,14 @@ The synthetic publisher renders actual ArUco images through a calibrated pinhole
 camera model while moving it along a known station function. Truth is published
 on a test-only topic for the evaluator. A source contract test proves that the
 observer adapter contains no truth or odometry subscription.
+
+> **Provisional figures.** The numbers in this section were observed directly,
+> but they exist only as prose and as broad test bounds — there is no committed
+> command or machine-readable result behind them, so a reader cannot reproduce
+> them without rebuilding the run by hand. A deterministic reporter and a
+> curated `docs/evidence/synthetic-observer/` summary are planned *after* the
+> reference-fiducial geometry lands, because restoring gates 8.0 and 10.0 will
+> move these values again. Treat them as indicative until then.
 
 The implemented clean synthetic test uses actual ArUco pixels, camera intrinsics,
 detection, PnP, gate interpolation, and the violation debounce. Re-measured on

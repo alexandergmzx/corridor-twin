@@ -89,20 +89,34 @@ bash tools/check_workspace.sh   # ruff, pytest, colcon build, colcon test
 unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 `scene.occlusion` does take `--profile`, meaning the corridor profile.
 
-## Current handoff: audit the static camera gate, then move A
+## Current handoff: restore enforcement coverage, requalify, then move A
 
-The static rendered-fiducial gate is complete locally. Before changing behavior,
-read [`docs/HANDOFF.md`](docs/HANDOFF.md) and independently audit the local
-commits after `origin/main`. The handoff records the exact commit range, the
-fresh 74-test plus 52-package-test result, GPU evidence, known limits, and the
-questions that must be challenged. Do not start robot motion until the audit has
-a clear go decision or any correction has landed as an additive commit.
+Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first. It records the exact commit
+range, the current 97-repository plus 52-package test result, review findings
+R1–R5, and the limits that are not yet closed.
+
+**Robot motion must not start yet.** Two things block it, and neither is a
+matter of taste:
+
+1. **There is no canonical static qualification.** The recorded run predates the
+   renderer readback fix and reported a *requested* mode as measured. Its
+   summary is preserved unmodified as
+   `qualification-summary-v1-request-echo-invalidated.json`, and no replacement
+   is published until a fresh paired run passes. Motion evidence built on that
+   baseline would inherit the same defect.
+2. **Enforcement coverage does not reach the corner.** Past camera x ≈ 7.5 the
+   wall markers fall outside the 75° frustum, so gates 8.0 and 10.0 can never
+   produce an estimate and the tightest rule — 0.8 m/s at x ≥ 10 — cannot be
+   exercised from camera evidence. This is a renderer-independent FOV
+   obstruction, not a rendering-quality problem.
 
 | Status | Slice | Required evidence before continuing |
 |---|---|---|
-| Done | Static ArUco rendering probe | Nominal profile passes five production-pixel dwells; curated evidence and an actual-capture mirror control are recorded. |
-| Gate | Independent review | Challenge implementation, evidence, truth isolation, negative controls, renderer lifecycle, and the single-marker fixture before accepting the local result. |
-| Next | Deterministic robot motion | Move `/World/Actors/A` continuously along the authored line-arc-line trajectory with position and yaw derived from route station; drive it from simulation time with a configured path-speed profile; reset safely after a corridor-variant change. |
+| Done | Static ArUco rendering probe | Nominal profile passes five production-pixel dwells with an actual-capture mirror control. Its renderer claim is invalidated; its pixel and station results stand. |
+| Done | Renderer/camera contract correction | `5bc1c99` reads the render mode back, `0c4e9b8` gates encoding and aligns the principal point behind a 0.05 px criterion, `3d9a754` covers every rejecting branch portably. |
+| Next | Restore enforcement-gate coverage | Add reference fiducials on the north-wall extension and the east building face — perpendicular planes, so combined correspondences stay non-coplanar. Split marker roles so references never become phantom gates. Re-run the occlusion certificate for all three profiles. |
+| Then | Requalify on GPU | Fresh paired capture of the corrected geometry, with dwells sampling the weak two-tag band and the previously unreachable region. Only then does a canonical static qualification exist again. |
+| Then | Deterministic robot motion | Move `/World/Actors/A` continuously along the authored line-arc-line trajectory with position and yaw derived from route station; drive it from simulation time with a configured path-speed profile; reset safely after a corridor-variant change. Thresholds come from the requalification, not from synthetic extrapolation. |
 | Later | Live camera-to-observer qualification | Feed only the camera contract to `police_observer`. Keep simulator truth in a separate evaluator. Demonstrate 1.0 m/s without a violation, 1.8 m/s with exactly one violation, acceleration through the limit, and dropped/single-marker frames; report speed error, usable-frame coverage, and latency. |
 | Later | Interview visualization | Show active `(m,n)`, measured speed and uncertainty, local width and speed limit, violation state, A's route, P's location, and the blocking-wall/certificate result. An ordinary viewport may explain the scene, but it must not become a second sensor or ROS render product. |
 | Last | Demo hardening | Provide one documented launch path, repeat the VRAM measurement on the RTX 5070 Ti, preserve failure evidence, document the Ubuntu fallback, and tag the interview-ready release only after the gates pass. |

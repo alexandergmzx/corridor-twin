@@ -2,30 +2,82 @@
 
 | Field | Value |
 |---|---|
-| Handoff version | 1.0.0 |
+| Handoff version | 1.1.0 |
 | Prepared | 2026-07-27 |
 | Branch | `main` |
 | Published base | `a416e47` on `origin/main` |
-| Last behavior commit to audit | `391773b` |
-| Current gate | Independent review of the static production-camera qualification |
-| Next implementation slice | Deterministic continuous motion on the authored route |
+| Last behavior commit to audit | `3d9a754` |
+| Portable gate at this handoff | 97 repository tests, 52 ROS package tests |
+| Current gate | Review of Stage 0 before reference-fiducial geometry |
+| Next implementation slice | Stage 1, restore enforcement-gate coverage. **Not motion** |
+
+## Status since handoff 1.0.0
+
+An independent audit of `a416e47..f0f68a1` found three defects, all now closed
+by additive commits, and a review of those commits raised five more.
+
+| Commit | What it closed |
+|---|---|
+| `5bc1c99` | Renderer mode was echoed from the pre-start request into the truth schedule and reached committed evidence under a measured name. It is now read back from both settings trees |
+| `0c4e9b8` | Delivered encoding was ungated; the synthetic camera used `cx=(width-1)/2` against production's `width/2`, a 0.5 px gap the gate's 0.5 px tolerance could never detect. Also re-measured synthetic figures that had been stale since the fiducials were enlarged in `3f7fa37` |
+| `3d9a754` | The renderer acceptance policy is now a portable helper with direct coverage of every rejecting branch |
+
+A live Isaac 5.1 readback subsequently reported `RaytracedLighting` with AA
+enum 3 on both trees, the saved capture passed the tightened gate, and its
+mirrored control failed. That observation belongs to a *later* run and does not
+retroactively qualify the recorded one.
+
+### Review findings R1–R5
+
+| ID | Severity | Finding | State |
+|---|---|---|---|
+| R1 | High | The canonical static qualification presented renderer mode as measured although that run predated the readback fix | **Closed by this Stage 0.** Summary preserved byte-for-byte as `qualification-summary-v1-request-echo-invalidated.json`; no canonical qualification exists until the Stage 2 rerun |
+| R2 | Medium | Exact synthetic speeds, station-error bands, and the principal-point comparison have no committed command or machine-readable result | **Open, deliberately.** Deferred until after the reference-fiducial geometry lands, because that change will move the figures again |
+| R3 | Low | `DESIGN.md` and `SENSOR-FEED.md` metadata did not advance with the changed claims | **Closed by this Stage 0** |
+| R4 | Low | This handoff and the `CLAUDE.md` pointer stopped at `391773b` and reported 74 tests | **Closed by this Stage 0** |
+| R5 | Low | Renderer-evidence provenance was proved by AST checks that never exercised normalization or rejection | **Closed by `3d9a754`** |
+
+### Gate: no motion yet
+
+Deterministic motion must not begin. Two things block it:
+
+1. There is no canonical static qualification (R1). Motion evidence built on an
+   invalidated baseline would inherit the same defect.
+2. Enforcement coverage does not reach the corner. Past camera x ≈ 7.5 the wall
+   markers fall outside the 75° frustum, so gates 8.0 and 10.0 can never
+   produce an estimate and the tightest speed rule — 0.8 m/s, applying at
+   x ≥ 10 — cannot be exercised from camera evidence at all. This is a
+   renderer-independent FOV obstruction. Stage 1 corrects it with reference
+   fiducials on the north-wall extension and the east building face, which lie
+   on perpendicular planes and therefore avoid reintroducing planar-PnP
+   ambiguity.
+
+Order: Stage 1 coverage, then the Stage 2 GPU requalification of the corrected
+geometry, then motion with thresholds taken from that measurement.
 
 ## Instruction to the incoming reviewer
 
-Independently audit the local commits after `origin/main` before implementing
-motion. Treat committed tests and evidence as claims to challenge, not as proof
-by themselves. Report findings first, ordered by severity and with file/line
-references. If a defect is confirmed, correct it in a new focused commit with a
-direct regression; do not rewrite or squash the existing history. If the audit
-passes, continue with deterministic motion only, preserving the one-camera and
-truth-isolation invariants in `CLAUDE.md`.
+Independently audit the local commits after `origin/main`. Treat committed tests
+and evidence as claims to challenge, not as proof by themselves. Report findings
+first, ordered by severity and with file/line references. If a defect is
+confirmed, correct it in a new focused commit with a direct regression; do not
+rewrite or squash the existing history.
+
+**Do not continue into motion even if this review passes.** Two gates sit
+between here and motion: enforcement coverage must first reach the corner, and
+the static qualification must be re-earned on the corrected geometry. Preserve
+the one-camera and truth-isolation invariants in `CLAUDE.md` throughout.
 
 ```mermaid
 flowchart LR
-    Base["Published base<br/>a416e47"] --> Static["Static production pixels<br/><b>QUALIFIED LOCALLY</b>"]
-    Static --> Audit["Independent audit<br/><b>DO FIRST</b>"]
-    Audit --> Motion["Deterministic route motion<br/><b>NEXT</b>"]
-    Motion --> Live["Live observer qualification<br/><b>AFTER MOTION</b>"]
+    Base["Published base<br/>a416e47"] --> Static["Static production pixels<br/><b>PIXELS VALID</b><br/>renderer claim invalidated"]
+    Static --> Fixes["Renderer/camera contract<br/>5bc1c99, 0c4e9b8, 3d9a754<br/><b>DONE</b>"]
+    Fixes --> Review["Stage 0 review<br/><b>DO FIRST</b>"]
+    Review --> Coverage["Restore corner coverage<br/><b>NEXT</b>"]
+    Coverage --> Requal["GPU requalification<br/><b>THEN</b>"]
+    Requal --> Motion["Deterministic route motion<br/><b>BLOCKED UNTIL THEN</b>"]:::blocked
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
 ```
 
 ## Local commits awaiting review
@@ -43,11 +95,15 @@ handoff will appear after the commits below.
 | `bb203c0 fix(isaac): verify the active render-product contract` | Installed Kit lifecycle | Checks the renderer state that is active after render-product creation and warm-up |
 | `95a39bf docs: record static rendered-fiducial qualification` | Measured result | Records the accepted run, ADR 0013, diagrams, and curated evidence after the executable gates pass |
 | `391773b test(observer): make single-marker regression deterministic` | Test-fixture correction | The 40 cm plate change made a hard-coded station expose two tags; the test now explicitly isolates one delivered tag before proving the production estimator rejects the ambiguous frame |
+| `f0f68a1 docs: hand off static camera audit and motion slice` | Handoff 1.0.0 | The document this one supersedes |
+| `5bc1c99 fix(isaac): measure active renderer mode instead of echoing the request` | Renderer measurement | Closes audit F1. The requested mode had reached evidence under a measured name; the AST regression inspects the serialized dictionary rather than searching for a getter |
+| `0c4e9b8 fix(observer): enforce the production camera convention` | Camera contract | Closes F2 and F3, and F4 which they exposed: encoding gated at wire and offline, principal point aligned behind a named 0.05 px criterion, and synthetic figures re-measured after being stale since `3f7fa37` |
+| `3d9a754 test(isaac): cover renderer-state enforcement` | Portable policy coverage | Closes R5. The acceptance policy is now Isaac-free and every rejecting branch is exercised without a GPU |
 
-The last commit was discovered by rerunning the complete workspace check while
-preparing this handoff. Before `391773b`, the observer behavior was still strict,
-but `test_single_marker_frames_are_rejected` no longer constructed the condition
-its name claimed and the suite failed. Keep this correction independent of the
+`391773b` was discovered by rerunning the complete workspace check while
+preparing handoff 1.0.0. Before it, the observer behavior was still strict, but
+`test_single_marker_frames_are_rejected` no longer constructed the condition its
+name claimed and the suite failed. Keep this correction independent of the
 earlier scene fix so the causal chain remains visible.
 
 ## What may and may not be claimed
@@ -55,8 +111,11 @@ earlier scene fix so the causal chain remains visible.
 | Claim | Current status | Important limit |
 |---|---|---|
 | One Isaac RGB product publishes synchronized pixels and calibration | Qualified | 640x360 `rgb8` at 15 Hz, nominal profile |
+| The recorded run used a ray-traced renderer | **Not qualified** | Requested, never read back. Invalidated by R1; a fresh paired run is required |
 | Surveyed station can be recovered from production pixels | Qualified | Five static approach dwells; maximum accepted error 0.010563 m |
 | Negative control detects a broken image/corner convention | Qualified | A mirrored copy of the actual capture produced zero passing frames |
+| Every surveyed gate can be measured from camera evidence | **False** | Gates 8.0 and 10.0 are outside the frustum; the 0.8 m/s corner rule is unreachable until Stage 1 |
+| Exact synthetic speed and error figures are reproducible | **Not yet** | R2 open: prose and test bounds only, no committed command or machine-readable result |
 | Observer receives no simulator truth | Covered by source/AST tests and capture topology | Runtime subscription audit belongs to the later live-observer slice |
 | Fiducial mounts clear their walls | Covered for every authored profile | Only the nominal profile has been qualified through rendered pixels |
 | GPU use is below the project ceiling | Qualified at the accepted checkpoint | 3,024 MiB is one `nvidia-smi` used-memory snapshot, not a time-series peak |
@@ -65,12 +124,15 @@ earlier scene fix so the causal chain remains visible.
 | Live Isaac pixels produce correct speed/violation output | Not implemented | Synthetic motion and static Isaac pixels are separate qualified layers so far |
 | Host is an NVIDIA-supported deployment | False | Hardware gates pass, but Linux Mint remains unsupported; Ubuntu 24.04 is the fallback |
 
-The accepted evidence is summarized in
-[`evidence/static-fiducials/NOTES.md`](evidence/static-fiducials/NOTES.md) and
-[`evidence/static-fiducials/qualification-summary.json`](evidence/static-fiducials/qualification-summary.json).
-The full local capture, truth schedule, evaluator results, and ROS logs currently
-remain under `out/evidence/static-fiducials/nominal-final/`. They are ignored
-scratch evidence and are not available from a fresh clone.
+The recorded run is described in
+[`evidence/static-fiducials/NOTES.md`](evidence/static-fiducials/NOTES.md),
+which opens with its invalidation notice, and its summary is preserved
+unmodified as
+[`evidence/static-fiducials/qualification-summary-v1-request-echo-invalidated.json`](evidence/static-fiducials/qualification-summary-v1-request-echo-invalidated.json).
+There is intentionally no `qualification-summary.json`. The full local capture,
+truth schedule, evaluator results, and ROS logs remain under
+`out/evidence/static-fiducials/nominal-final/`; they are ignored scratch
+evidence and are not available from a fresh clone.
 
 ## Audit checklist
 
@@ -98,7 +160,7 @@ The last clean run on 2026-07-27 produced:
 | Layer | Expected result |
 |---|---:|
 | Ruff | Pass |
-| Repository pytest | 74 passed |
+| Repository pytest | 97 passed |
 | Colcon build | 3 packages built |
 | ROS package tests | 52 tests, 0 errors, 0 failures, 0 skipped |
 
@@ -148,7 +210,29 @@ The review report should contain:
 5. claims that remain provisional; and
 6. a clear go/no-go decision for deterministic motion.
 
-## Next slice after a passing audit
+## Next slice after a passing review: coverage, not motion
+
+Stage 1 restores enforcement-gate coverage. Near the corner the corridor is
+3.0 m wide, so wall markers sit ±1.5 m from the centreline and a marker 2 m
+ahead subtends 37°, at the 37.5° half-FOV edge. Denser or larger wall markers
+cannot help — the limit is angular, not resolution. Coverage for x ∈ [8, 12]
+needs targets 3–8 m ahead, so reference fiducials go on the north-wall
+extension and the east building face. Those two planes are perpendicular, which
+keeps their combined correspondences non-coplanar and avoids reintroducing the
+planar-PnP ambiguity the two-marker minimum exists to prevent.
+
+Marker roles must split at the same time: `MarkerMap.gate_stations_m` is
+`sorted({marker.station_m})` today, so a reference plate would silently become
+an enforcement gate the robot never crosses.
+
+Because geometry changes, the occlusion certificate re-runs for all three
+profiles, and the synthetic figures are re-measured again.
+
+Stage 2 then requalifies on GPU, adding dwells that sample the weak two-tag band
+and the previously unreachable region. Only after that does a canonical static
+qualification exist again.
+
+## Motion slice, blocked until both gates above pass
 
 Implement `PathSpeedProfile` as simulator-independent logic that maps simulation
 time to route arc length, then make the installed-version adapter apply

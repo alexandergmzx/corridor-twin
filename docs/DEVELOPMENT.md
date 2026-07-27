@@ -68,7 +68,7 @@ The installed Isaac smoke remains an explicit workstation activation check.
 | Layer | Current local result | Where it runs |
 |---|---|---|
 | Ruff | Pass | Local and every GitHub push/PR |
-| Repository pytest | 74 passed | Local and every GitHub push/PR |
+| Repository pytest | 97 passed | Local and every GitHub push/PR |
 | ROS build | 3 packages built | Local and every GitHub push/PR |
 | ROS package tests | 52 passed, 0 failures | Local and every GitHub push/PR |
 | Isaac stage and camera checks | Pass headless and visible | Qualified GPU workstation only |
