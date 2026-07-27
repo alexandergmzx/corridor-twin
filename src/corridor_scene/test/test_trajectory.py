@@ -5,10 +5,24 @@ from __future__ import annotations
 import math
 
 import pytest
-from scene.geometry import a_start_xyz, corridor_centerline, is_clear, person_b_xyz, police_bounds
+from scene.geometry import (
+    Occluder,
+    a_start_xyz,
+    corridor_centerline,
+    is_clear,
+    person_b_xyz,
+    police_bounds,
+)
 from scene.model import load_scenario
-from scene.occlusion import _frustum_excluded, _target_vertices
-from scene.trajectory import ARC, delivery_trajectory
+from scene.occlusion import (
+    _camera_source_vertices,
+    _frustum_excluded,
+    _target_vertices,
+    _wall_witness,
+    _wall_witness_sources,
+    continuous_certificate,
+)
+from scene.trajectory import ARC, DeliveryTrajectory, delivery_trajectory
 
 
 def _profiles():
@@ -116,6 +130,83 @@ def test_mid_turn_yaw_is_covered_not_skipped(scenario, profile) -> None:
         assert _frustum_excluded(
             point, point, targets, pose.yaw_rad, pose.yaw_rad, tan_half
         )
+
+
+@pytest.mark.parametrize("scenario,profile", _profiles())
+def test_arc_source_enclosure_contains_the_real_turn(scenario, profile) -> None:
+    trajectory = delivery_trajectory(scenario, profile)
+    arc = next(segment for segment in trajectory.segments() if segment.kind == ARC)
+    for chunk in range(4):
+        start = arc.start_s_m + (arc.end_s_m - arc.start_s_m) * chunk / 4.0
+        end = arc.start_s_m + (arc.end_s_m - arc.start_s_m) * (chunk + 1) / 4.0
+        enclosure = _camera_source_vertices(trajectory, ARC, start, end)
+        x_bounds = (min(point[0] for point in enclosure), max(point[0] for point in enclosure))
+        y_bounds = (min(point[1] for point in enclosure), max(point[1] for point in enclosure))
+        for index in range(21):
+            pose = trajectory.camera_pose_at(start + (end - start) * index / 20.0)
+            assert x_bounds[0] - 1e-12 <= pose.x_m <= x_bounds[1] + 1e-12
+            assert y_bounds[0] - 1e-12 <= pose.y_m <= y_bounds[1] + 1e-12
+
+
+def test_curved_source_interval_cannot_be_replaced_by_its_chord(monkeypatch) -> None:
+    """Regression for a certificate false-pass found during review.
+
+    The arc endpoints both see the target through a short wall, but the real
+    mid-arc camera sits outside their chord and sees over it. A proof using only
+    the endpoints accepts this geometry; the conservative arc enclosure must
+    reject it.
+    """
+
+    trajectory = DeliveryTrajectory(
+        start_xyz_m=(math.cos(1.7), math.sin(1.7), 0.0),
+        approach_heading=(1.0, 0.0),
+        approach_length_m=0.0,
+        arc_center_xy_m=(0.0, 0.0),
+        arc_radius_m=1.0,
+        arc_start_angle_rad=1.7,
+        arc_sweep_rad=1.7,
+        departure_length_m=0.0,
+        camera_height_m=1.0,
+    )
+    slab = Occluder("/wall", 1.5, 1.55, -0.01, 0.0, 0.22, 0.0, 2.0)
+    target_min = (2.0, -0.001, 0.99)
+    target_max = (2.01, 0.001, 1.01)
+    targets = _target_vertices(target_min, target_max)
+    start = trajectory.camera_pose_at(0.0)
+    end = trajectory.camera_pose_at(trajectory.arc_length_m)
+    endpoints = (
+        (start.x_m, start.y_m, start.z_m),
+        (end.x_m, end.y_m, end.z_m),
+    )
+
+    assert _wall_witness(*endpoints, targets, slab) is not None
+    enclosure = _camera_source_vertices(trajectory, ARC, 0.0, trajectory.arc_length_m)
+    midpoint = trajectory.camera_pose_at(trajectory.arc_length_m / 2.0)
+    assert min(point[0] for point in enclosure) <= midpoint.x_m <= max(
+        point[0] for point in enclosure
+    )
+    assert min(point[1] for point in enclosure) <= midpoint.y_m <= max(
+        point[1] for point in enclosure
+    )
+    assert min(point[0] for point in enclosure) == pytest.approx(math.cos(1.7))
+    assert max(point[0] for point in enclosure) == pytest.approx(1.0)
+    assert min(point[1] for point in enclosure) == pytest.approx(0.0)
+    assert max(point[1] for point in enclosure) == pytest.approx(1.0)
+    assert _wall_witness_sources(enclosure, targets, slab) is None
+
+    # Keep the deliberately broken fixture bounded while still exercising the
+    # public recursive certificate path.
+    monkeypatch.setattr("scene.occlusion.MAX_DEPTH", 8)
+    certificate = continuous_certificate(
+        trajectory,
+        target_min,
+        target_max,
+        (slab,),
+        horizontal_fov_deg=179.0,
+        profile_name="curved-source-negative-control",
+    )
+    assert not certificate.passed
+    assert not certificate.line_of_sight_blocked_everywhere
 
 
 def test_turn_radius_that_cannot_fit_is_rejected(tmp_path) -> None:

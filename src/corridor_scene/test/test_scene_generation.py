@@ -271,7 +271,11 @@ def test_certificate_names_the_blocking_prim(generated: tuple[Path, Path]) -> No
     prims = {item.blocking_prim for item in result.coverage}
     assert prims
     assert all(prim is not None and prim.startswith("/World/Environment/") for prim in prims)
-    assert all(item.witness_x_m is not None for item in result.coverage)
+    assert all(item.witness_axis in {"x", "y"} for item in result.coverage)
+    assert all(item.witness_coordinate_m is not None for item in result.coverage)
+    # The reconciled scene genuinely needs both plane orientations. Recording
+    # the axis prevents a Y coordinate from masquerading as witness_x_m.
+    assert {item.witness_axis for item in result.coverage} == {"x", "y"}
     audited = set(result.usd_audit_prims)
     assert {f"/World/Environment/Corridor/{name}" for name in BUILDINGS} <= audited
 

@@ -30,7 +30,7 @@ from typing import Any
 from pxr import Gf, Usd, UsdGeom, UsdPhysics
 
 from .geometry import Occluder
-from .trajectory import DeliveryTrajectory
+from .trajectory import ARC, DeliveryTrajectory
 
 Vec3 = tuple[float, float, float]
 
@@ -49,7 +49,17 @@ class Coverage:
     wall_blocked: bool
     frustum_excluded: bool
     blocking_prim: str | None = None
-    witness_x_m: float | None = None
+    witness_axis: str | None = None
+    witness_coordinate_m: float | None = None
+
+
+@dataclass(frozen=True)
+class WallWitness:
+    """One opaque-plane witness, including the coordinate system it uses."""
+
+    prim_path: str
+    axis: str
+    coordinate_m: float
 
 
 @dataclass(frozen=True)
@@ -98,9 +108,8 @@ def _target_vertices(minimum: Vec3, maximum: Vec3) -> tuple[Vec3, ...]:
     )
 
 
-def _frustum_excluded(
-    source_start: Vec3,
-    source_end: Vec3,
+def _frustum_excluded_sources(
+    sources: tuple[Vec3, ...],
     targets: tuple[Vec3, ...],
     yaw_min: float,
     yaw_max: float,
@@ -109,19 +118,20 @@ def _frustum_excluded(
 ) -> bool:
     """Prove P lies outside the camera frustum for every yaw in a range.
 
-    Each exclusion half-space is linear in the source-to-target offset, so
-    enumerating the source endpoints against the target corners is exact for a
-    fixed yaw. For a yaw *range* the same condition must hold at both extremes:
-    the half-space constraint is a shifted cosine in yaw, so it is positive
-    across an interval shorter than pi exactly when it is positive at both
-    ends. The turn here sweeps well under pi.
+    ``sources`` are vertices of a convex enclosure of every possible camera
+    position in the interval. Each exclusion half-space is linear in the
+    source-to-target offset, so enumerating source and target vertices is exact
+    for a fixed yaw. For a yaw *range* the same condition must hold at both
+    extremes: the half-space constraint is a shifted cosine in yaw, so it is
+    positive across an interval shorter than pi exactly when it is positive at
+    both ends. The turn here sweeps well under pi.
     """
 
     def offsets(yaw: float) -> list[tuple[float, float]]:
         forward_x, forward_y = math.cos(yaw), math.sin(yaw)
         right_x, right_y = forward_y, -forward_x
         values: list[tuple[float, float]] = []
-        for source in (source_start, source_end):
+        for source in sources:
             for target in targets:
                 dx = target[0] - source[0]
                 dy = target[1] - source[1]
@@ -148,6 +158,27 @@ def _frustum_excluded(
     )
 
 
+def _frustum_excluded(
+    source_start: Vec3,
+    source_end: Vec3,
+    targets: tuple[Vec3, ...],
+    yaw_min: float,
+    yaw_max: float,
+    tan_half_fov: float,
+    epsilon: float = 1e-8,
+) -> bool:
+    """Compatibility wrapper for a straight source segment."""
+
+    return _frustum_excluded_sources(
+        (source_start, source_end),
+        targets,
+        yaw_min,
+        yaw_max,
+        tan_half_fov,
+        epsilon,
+    )
+
+
 def _clip(low: float, high: float, coefficient: float, bound: float) -> tuple[float, float]:
     """Narrow ``[low, high]`` by the linear constraint ``coefficient*q <= bound``."""
 
@@ -158,9 +189,8 @@ def _clip(low: float, high: float, coefficient: float, bound: float) -> tuple[fl
     return max(low, bound / coefficient), high
 
 
-def _wall_witness(
-    source_start: Vec3,
-    source_end: Vec3,
+def _wall_witness_sources(
+    sources: tuple[Vec3, ...],
     targets: tuple[Vec3, ...],
     slab: Occluder,
     margin: float = 1e-6,
@@ -173,16 +203,15 @@ def _wall_witness(
     and the feasible planes form an interval. A sampled search misses this: at
     the corridor entry the feasible window is only about 8 mm wide.
 
-    Enumerating the source endpoints against the target corners is exact, not
-    conservative. Perspective projection from a point maps a segment to a
-    segment and a convex box to a convex polygon, so the extreme crossings are
-    always attained at an endpoint-corner pair.
+    Enumerating the vertices of convex source and target enclosures is exact,
+    not sampled. At a separating plane the perspective crossing is
+    linear-fractional in each source coordinate with a denominator of fixed
+    sign, so its extrema over the enclosure occur at vertices.
 
     Works in either direction, because on the next street A looks back west
     toward P while in the corridor it looks east.
     """
 
-    sources = (source_start, source_end)
     source_x = [point[0] for point in sources]
     target_x = [point[0] for point in targets]
 
@@ -231,9 +260,20 @@ def _wall_witness(
     return (low + high) / 2.0
 
 
-def _wall_witness_crosswise(
+def _wall_witness(
     source_start: Vec3,
     source_end: Vec3,
+    targets: tuple[Vec3, ...],
+    slab: Occluder,
+    margin: float = 1e-6,
+) -> float | None:
+    """Compatibility wrapper for a straight source segment."""
+
+    return _wall_witness_sources((source_start, source_end), targets, slab, margin)
+
+
+def _wall_witness_crosswise_sources(
+    sources: tuple[Vec3, ...],
     targets: tuple[Vec3, ...],
     slab: Occluder,
     margin: float = 1e-6,
@@ -247,7 +287,6 @@ def _wall_witness_crosswise(
     the plane coordinate, so the feasible planes form an interval.
     """
 
-    sources = (source_start, source_end)
     source_y = [point[1] for point in sources]
     target_y = [point[1] for point in targets]
 
@@ -296,19 +335,86 @@ def _wall_witness_crosswise(
     return (low + high) / 2.0
 
 
-def _any_wall_witness(
+def _wall_witness_crosswise(
     source_start: Vec3,
     source_end: Vec3,
     targets: tuple[Vec3, ...],
+    slab: Occluder,
+    margin: float = 1e-6,
+) -> float | None:
+    """Compatibility wrapper for a straight source segment."""
+
+    return _wall_witness_crosswise_sources(
+        (source_start, source_end), targets, slab, margin
+    )
+
+
+def _camera_source_vertices(
+    trajectory: DeliveryTrajectory,
+    kind: str,
+    start_s_m: float,
+    end_s_m: float,
+) -> tuple[Vec3, ...]:
+    """Enclose every camera position in an interval by convex vertices.
+
+    Straight route pieces are represented exactly by their endpoints. A
+    circular arc is not contained by its endpoint chord, so the turn uses its
+    exact axis-aligned bounds: endpoint angles plus every enclosed cardinal
+    angle determine the extrema. The resulting rectangle is deliberately
+    conservative and contains the full arc.
+    """
+
+    start = trajectory.camera_pose_at(start_s_m)
+    end = trajectory.camera_pose_at(end_s_m)
+    endpoints = (
+        (start.x_m, start.y_m, start.z_m),
+        (end.x_m, end.y_m, end.z_m),
+    )
+    if kind != ARC:
+        return endpoints
+
+    low_s, high_s = sorted((start_s_m, end_s_m))
+    low_s = max(low_s, trajectory.approach_length_m)
+    high_s = min(high_s, trajectory.approach_length_m + trajectory.arc_length_m)
+    angle_high = trajectory.arc_start_angle_rad - (
+        low_s - trajectory.approach_length_m
+    ) / trajectory.arc_radius_m
+    angle_low = trajectory.arc_start_angle_rad - (
+        high_s - trajectory.approach_length_m
+    ) / trajectory.arc_radius_m
+    angles = [angle_low, angle_high]
+    quarter_turn = math.pi / 2.0
+    first_cardinal = math.ceil((angle_low - 1e-12) / quarter_turn)
+    last_cardinal = math.floor((angle_high + 1e-12) / quarter_turn)
+    angles.extend(
+        index * quarter_turn for index in range(first_cardinal, last_cardinal + 1)
+    )
+
+    center_x, center_y = trajectory.arc_center_xy_m
+    xs = [center_x + trajectory.arc_radius_m * math.cos(angle) for angle in angles]
+    ys = [center_y + trajectory.arc_radius_m * math.sin(angle) for angle in angles]
+    vertices = tuple(
+        (x_m, y_m, start.z_m)
+        for x_m in (min(xs), max(xs))
+        for y_m in (min(ys), max(ys))
+    )
+    return tuple(dict.fromkeys(vertices))
+
+
+def _any_wall_witness(
+    sources: tuple[Vec3, ...],
+    targets: tuple[Vec3, ...],
     slabs: tuple[Occluder, ...],
-) -> tuple[str, float] | None:
+) -> WallWitness | None:
     """Return the first slab that blocks every ray, with its witness plane."""
 
     for slab in slabs:
-        for finder in (_wall_witness, _wall_witness_crosswise):
-            witness = finder(source_start, source_end, targets, slab)
-            if witness is not None:
-                return slab.prim_path, witness
+        coordinate = _wall_witness_sources(sources, targets, slab)
+        if coordinate is not None:
+            return WallWitness(slab.prim_path, "x", coordinate)
+        coordinate = _wall_witness_crosswise_sources(sources, targets, slab)
+        if coordinate is not None:
+            return WallWitness(slab.prim_path, "y", coordinate)
     return None
 
 
@@ -326,10 +432,6 @@ def continuous_certificate(
     coverage: list[Coverage] = []
     visible: list[tuple[str, float, float]] = []
 
-    def camera_xyz(s_m: float) -> Vec3:
-        pose = trajectory.camera_pose_at(s_m)
-        return (pose.x_m, pose.y_m, pose.z_m)
-
     def cover(
         kind: str,
         start_s: float,
@@ -338,16 +440,14 @@ def continuous_certificate(
         target_max: Vec3,
         depth: int,
     ) -> None:
-        source_start = camera_xyz(start_s)
-        source_end = camera_xyz(end_s)
+        sources = _camera_source_vertices(trajectory, kind, start_s, end_s)
         yaw_min, yaw_max = trajectory.yaw_range(start_s, end_s)
         targets = _target_vertices(target_min, target_max)
 
-        wall = _any_wall_witness(source_start, source_end, targets, slabs)
-        frustum = _frustum_excluded(
-            source_start, source_end, targets, yaw_min, yaw_max, tan_half
-        )
-        def record(blocked: tuple[str, float] | None) -> None:
+        wall = _any_wall_witness(sources, targets, slabs)
+        frustum = _frustum_excluded_sources(sources, targets, yaw_min, yaw_max, tan_half)
+
+        def record(blocked: WallWitness | None) -> None:
             coverage.append(
                 Coverage(
                     segment=kind,
@@ -357,8 +457,9 @@ def continuous_certificate(
                     target_max_xyz_m=target_max,
                     wall_blocked=blocked is not None,
                     frustum_excluded=frustum,
-                    blocking_prim=blocked[0] if blocked else None,
-                    witness_x_m=blocked[1] if blocked else None,
+                    blocking_prim=blocked.prim_path if blocked else None,
+                    witness_axis=blocked.axis if blocked else None,
+                    witness_coordinate_m=blocked.coordinate_m if blocked else None,
                 )
             )
 
