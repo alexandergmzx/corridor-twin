@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.1.0 |
+| Document version | 1.2.0 |
 | Last updated | 2026-07-26 |
 | Local platform | Linux Mint 22.3, ROS 2 Jazzy, Python 3.12 |
 | CI platform | Ubuntu 24.04, ROS 2 Jazzy, Python 3.12 |
@@ -118,6 +118,23 @@ This separation is intentional. The first commit can be reviewed as executable,
 machine-independent test behavior; the second contains time- and host-specific
 evidence. Future GPU or driver requalification should normally update the
 evidence without changing the smoke tool.
+
+## Why the first Isaac/ROS integration is split into three commits
+
+The live camera step has three different review and rollback boundaries:
+
+1. `feat(isaac): publish camera feed and simulation clock` contains only the
+   installed-version adapter. It can be reviewed for graph topology, resource
+   budget, topic exposure, and the Python 3.11/bundled-Jazzy boundary.
+2. `test: add live ROS camera contract probe` adds the external black-box probe
+   and CPU AST contract tests. It does not alter the publisher being measured.
+3. `docs: record live Isaac ROS camera validation` records host-specific results,
+   the rejected early ABI-mixed attempt, measured VRAM, and the architecture
+   decision after both executable layers have passed.
+
+This is intentionally not one integration dump. Publisher behavior, independent
+verification, and time-specific evidence change for different reasons. The
+commits are additive on published `main`; no history is rewritten.
 
 ## Commit labels going forward
 

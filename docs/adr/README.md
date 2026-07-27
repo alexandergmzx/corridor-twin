@@ -13,3 +13,4 @@ supersedes the old record.
 | [0006](0006-scenario-manifest.md) | Accepted | Share one generated scenario manifest |
 | [0007](0007-speed-policy-and-violation.md) | Demo accepted | Configure policy and conservative event semantics |
 | [0008](0008-runtime-environment-boundaries.md) | Accepted | Separate ROS/OpenUSD and Isaac runtimes |
+| [0009](0009-installed-isaac-ros-camera-adapter.md) | Accepted | Isolate one installed-version camera/clock adapter |

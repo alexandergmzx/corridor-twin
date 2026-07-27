@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Contract version | 0.2.1 |
-| Status | Implemented baseline |
+| Contract version | 0.3.0 |
+| Status | Implemented by synthetic and Isaac 5.1 publishers; live Isaac contract validated |
 | Last updated | 2026-07-26 |
 
 ## Scope
@@ -29,6 +29,11 @@ resolved demo names.
 The initial local demo uses raw images. A compressed transport may be added only
 after measuring bandwidth and confirming installed Isaac/ROS support; lossy
 compression must then be included in estimator accuracy tests.
+
+The installed Isaac adapter maps one render product to separate current-version
+`ROS2CameraHelper` and `ROS2CameraInfoHelper` nodes. A single
+`ROS2PublishClock` node is the only simulator clock publisher. The graph does not
+publish pose, odometry, TF, depth, segmentation, or harness truth.
 
 ## Image requirements
 
@@ -141,3 +146,10 @@ make that distinction explicit. Phase 1 uses the versioned manifest directly.
 - Observer topic introspection shows no truth subscription.
 - Backward `/clock` jumps clear gate/debounce history.
 - Late violation subscribers do not receive historical events.
+
+The live external probe passed against Isaac Sim 5.1 in both headless and visible
+modes on 2026-07-26. Each run observed 12 exactly timestamp-paired RGB
+`Image`/`CameraInfo` messages at 640×360 and 15.000 Hz, a monotonic simulation
+clock that reached the image stamps, valid zero-distortion pinhole intrinsics,
+the required optical frame, best-effort/volatile publishers, and exactly one
+publisher on each of the three input/time topics.

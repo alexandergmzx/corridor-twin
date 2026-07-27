@@ -35,9 +35,13 @@
 - The same validation passed with a visible real-time viewport after 240 Kit
   updates and used 871 MiB at the loaded-stage snapshot. No sensor render
   product was created, and no Isaac/Kit process remained after shutdown.
-- Both observed loaded-stage totals are far below the 14 GB soft ceiling. They
-  are activation snapshots, not a claim about future camera-bridge steady state;
-  that must be measured after the single render product exists.
+- The one-render-product camera/clock adapter passed headless with 2,494 MiB
+  total GPU memory and visible with 2,591 MiB. In both modes an external system
+  Jazzy process received 12 synchronized 640×360 RGB/calibration pairs at
+  15.000 Hz, a monotonic `/clock`, and one publisher per endpoint.
+- All observed totals are far below the 14 GB soft ceiling. The live camera runs
+  leave more than 11 GB of budget headroom, even though no additional rendered
+  sensor is planned.
 - Isaac Sim 5.1 documentation is now marked unsupported upstream. Keep the
   installed version pinned for the interview demo; schedule an upgrade as a
   separate, tested change rather than mixing it with the GPU swap.
@@ -55,14 +59,33 @@
 | Headless installed-version stage smoke | Pass, 916 MiB total GPU memory |
 | Visible 640×360 real-time viewport | Pass, 871 MiB total GPU memory |
 | Below 14 GB soft ceiling | Pass with large margin |
-| One-camera render-product steady state | Pending the narrow Isaac/ROS adapter |
-| Synthetic ROS regression before adapter | Covered by the full workspace test; repeat live when starting the adapter |
+| One-camera render-product steady state | Pass, 2,494 MiB headless / 2,591 MiB visible |
+| Live camera/CameraInfo/clock ROS contract | Pass in headless and visible modes at 15.000 Hz |
+| Synthetic ROS regression before adapter | Covered by the full workspace test |
 
 The compatibility checker log is
 `~/.nvidia-omniverse/logs/Kit/Isaac-Sim_Compatibility_Checker/5.1/kit_20260726_211003.log`.
 The two smoke logs are under the installed environment's
 `isaacsim/kit/logs/Kit/Isaac-Sim Python/5.1/` directory with timestamps
 `20260726_211232` and `20260726_211324`.
+
+The successful camera-adapter logs are in the same directory with timestamps
+`20260726_215349` (headless) and `20260726_215509` (visible). Each run terminated
+cleanly after 420 updates.
+
+## Isaac/ROS environment finding
+
+The host shell exports system Jazzy paths for Python 3.12. Isaac Sim uses Python
+3.11 and ships its own Jazzy bridge libraries. Directly inheriting the system
+`PYTHONPATH` causes Isaac to attempt to import the incompatible Python 3.12
+`rclpy` extension. An early activation attempt exposed this boundary and is not
+counted as validation evidence.
+
+The final adapter re-executes once with user/system ROS Python paths removed,
+prepends the bridge extension's bundled Jazzy library directory, and selects
+Fast DDS. Final logs show internal Jazzy `rclpy` loading successfully. The
+external probe remains an ordinary system-Jazzy Python 3.12 process. This split
+is intentional and repeatable; it does not install or replace either ROS copy.
 
 ## Repeat the qualification
 
@@ -89,6 +112,30 @@ restricted sandbox because hidden NVML/Vulkan devices produce false negatives.
 Do not move `~/isaac`: the environment contains editable/path-sensitive installs.
 The repo consumes it through an explicit command and keeps the ROS/OpenUSD Python
 3.12 environment separate from Isaac's Python 3.11 environment.
+
+To repeat the live ROS acceptance check, start this external probe first:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+PYTHONNOUSERSITE=1 /usr/bin/python3 \
+  tools/ros_camera_contract_probe.py --minimum-pairs 12 --timeout 90
+```
+
+Then run either finite adapter mode in another terminal:
+
+```bash
+OMNI_KIT_ACCEPT_EULA=YES \
+  ~/isaac/env_isaaclab/bin/python tools/isaac_5_1_ros_camera.py \
+  out/corridor.usda --updates 420 --report-gpu-memory
+
+OMNI_KIT_ACCEPT_EULA=YES \
+  ~/isaac/env_isaaclab/bin/python tools/isaac_5_1_ros_camera.py \
+  out/corridor.usda --gui --updates 420 --report-gpu-memory
+```
+
+Run the probe separately for each adapter mode. Require both processes to print
+their `PASS` marker; the adapter's local graph check alone does not prove DDS
+delivery or the external message contract.
 
 ## Official references used
 

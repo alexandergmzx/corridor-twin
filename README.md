@@ -7,17 +7,23 @@ A's front-camera feed and detect speed violations from surveyed ArUco markers.
 
 ## Current status
 
-**Phase 1 working baseline and GPU qualification — 2026-07-26.** Parametric USDA generation, finite
-width variants, static colliders, ArUco assets, a shared manifest, camera-only
-speed estimation, synthetic ROS playback, violation events, and continuous
-occlusion evidence are implemented. The RTX 5070 Ti now passes Isaac Sim 5.1's
-GPU, driver, VRAM, CPU, RAM, storage, and display checks. The checker still marks
-the overall host unsupported because it is Linux Mint. The generated stage
-passes both headless and visible real-time composition smokes on the new GPU.
+**Phase 1 baseline and first Isaac/ROS integration working — 2026-07-26.**
+Parametric USDA generation, finite width variants, static colliders, ArUco
+assets, a shared manifest, camera-only speed estimation, synthetic ROS playback,
+violation events, and continuous occlusion evidence are implemented. The RTX
+5070 Ti passes Isaac Sim 5.1's hardware checks. A version-specific adapter now
+publishes the single 640×360 RGB camera, matching `CameraInfo`, and simulation
+`/clock` through the installed Jazzy bridge. Independent ROS probes passed in
+both headless and visible modes at exactly 15 Hz.
+
+The checker still marks the host unsupported because it is Linux Mint. This is
+recorded as a platform risk rather than hidden by the successful hardware and
+live-stream checks.
 
 The provisional A/B/P coordinates and demonstration speed policy still need to
 be reconciled with the interviewer-supplied diagram before calling the geometry
-final. The Isaac camera-to-ROS bridge and robot motion are the next phase.
+final. Robot motion along the authored delivery path is the next integration
+step.
 
 ## Architecture at a glance
 
@@ -29,6 +35,7 @@ corridor.yaml ──> scene.build ──> corridor.usda
                                               v
 camera image + CameraInfo ──> police_observer ──> speed estimate / violation
               synthetic frames ────────────────> test-harness truth comparison
+Isaac 5.1 camera graph ─────────────────────────> same camera contract + /clock
 
 composed USD + delivery path + P bounds ──> occlusion certificate
 ```
@@ -48,6 +55,10 @@ the image header.
 - `docs/DESIGN.md`: versioned system design and hardware budget.
 - `docs/SENSOR-FEED.md`: the robot-to-observer interface contract.
 - `test`: repository and end-to-end contract tests.
+- `tools/isaac_5_1_ros_camera.py`: installed-version camera/clock adapter, kept
+  outside the CPU-testable packages.
+- `tools/ros_camera_contract_probe.py`: simulator-independent live ROS contract
+  probe.
 
 ## Build and run
 
@@ -64,9 +75,11 @@ the image header.
 The installed RTX 5070 Ti reports 16303 MiB with driver 580.173.02. The complete
 activation evidence and repeatable commands are in `docs/ACTIVATION.md`.
 Headless and visible loaded-stage snapshots used 916 MiB and 871 MiB total,
-respectively, while keeping the viewport at 640×360 with real-time
-`RaytracedLighting`. The unsupported Mint result and IOMMU warning remain known
-risks; Ubuntu 24.04 is the fallback rather than an unrecorded last-minute change.
+respectively. With the one camera render product and ROS bridge active, measured
+totals were 2,494 MiB headless and 2,591 MiB visible. Every run used real-time
+`RaytracedLighting`; none used path tracing. The unsupported Mint result and
+IOMMU warning remain known risks; Ubuntu 24.04 is the fallback rather than an
+unrecorded last-minute change.
 
 ### 3. Create the development environment
 
@@ -141,7 +154,32 @@ NumPy 2.2 wheel, while ROS Jazzy's OpenCV/cv_bridge binaries use the NumPy 1.x
 ABI. No global package is modified. Add `use_sim_time:=true` to make the
 synthetic publisher the single `/clock` source for both nodes.
 
-### 7. Repeat the installed Isaac 5.1 smoke
+### 7. Run the live Isaac camera contract
+
+Start the external probe in a system-ROS terminal before starting Isaac:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+PYTHONNOUSERSITE=1 /usr/bin/python3 \
+  tools/ros_camera_contract_probe.py --minimum-pairs 12 --timeout 90
+```
+
+In a second terminal, start the finite adapter. Do not source system ROS there;
+the adapter re-executes with Isaac's bundled Jazzy libraries and rejects Python
+path leakage from the host environment:
+
+```bash
+OMNI_KIT_ACCEPT_EULA=YES \
+  ~/isaac/env_isaaclab/bin/python tools/isaac_5_1_ros_camera.py \
+  out/corridor.usda --updates 420 --report-gpu-memory
+```
+
+Add `--gui` for the finite visible-viewport check. Success requires both
+`ROS_CAMERA_PROBE_PASS` and `ISAAC_ROS_CAMERA_PASS`; an Isaac-only pass does not
+prove the ROS interface. The adapter creates exactly one render product and no
+pose, odometry, TF, depth, or test-truth publisher.
+
+### 8. Repeat the installed Isaac 5.1 composition smoke
 
 ```bash
 OMNI_KIT_ACCEPT_EULA=YES \
@@ -156,7 +194,7 @@ OMNI_KIT_ACCEPT_EULA=YES \
 The smoke uses explicit real-time `RaytracedLighting`, 640×360, no path tracing,
 and no sensor render product. Both modes validate composition and
 installed-version schemas; the finite GUI mode opens a visible viewport and
-closes itself. This is not yet the ROS camera bridge.
+closes itself. Use the preceding live contract for camera/ROS validation.
 
 ## Deliberate GPU budget
 

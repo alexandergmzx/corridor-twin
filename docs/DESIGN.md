@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.3.0 |
-| Status | Phase 1 implemented; RTX 5070 Ti qualified; Isaac camera bridge pending |
+| Design version | 0.4.0 |
+| Status | Phase 1 implemented; RTX 5070 Ti and live Isaac camera contract qualified |
 | Last updated | 2026-07-26 |
 | Target ROS | ROS 2 Jazzy |
 | Target host | Linux Mint 22 demo host / Ubuntu 24.04 supported fallback |
@@ -51,8 +51,8 @@ Image + CameraInfo + manifest
 Isaac 5.1 smoke tool (installed-version API)
   └─> composes USDA and checks profiles, camera count, and colliders
 
-Future narrow Isaac/ROS adapter
-  └─> publishes the same camera contract
+Isaac 5.1 camera/clock adapter (installed-version API)
+  └─> one render product ─> Image + CameraInfo + /clock
 ```
 
 `corridor_scene` and the perception core must remain importable without Isaac
@@ -193,6 +193,31 @@ check, but off-axis placement alone does not count as occlusion.
 - Zero time, backward jumps, profile changes, or non-monotonic image stamps clear
   estimator and debounce state.
 
+## Installed Isaac/ROS adapter
+
+The adapter is deliberately a version-specific executable under `tools/`, not a
+dependency of `corridor_scene` or `police_observer`. Its OmniGraph uses the node
+type names verified in the installed Isaac Sim 5.1.0 extension:
+
+- `isaacsim.core.nodes.IsaacCreateRenderProduct`;
+- `isaacsim.ros2.bridge.ROS2CameraHelper`;
+- `isaacsim.ros2.bridge.ROS2CameraInfoHelper`;
+- `isaacsim.core.nodes.IsaacReadSimulationTime`;
+- `isaacsim.ros2.bridge.ROS2PublishClock`.
+
+It creates one 640×360 render product, publishes RGB and calibration at 15 Hz
+from a 60 Hz fixed simulation timeline, and publishes `/clock`. Camera and clock
+endpoints use explicit best-effort, volatile QoS. The graph contains no pose,
+odometry, transform, TF, depth, segmentation, or truth publisher. The camera is
+configured with the current 5.1 OpenCV pinhole schema rather than the deprecated
+physical-distortion schema.
+
+Isaac's Python 3.11 process uses the bridge extension's bundled Jazzy libraries.
+The external observer/probe uses system Jazzy under Python 3.12. The adapter
+re-executes once with user/system ROS Python paths removed so a Python 3.12
+`rclpy` extension cannot be loaded into Isaac's Python 3.11 process. Both sides
+use Fast DDS for this demo.
+
 ## GPU and performance budget
 
 The installed 16 GB RTX 5070 Ti is the qualified demo GPU. Its capacity changes
@@ -217,11 +242,12 @@ unsupported; Ubuntu 24.04 remains the fallback. IOMMU is also reported as a
 warning.
 
 The project stage passed both headless and visible installed-version validation
-at 640×360 with real-time `RaytracedLighting`. Total GPU memory snapshots were
-916 MiB headless and 871 MiB visible, against a 468 MiB initial desktop
-baseline. No sensor render product existed in these runs. The one-camera
-steady-state measurement is an explicit acceptance gate for the next adapter,
-not something inferred from these low composition-smoke numbers.
+at 640×360 with real-time `RaytracedLighting`. Composition-only snapshots were
+916 MiB headless and 871 MiB visible, against a 468 MiB initial desktop baseline.
+With the one render product and ROS graph active, total GPU memory snapshots were
+2,494 MiB headless and 2,591 MiB visible. Both live modes independently delivered
+12 synchronized image/calibration pairs at exactly 15 Hz and retained more than
+11 GB of headroom below the 14 GB soft ceiling.
 
 The earlier RTX 5060 8 GB check remains historical evidence: the checker failed
 both its internal 10 GB VRAM threshold and the unsupported OS gate, although the
@@ -244,8 +270,8 @@ test tooling. It authors and validates USD and runs ROS nodes.
 Isaac Sim 5.1.0 / Isaac Lab 2.3.2 use the installed Python 3.11 environment at
 `~/isaac/env_isaaclab`. It loads the already-authored stage. Pip `usd-core` is not
 installed into this environment, and `omni`/`isaacsim` imports do not leak into
-Phase 1 packages. The version-specific smoke code is isolated in
-`tools/isaac_5_1_smoke.py`.
+Phase 1 packages. The version-specific tools are isolated in
+`tools/isaac_5_1_smoke.py` and `tools/isaac_5_1_ros_camera.py`.
 
 ## Validation matrix
 
@@ -259,6 +285,7 @@ Phase 1 packages. The version-specific smoke code is isolated in
 | P cannot be seen | Continuous certificate plus 226-ray composed-USD audit |
 | Time reset behavior | Non-monotonic stamp and backward-station unit tests |
 | Demo GPU is qualified | 5070 Ti checker component results, headless/GUI smoke, and measured VRAM snapshots |
+| Live camera contract is correct | External ROS probe of paired stamps, frames, dimensions, encoding, calibration, QoS, rate, clocks, and publisher cardinality |
 | GPU constraints are explicit | One camera, 640×360, real-time rendering, no path tracing, and a 14 GB soft ceiling |
 
 ## Risks and mitigations
@@ -275,9 +302,18 @@ Phase 1 packages. The version-specific smoke code is isolated in
 - **Clock discontinuity:** clear temporal state on jumps.
 - **User-site NumPy 2.2 conflicts with Jazzy OpenCV:** the demo launch disables
   user-site packages; the repo venv pins NumPy below 2.
+- **Two Jazzy Python ABIs on one host:** the Isaac adapter self-isolates its
+  bundled Python 3.11 bridge, while external ROS nodes use system Python 3.12.
+- **Renderer minimum-input warning:** Kit may internally increase a low DLSS
+  input size at 640×360; the delivered ROS image was independently validated as
+  640×360 and the renderer remains real-time.
 
 ## Version history
 
+- **0.4.0 — 2026-07-26:** Added and live-validated the installed Isaac 5.1
+  camera/clock adapter in headless and visible modes. The external ROS probe
+  measured 15 Hz synchronized 640×360 RGB/calibration streams, simulation time,
+  one publisher per endpoint, and 2,494/2,591 MiB total GPU memory.
 - **0.3.0 — 2026-07-26:** Qualified the installed RTX 5070 Ti and driver with
   the Isaac 5.1 checker, fresh occlusion proof, headless stage validation, visible
   real-time viewport, and measured VRAM snapshots. Mint remains unsupported.
