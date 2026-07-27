@@ -48,6 +48,33 @@
 - IOMMU is enabled and reported as a warning. It did not prevent the small stage
   from composing or rendering, but it remains in the recorded risk list.
 
+## Re-qualification after the geometry reconciliation — 2026-07-27
+
+The scene changed shape when it was reconciled with
+[`ROBO_TASK.pdf`](ROBO_TASK.pdf), so every GPU-side claim was re-measured rather
+than carried forward. The earlier entries above stay as the record of what was
+true on 2026-07-26.
+
+- The `m=6.0`, `n=3.0` build passed the strengthened visibility gate: line of
+  sight blocked over the whole route, 78 certified interval and sub-volume
+  pairs, and a composed-USD audit of 204 rays with zero failures. Nearest
+  blocking surface 3.116 m. The `wide_corner_m6_n4_5` and `uniform_m6_n6`
+  profiles pass independently, each with P moved by the geometry.
+- The headless smoke composed the reconciled stage and found one authored robot
+  camera, all three corridor variants, and collision schemas on all four
+  buildings including the new corner mass and next-street kerb. 1,486 MiB.
+- The same validation passed with a visible real-time viewport after 240 Kit
+  updates at 3,147 MiB. The visible figure is now higher than headless, which
+  the earlier smaller scene had reversed; both remain far below the ceiling.
+- The one-render-product camera/clock adapter passed headless at 3,075 MiB, and
+  an external system Jazzy probe received 12 synchronized 640×360 rgb8
+  image/calibration pairs at exactly 15.000 Hz with one publisher per endpoint.
+- The simulator-free ROS demo emitted one violation from a true 1.8 m/s run,
+  measuring 1.7977 m/s against the harness-only truth topic.
+
+The 14,336 MiB soft ceiling is unchanged and the largest reconciled measurement
+uses 22% of it. Mint remains unsupported by NVIDIA; that risk is unaffected.
+
 ## Activation progression
 
 ```mermaid
@@ -76,6 +103,9 @@ together. Headroom is measured against the project's 14,336 MiB soft ceiling.
 | Corridor composition smoke | 0 | Visible | 871 MiB | 13,465 MiB |
 | Live ROS camera contract | 1 | Headless | 2,494 MiB | 11,842 MiB |
 | Live ROS camera contract | 1 | Visible | 2,591 MiB | 11,745 MiB |
+| Reconciled composition smoke | 0 | Headless | 1,486 MiB | 12,850 MiB |
+| Reconciled composition smoke | 0 | Visible | 3,147 MiB | 11,189 MiB |
+| Reconciled live ROS camera contract | 1 | Headless | 3,075 MiB | 11,261 MiB |
 | Project soft ceiling | — | — | 14,336 MiB | 0 MiB |
 
 ## Activation gate results
