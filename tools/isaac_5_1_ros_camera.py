@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from isaac_gpu import gpu_memory_snapshot
+from renderer_contract import RenderState, is_path_tracing, render_state_violations
 
 _ENV_MARKER = "CORRIDOR_ISAAC_ROS_ENV"
 
@@ -87,63 +88,33 @@ ACTIVE_ANTI_ALIASING_KEY = "/rtx/post/aa/op"
 DEFAULT_ANTI_ALIASING_KEY = "/rtx-defaults/post/aa/op"
 
 
-def _normalize_render_mode(value: str) -> str:
-    """Fold the installed tree's inconsistent capitalization to one token.
+def _read_render_state(settings) -> RenderState:
+    """Read the renderer state in force. Never derived from the request.
 
-    Isaac writes "RaytracedLighting" from simulation_app.py, while its own
-    Replicator examples write "RayTracedLighting". Comparing raw strings would
-    fail a correct run.
+    This is the only part of the renderer check that needs a running Kit
+    application. The acceptance policy lives in ``renderer_contract`` so its
+    rejection branches stay testable without a GPU.
     """
 
-    return str(value).strip().lower()
+    return RenderState(
+        active_render_mode=settings.get_as_string(ACTIVE_RENDER_MODE_KEY),
+        default_render_mode=settings.get_as_string(DEFAULT_RENDER_MODE_KEY),
+        active_anti_aliasing=settings.get_as_int(ACTIVE_ANTI_ALIASING_KEY),
+        default_anti_aliasing=settings.get_as_int(DEFAULT_ANTI_ALIASING_KEY),
+    )
 
 
-def _read_render_state(settings) -> dict[str, object]:
-    """Read the renderer state in force. Never derived from the request."""
+def _render_state_violations(state: RenderState) -> list[str]:
+    """Apply the portable acceptance policy to one readback."""
 
-    return {
-        "active_anti_aliasing": settings.get_as_int(ACTIVE_ANTI_ALIASING_KEY),
-        "default_anti_aliasing": settings.get_as_int(DEFAULT_ANTI_ALIASING_KEY),
-        "active_render_mode": settings.get_as_string(ACTIVE_RENDER_MODE_KEY),
-        "default_render_mode": settings.get_as_string(DEFAULT_RENDER_MODE_KEY),
-    }
+    return render_state_violations(
+        state,
+        expected_render_mode=ADAPTER_CONTRACT["render_mode"],
+        expected_anti_aliasing=ADAPTER_CONTRACT["anti_aliasing"],
+        active_render_mode_key=ACTIVE_RENDER_MODE_KEY,
+    )
 
 
-def _render_state_violations(state: dict[str, object]) -> list[str]:
-    """Return contract violations; empty means the active renderer is accepted."""
-
-    expected_aa = ADAPTER_CONTRACT["anti_aliasing"]
-    expected_mode = _normalize_render_mode(ADAPTER_CONTRACT["render_mode"])
-    problems: list[str] = []
-    if state["active_anti_aliasing"] != expected_aa:
-        problems.append(
-            "active anti-aliasing mode is "
-            f"{state['active_anti_aliasing']}, expected {expected_aa}"
-        )
-    if state["default_anti_aliasing"] != expected_aa:
-        problems.append(
-            "default anti-aliasing mode is "
-            f"{state['default_anti_aliasing']}, expected {expected_aa}"
-        )
-    active_mode = _normalize_render_mode(state["active_render_mode"])
-    if not active_mode:
-        problems.append(
-            f"{ACTIVE_RENDER_MODE_KEY} is empty; the renderer reported no active mode"
-        )
-    elif active_mode != expected_mode:
-        problems.append(
-            f"active render mode is {state['active_render_mode']!r}, "
-            f"expected {ADAPTER_CONTRACT['render_mode']!r}"
-        )
-    # An unpopulated defaults tree must not veto a valid active readback,
-    # because the ordinary lifecycle path never writes it.
-    default_mode = _normalize_render_mode(state["default_render_mode"])
-    if default_mode and default_mode != expected_mode:
-        problems.append(
-            f"default render mode is {state['default_render_mode']!r}, "
-            f"expected {ADAPTER_CONTRACT['render_mode']!r}"
-        )
-    return problems
 STATIC_PROBE_DEFAULTS = {
     "stations_x_m": (0.5, 1.5, 3.0, 5.0, 7.0),
     "settle_updates": 12,
@@ -163,6 +134,7 @@ NODE_TYPES = {
     "simulation_time": "isaacsim.core.nodes.IsaacReadSimulationTime",
     "clock": "isaacsim.ros2.bridge.ROS2PublishClock",
 }
+
 
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -316,10 +288,10 @@ def _run_static_probe(
         for _ in range(args.static_settle_updates):
             app.update()
         render_state = _read_render_state(settings)
-        observed_active_anti_aliasing.add(int(render_state["active_anti_aliasing"]))
-        observed_default_anti_aliasing.add(int(render_state["default_anti_aliasing"]))
-        observed_active_render_modes.add(str(render_state["active_render_mode"]))
-        observed_default_render_modes.add(str(render_state["default_render_mode"]))
+        observed_active_anti_aliasing.add(render_state.active_anti_aliasing)
+        observed_default_anti_aliasing.add(render_state.default_anti_aliasing)
+        observed_active_render_modes.add(str(render_state.active_render_mode))
+        observed_default_render_modes.add(str(render_state.default_render_mode))
         violations = _render_state_violations(render_state)
         if violations:
             raise RuntimeError(
@@ -399,8 +371,7 @@ def _run_static_probe(
                         observed_default_anti_aliasing
                     ),
                     "path_tracing": any(
-                        "pathtracing" in _normalize_render_mode(mode)
-                        for mode in observed_active_render_modes
+                        is_path_tracing(mode) for mode in observed_active_render_modes
                     ),
                 },
                 "settle_updates": args.static_settle_updates,
@@ -639,10 +610,10 @@ def main() -> int:
             f"warmup_updates={RENDER_PRODUCT_WARMUP_UPDATES}",
             f"reset_events={render_warmup_reset_events}",
             f"stable_updates={stable_updates}",
-            f"active_render_mode={render_state['active_render_mode']!r}",
-            f"default_render_mode={render_state['default_render_mode']!r}",
-            f"active_anti_aliasing={render_state['active_anti_aliasing']}",
-            f"default_anti_aliasing={render_state['default_anti_aliasing']}",
+            f"active_render_mode={render_state.active_render_mode!r}",
+            f"default_render_mode={render_state.default_render_mode!r}",
+            f"active_anti_aliasing={render_state.active_anti_aliasing}",
+            f"default_anti_aliasing={render_state.default_anti_aliasing}",
             flush=True,
         )
         if args.static_probe_out is not None:
