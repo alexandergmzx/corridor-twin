@@ -11,18 +11,26 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from .model import (
+    MARKER_BACKING_OFFSET_M as _MARKER_BACKING_OFFSET_M,
+)
+from .model import (
+    MARKER_BACKING_SCALE as _MARKER_BACKING_SCALE,
+)
+from .model import (
+    MARKER_WALL_CLEARANCE_M as _MARKER_WALL_CLEARANCE_M,
+)
 from .model import CorridorProfile, Scenario
 
 Vec3 = tuple[float, float, float]
 Vec2 = tuple[float, float]
 Footprint = list[Vec2]
 
-# A 5x5 ArUco code has one black border module. One additional white module on
-# every side makes the physical plate 9/7 the code size. The backing sits just
-# behind the textured quad, and its nearest edge retains this wall clearance.
-MARKER_BACKING_SCALE = 9.0 / 7.0
-MARKER_BACKING_OFFSET_M = 0.002
-MARKER_WALL_CLEARANCE_M = 0.015
+# Re-exported from model so scenario validation can use the same constants
+# without importing geometry, which would be circular.
+MARKER_BACKING_SCALE = _MARKER_BACKING_SCALE
+MARKER_BACKING_OFFSET_M = _MARKER_BACKING_OFFSET_M
+MARKER_WALL_CLEARANCE_M = _MARKER_WALL_CLEARANCE_M
 
 # A gate marker defines an enforcement station. A reference marker is pose
 # evidence only and must never become a gate the robot is measured against.
@@ -252,6 +260,28 @@ def plate_survey(
     return center, corners, normal  # type: ignore[return-value]
 
 
+def plate_backing_corners(
+    corners: tuple[Vec3, Vec3, Vec3, Vec3], normal: Vec3
+) -> tuple[Vec3, ...]:
+    """Return the four world corners of a plate's white backing quad.
+
+    The backing, not the code, is what can overhang the end of a wall, so
+    validation and USD authoring have to agree on exactly where it is. Both go
+    through here rather than each re-deriving the 9/7 expansion.
+    """
+
+    center = tuple(sum(point[axis] for point in corners) / 4.0 for axis in range(3))
+    return tuple(
+        tuple(
+            center[axis]
+            + MARKER_BACKING_SCALE * (point[axis] - center[axis])
+            - normal[axis] * MARKER_BACKING_OFFSET_M
+            for axis in range(3)
+        )
+        for point in corners
+    )
+
+
 def marker_surveys(scenario: Scenario, profile: CorridorProfile) -> tuple[MarkerSurvey, ...]:
     """Place paired, canted enforcement markers on the corridor wall faces."""
 
@@ -428,6 +458,33 @@ def validate_layout(scenario: Scenario, profile: CorridorProfile) -> None:
                     f"profile {profile.name}: P's body enters drivable space at "
                     f"({corner_x:.3f}, {corner_y:.3f})"
                 )
+
+    # Every reference plate must sit entirely inside the face it is mounted on,
+    # for *this* profile. Two things make that profile-dependent and easy to get
+    # wrong. The east face spans y from the next street's south edge up to the
+    # north wall at m/2, so a narrower requested corridor shortens it. And what
+    # overhangs first is the backing, MARKER_BACKING_SCALE larger than the code,
+    # so checking the plate centre or even the code corners passes a plate whose
+    # quiet zone is already buried in the adjoining building.
+    north_face, _ = corridor_faces(profile, 0.0, length)
+    plates = scenario.fiducials.references.plates
+    for survey, spec in zip(reference_surveys(scenario, profile), plates, strict=True):
+        if spec.surface == "north_wall":
+            # Past the east face the north wall is inside EastBuilding.
+            axis, low, high = 0, -scenario.west_margin_m, scenario.street_east_m
+            span = "north wall"
+        else:
+            axis, low, high = 1, scenario.street_south_m, north_face
+            span = "east face"
+        backing = plate_backing_corners(survey.corners_xyz_m, survey.normal_xyz)
+        reach_low = min(point[axis] for point in backing)
+        reach_high = max(point[axis] for point in backing)
+        if reach_low < low or reach_high > high:
+            raise ValueError(
+                f"profile {profile.name}: reference marker {survey.marker_id} backing spans "
+                f"[{reach_low:.4f}, {reach_high:.4f}] and leaves the {span}, which spans "
+                f"[{low:.4f}, {high:.4f}]"
+            )
 
     # B must stand in the authored next street.
     bx, by, _ = person_b_xyz(scenario)

@@ -8,12 +8,11 @@ from pathlib import Path
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 
 from .geometry import (
-    MARKER_BACKING_OFFSET_M,
-    MARKER_BACKING_SCALE,
     all_surveys,
     building_footprints,
     corridor_faces,
     person_b_xyz,
+    plate_backing_corners,
     police_bounds,
 )
 from .model import CorridorProfile, Scenario
@@ -177,16 +176,7 @@ def _marker_mesh(
     material: UsdShade.Material,
     backing_material: UsdShade.Material,
 ) -> None:
-    center = tuple(sum(point[axis] for point in corners) / 4.0 for axis in range(3))
-    backing_corners = tuple(
-        tuple(
-            center[axis]
-            + MARKER_BACKING_SCALE * (point[axis] - center[axis])
-            - normal[axis] * MARKER_BACKING_OFFSET_M
-            for axis in range(3)
-        )
-        for point in corners
-    )
+    backing_corners = plate_backing_corners(corners, normal)
     backing = UsdGeom.Mesh.Define(stage, f"{path}_Backing")
     backing.CreatePointsAttr([Gf.Vec3f(*point) for point in backing_corners])
     backing.CreateFaceVertexCountsAttr([4])

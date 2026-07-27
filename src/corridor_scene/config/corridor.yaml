@@ -71,13 +71,22 @@ fiducials:
   # because plates receding along a wall telescope into a contiguous strip and
   # each nearer one paints over the farther one's ArUco quiet zone. Staggering
   # the heights is what makes them decode together.
+  #
+  # `along_m` is x on the north wall and y on the east face. The east face
+  # spans y up to the north wall at m/2, so it *shortens* with a narrower
+  # entry width: the plate at 2.2 fitted the configured m = 6.0 and overhung
+  # into the adjoining building at m = 5.5. At 1.8 the backing reaches
+  # y = 2.4429, so every entry width down to m = 4.886 is admissible, which
+  # covers the declared m >= 5.0 support floor. A sweep of 1.0 .. 2.2 changed
+  # neither coverage (164/163/162 accepted frames, all four gates) nor speed
+  # error; only the admissible width range moves, so range decided it.
   references:
     id_base: 80
     plates:
       - {surface: north_wall, along_m: 13.0, height_m: 0.9, size_m: 0.60, cant_deg: 35.0}
       - {surface: north_wall, along_m: 15.0, height_m: 2.0, size_m: 0.60, cant_deg: 35.0}
       - {surface: north_wall, along_m: 17.0, height_m: 3.1, size_m: 0.60, cant_deg: 35.0}
-      - {surface: east_face,  along_m: 2.2,  height_m: 2.6, size_m: 1.00, cant_deg: 0.0}
+      - {surface: east_face,  along_m: 1.8,  height_m: 2.6, size_m: 1.00, cant_deg: 0.0}
       - {surface: east_face,  along_m: 0.0,  height_m: 1.0, size_m: 1.00, cant_deg: 0.0}
 
 police:

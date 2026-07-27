@@ -182,6 +182,56 @@ def test_requested_dimensions_become_selected_variant(tmp_path: Path) -> None:
     assert manifest["selected_profile"] == variants.GetVariantSelection()
 
 
+@pytest.mark.parametrize(("m", "n"), [(6.0, 3.0), (5.5, 3.2), (5.0, 3.0), (8.0, 3.0)])
+def test_reference_backings_stay_inside_their_host_face(tmp_path: Path, m: float, n: float) -> None:
+    """A requested profile must not mount a plate off the end of its wall.
+
+    The east face spans y only up to the north wall at m/2, so it shortens with
+    a narrower entry width, and reference plates were validated against the
+    widest *configured* profile before ``build`` had even appended the
+    requested one. At m = 5.5 that admitted marker 83's backing at y = 2.8429
+    against an east face ending at y = 2.75 — 0.09 m inside the adjoining
+    building. m = 5.0 is the declared support floor and 8.0 is wider than any
+    configured profile, so both ends of the range are exercised here.
+    """
+
+    stage_path, manifest_path = build_scene(None, tmp_path / f"m{m}.usda", m, n)
+    stage = Usd.Stage.Open(str(stage_path))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    scenario = load_scenario()
+    variants = _variants(stage)
+
+    checked = 0
+    for name, block in manifest["profiles"].items():
+        assert variants.SetVariantSelection(name)
+        north_face = _north_face(stage)
+        for marker in block["markers"]:
+            if marker["role"] != "reference":
+                continue
+            backing = UsdGeom.Mesh(
+                stage.GetPrimAtPath(
+                    f"/World/Environment/Corridor/Fiducials/Marker_{marker['id']:03d}_Backing"
+                )
+            )
+            assert backing, f"{name}: marker {marker['id']} has no backing"
+            points = np.asarray(backing.GetPointsAttr().Get(), dtype=np.float64)
+            if marker["side"] == "north_wall":
+                axis, low, high = 0, -scenario.west_margin_m, scenario.street_east_m
+            else:
+                axis, low, high = 1, scenario.street_south_m, north_face
+            assert points[:, axis].min() >= low - 1e-9, f"{name}: marker {marker['id']} runs short"
+            assert points[:, axis].max() <= high + 1e-9, f"{name}: marker {marker['id']} overhangs"
+            checked += 1
+    assert checked == len(manifest["profiles"]) * len(scenario.fiducials.references.plates)
+
+
+def test_a_profile_too_narrow_for_its_reference_plates_is_rejected(tmp_path: Path) -> None:
+    """The check is a real gate, not a bound so loose nothing can trip it."""
+
+    with pytest.raises(ValueError, match="leaves the east face"):
+        build_scene(None, tmp_path / "narrow.usda", 4.0, 3.0)
+
+
 def test_output_is_readable_usda_and_has_marker_assets(generated: tuple[Path, Path]) -> None:
     stage_path, manifest_path = generated
     assert stage_path.read_text(encoding="utf-8").startswith("#usda 1.0")
