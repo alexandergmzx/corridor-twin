@@ -153,8 +153,11 @@ unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 ## Current handoff: restore enforcement coverage, requalify, then move A
 
 Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first. It records the exact commit
-range, the current 97-repository plus 52-package test result, review findings
-R1–R5, and the limits that are not yet closed.
+range through `d19d02f`, the current 106-repository plus 61-package test result,
+review findings R1–R10, and the limits that are not yet closed.
+
+Stage 0 is closed. The next work is enforcement coverage, not another review
+cycle.
 
 **Robot motion must not start yet.** Two things block it, and neither is a
 matter of taste:

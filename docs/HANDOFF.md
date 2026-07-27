@@ -2,14 +2,22 @@
 
 | Field | Value |
 |---|---|
-| Handoff version | 1.1.0 |
+| Handoff version | 1.2.0 |
 | Prepared | 2026-07-27 |
 | Branch | `main` |
 | Published base | `a416e47` on `origin/main` |
-| Last behavior commit to audit | `3d9a754` |
-| Portable gate at this handoff | 97 repository tests, 52 ROS package tests |
-| Current gate | Review of Stage 0 before reference-fiducial geometry |
+| Last behavior commit to audit | `d19d02f` |
+| Portable gate at this handoff | 106 repository tests, 61 ROS package tests |
+| Current gate | None. Stage 0 is closed; proceed into coverage |
 | Next implementation slice | Stage 1, restore enforcement-gate coverage. **Not motion** |
+
+## Status since handoff 1.1.0
+
+| Commit | What it closed |
+|---|---|
+| `b81300c` | R6. Four interview-facing pages still called the invalidated run qualified, and the activation table labelled the anti-aliasing enum a renderer enum |
+| `73d89de` | R7. `ViolationDetector` rearmed with no compliant measurement, so a steady over-limit run emitted an event every two measurements. ADR 0014 records one-event-per-episode |
+| `d19d02f` | The reset defect that review found in `73d89de`: `GateSpeedEstimator` reset itself on a continuity break without telling the detector, so an episode survived a clock jump and suppressed the next offense. Both stages now run through `ObserverPipeline` |
 
 ## Status since handoff 1.0.0
 
