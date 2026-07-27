@@ -5,39 +5,86 @@
 | Record date | 2026-07-26 |
 | Host | Linux Mint 22.3 Zena, kernel 6.8.0-136-generic |
 | CPU / RAM | Ryzen 9 5950X, 16 cores / 32 threads, 48 GB |
-| Current GPU | GeForce RTX 5060, 8151 MiB |
-| Driver / API | 580.173.02 / Vulkan |
+| Current / demo GPU | GeForce RTX 5070 Ti, 16303 MiB reported by `nvidia-smi` |
+| Driver | NVIDIA 580.173.02 |
+| Graphics / compute | Vulkan 1.4.312 / driver CUDA compatibility 13.0 |
 | Installed simulator | Isaac Sim 5.1.0, Python 3.11 |
 | Installed Isaac Lab | 2.3.2 |
-| Planned demo GPU | GeForce RTX 5070 Ti, 16 GB |
+| Compatibility result | GPU, driver, VRAM, CPU, RAM, storage, and displays pass; overall `FAILED` because Mint is unsupported |
 
-## Current evidence
+## RTX 5070 Ti qualification evidence
 
-- The installed compatibility checker recognizes the RTX 5060 and driver but
-  returns `FAILED`: it reports 8 GB as below its internal 10 GB threshold and
-  identifies Linux Mint as unsupported.
-- The published Isaac Sim 5.1 requirements are stricter: Ubuntu 22.04/24.04,
-  GeForce RTX 4080, and 16 GB VRAM are the x86_64 minimum. The planned 5070 Ti
-  meets the published VRAM floor, but Mint remains outside the supported OS list.
-- The generated corridor stage passes `tools/isaac_5_1_smoke.py` on the 5060
-  using Vulkan and real-time `RaytracedLighting`. The smoke sees one authored
-  robot camera, all three corridor variants, and both building colliders.
+- `nvidia-smi` identifies the RTX 5070 Ti, driver 580.173.02, and 16303 MiB.
+  The initial desktop idle snapshot used 468 MiB; the post-test snapshot used
+  494 MiB. These totals include Xorg and Cinnamon.
+- `vulkaninfo --summary` selects the RTX 5070 Ti as the discrete GPU and reports
+  the proprietary NVIDIA driver with Vulkan API 1.4.312. The separately listed
+  llvmpipe device is the host's software fallback, not the device Isaac selected.
+- The installed Isaac Sim 5.1 compatibility checker passes the NVIDIA driver,
+  GPU, 17.09 GB checker-reported VRAM, 32 logical CPU cores, 50.41 GB
+  checker-reported RAM, storage, and two displays. Its overall result remains
+  `FAILED` solely because Linux Mint 22.3 is not one of NVIDIA's supported
+  distributions. The result is therefore a supported-platform risk, not a GPU
+  capacity failure.
+- A fresh `m=6.0`, `n=3.0` build passed the continuous occlusion proof with 57
+  coverage intervals and the composed-USD audit with 226 rays and zero failures.
+- The installed-version headless smoke composed the stage with Vulkan and
+  real-time `RaytracedLighting` at 640×360. It found one authored robot camera,
+  all three corridor variants, both building colliders, and used 916 MiB at the
+  loaded-stage snapshot.
+- The same validation passed with a visible real-time viewport after 240 Kit
+  updates and used 871 MiB at the loaded-stage snapshot. No sensor render
+  product was created, and no Isaac/Kit process remained after shutdown.
+- Both observed loaded-stage totals are far below the 14 GB soft ceiling. They
+  are activation snapshots, not a claim about future camera-bridge steady state;
+  that must be measured after the single render product exists.
 - Isaac Sim 5.1 documentation is now marked unsupported upstream. Keep the
   installed version pinned for the interview demo; schedule an upgrade as a
   separate, tested change rather than mixing it with the GPU swap.
 - IOMMU is enabled and reported as a warning. It did not prevent the small stage
-  from composing, but it should remain in the recorded risk list.
+  from composing or rendering, but it remains in the recorded risk list.
 
-## After the 5070 Ti is installed
+## Activation gate results
 
-1. Confirm the card, driver, and VRAM with `nvidia-smi`.
-2. Run the installed compatibility checker and save the complete result.
-3. Rebuild the USDA and occlusion certificate from a clean shell.
-4. Repeat the Isaac smoke command from the README.
-5. Open one GUI viewport with real-time rendering; do not enable path tracing.
-6. Record idle, loaded-stage, and one-camera steady-state VRAM. Stop if the soft
-   ceiling of 14 GB is exceeded.
-7. Repeat the ROS synthetic demo before adding an Isaac camera graph.
+| Gate | Result |
+|---|---|
+| GPU model, driver, and VRAM | Pass |
+| NVIDIA GPU selected by Vulkan | Pass |
+| Installed Isaac compatibility checker | Conditional: all hardware gates pass; unsupported Mint makes the aggregate result fail |
+| Fresh USDA and occlusion certificate | Pass |
+| Headless installed-version stage smoke | Pass, 916 MiB total GPU memory |
+| Visible 640×360 real-time viewport | Pass, 871 MiB total GPU memory |
+| Below 14 GB soft ceiling | Pass with large margin |
+| One-camera render-product steady state | Pending the narrow Isaac/ROS adapter |
+| Synthetic ROS regression before adapter | Covered by the full workspace test; repeat live when starting the adapter |
+
+The compatibility checker log is
+`~/.nvidia-omniverse/logs/Kit/Isaac-Sim_Compatibility_Checker/5.1/kit_20260726_211003.log`.
+The two smoke logs are under the installed environment's
+`isaacsim/kit/logs/Kit/Isaac-Sim Python/5.1/` directory with timestamps
+`20260726_211232` and `20260726_211324`.
+
+## Repeat the qualification
+
+```bash
+python -m scene.build --m 6.0 --n 3.0 --out out/corridor.usda
+python -m scene.occlusion \
+  --stage out/corridor.usda \
+  --manifest out/corridor.manifest.json \
+  --out out/occlusion-certificate.json
+
+OMNI_KIT_ACCEPT_EULA=YES \
+  ~/isaac/env_isaaclab/bin/python tools/isaac_5_1_smoke.py \
+  out/corridor.usda --updates 60 --report-gpu-memory
+
+OMNI_KIT_ACCEPT_EULA=YES \
+  ~/isaac/env_isaaclab/bin/python tools/isaac_5_1_smoke.py \
+  out/corridor.usda --gui --updates 240 --report-gpu-memory
+```
+
+The `--gui` run is intentionally finite and closes itself. Both commands force
+real-time `RaytracedLighting`, 640×360, and no path tracing. Run these outside a
+restricted sandbox because hidden NVML/Vulkan devices produce false negatives.
 
 Do not move `~/isaac`: the environment contains editable/path-sensitive installs.
 The repo consumes it through an explicit command and keeps the ROS/OpenUSD Python

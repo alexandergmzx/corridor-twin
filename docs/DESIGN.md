@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.2.1 |
-| Status | Phase 1 implemented; Isaac camera bridge pending |
+| Design version | 0.3.0 |
+| Status | Phase 1 implemented; RTX 5070 Ti qualified; Isaac camera bridge pending |
 | Last updated | 2026-07-26 |
 | Target ROS | ROS 2 Jazzy |
-| Target host | Linux Mint 22 / Ubuntu 24.04 base, compatibility pending |
-| Current / target GPU | RTX 5060 8 GB smoke only / RTX 5070 Ti 16 GB demo target |
+| Target host | Linux Mint 22 demo host / Ubuntu 24.04 supported fallback |
+| Current / target GPU | RTX 5070 Ti, 16 GB |
 
 ## Purpose
 
@@ -195,9 +195,9 @@ check, but off-axis placement alone does not count as occlusion.
 
 ## GPU and performance budget
 
-The 16 GB RTX 5070 Ti remains the demo target. The installed RTX 5060 has only
-8151 MiB and is used for small headless composition checks, not treated as a
-supported production target. Initial limits are:
+The installed 16 GB RTX 5070 Ti is the qualified demo GPU. Its capacity changes
+the activation status, not the deliberately small system boundary. Initial
+limits remain:
 
 | Resource | Initial budget |
 |---|---:|
@@ -208,15 +208,25 @@ supported production target. Initial limits are:
 | Steady-state VRAM soft ceiling on 5070 Ti | 14 GB |
 | Materials | Opaque, simple, few |
 | Physics | CPU initially |
-| Render mode | Lowest-cost installed mode that preserves marker texture clarity |
+| Render mode | Real-time `RaytracedLighting`; no path tracing |
 
-On 2026-07-26 the installed Isaac Sim 5.1 compatibility checker reported the RTX
-5060 and driver 580.173.02 as recognized, but failed the machine because 8 GB is
-below its internal reported 10 GB threshold and Linux Mint 22.3 is unsupported.
-The published 5.1 requirements list a stricter 16 GB VRAM minimum. A targeted
-headless smoke nevertheless composed this stage with Vulkan/real-time RTX. It
-also reported IOMMU enabled. This is useful development evidence, not an override
-of the compatibility failure.
+On 2026-07-26, `nvidia-smi` reported 16303 MiB and driver 580.173.02. The
+installed Isaac Sim 5.1 checker passed its GPU, driver, VRAM, CPU, RAM, storage,
+and display gates. The aggregate checker still failed because Linux Mint 22.3 is
+unsupported; Ubuntu 24.04 remains the fallback. IOMMU is also reported as a
+warning.
+
+The project stage passed both headless and visible installed-version validation
+at 640×360 with real-time `RaytracedLighting`. Total GPU memory snapshots were
+916 MiB headless and 871 MiB visible, against a 468 MiB initial desktop
+baseline. No sensor render product existed in these runs. The one-camera
+steady-state measurement is an explicit acceptance gate for the next adapter,
+not something inferred from these low composition-smoke numbers.
+
+The earlier RTX 5060 8 GB check remains historical evidence: the checker failed
+both its internal 10 GB VRAM threshold and the unsupported OS gate, although the
+small stage composed. Replacing the card resolves the capacity gate but does not
+make Mint a supported NVIDIA platform.
 
 If the budget is exceeded: close redundant viewports, lower camera resolution,
 reduce texture streaming budget, remove material features, and inspect render
@@ -248,14 +258,13 @@ Phase 1 packages. The version-specific smoke code is isolated in
 | Estimator is accurate | Synthetic pixels measured against harness-only truth |
 | P cannot be seen | Continuous certificate plus 226-ray composed-USD audit |
 | Time reset behavior | Non-monotonic stamp and backward-station unit tests |
-| GPU constraints are explicit | Checker failure plus minimal 5060 composition smoke |
+| Demo GPU is qualified | 5070 Ti checker component results, headless/GUI smoke, and measured VRAM snapshots |
+| GPU constraints are explicit | One camera, 640×360, real-time rendering, no path tracing, and a 14 GB soft ceiling |
 
 ## Risks and mitigations
 
-- **Mint is unsupported by NVIDIA:** compatibility check currently fails; retain
-  an Ubuntu 24.04 fallback plan even though the small smoke passes.
-- **RTX 5060 has 8 GB:** use it only for the current small scene and headless
-  checks; repeat qualification after installing the 16 GB 5070 Ti.
+- **Mint is unsupported by NVIDIA:** all hardware checker components pass, but
+  the aggregate compatibility check fails; retain an Ubuntu 24.04 fallback plan.
 - **Exactly 16 GB target VRAM:** preserve a 2 GB soft reserve and avoid extra
   render products.
 - **Variant changes versus physics caches:** pause/reset simulation when switching
@@ -269,6 +278,9 @@ Phase 1 packages. The version-specific smoke code is isolated in
 
 ## Version history
 
+- **0.3.0 — 2026-07-26:** Qualified the installed RTX 5070 Ti and driver with
+  the Isaac 5.1 checker, fresh occlusion proof, headless stage validation, visible
+  real-time viewport, and measured VRAM snapshots. Mint remains unsupported.
 - **0.2.1 — 2026-07-26:** Added repeatable local environment isolation and
   verified the explicit Jazzy `/clock` QoS in a live simulated-time ROS run.
 - **0.2.0 — 2026-07-26:** Implemented USD/variants/colliders, continuous

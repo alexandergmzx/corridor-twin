@@ -7,11 +7,13 @@ A's front-camera feed and detect speed violations from surveyed ArUco markers.
 
 ## Current status
 
-**Phase 1 working baseline — 2026-07-26.** Parametric USDA generation, finite
+**Phase 1 working baseline and GPU qualification — 2026-07-26.** Parametric USDA generation, finite
 width variants, static colliders, ArUco assets, a shared manifest, camera-only
 speed estimation, synthetic ROS playback, violation events, and continuous
-occlusion evidence are implemented. The generated stage also passes a headless
-composition smoke in the installed Isaac Sim 5.1 runtime on the RTX 5060.
+occlusion evidence are implemented. The RTX 5070 Ti now passes Isaac Sim 5.1's
+GPU, driver, VRAM, CPU, RAM, storage, and display checks. The checker still marks
+the overall host unsupported because it is Linux Mint. The generated stage
+passes both headless and visible real-time composition smokes on the new GPU.
 
 The provisional A/B/P coordinates and demonstration speed policy still need to
 be reconciled with the interviewer-supplied diagram before calling the geometry
@@ -57,20 +59,14 @@ the image header.
 - Approve the named `(m,n)` profiles.
 - Define the demonstration-only width-to-speed-limit rules.
 
-### 2. Qualify the demo GPU
+### 2. Review the demo GPU qualification
 
-- Install the desktop RTX 5070 Ti 16 GB and verify the production driver.
-- Verify `nvidia-smi` reports the expected model and memory.
-- Run the Isaac Sim compatibility checker.
-- Record GPU, driver, RAM, OS, kernel, ROS, and Isaac versions in
-  `docs/DESIGN.md`.
-- Confirm an empty stage remains stable before adding project integration.
-
-The current RTX 5060 smoke passes for this tiny stage, but the compatibility
-checker fails its 8 GB VRAM against an internal 10 GB threshold and also rejects
-Linux Mint 22.3. NVIDIA's published 5.1 requirements list 16 GB VRAM. The 5060
-result is development evidence only. Repeat the check after installing the 5070
-Ti; Mint remains a reason to retain an Ubuntu 24.04 fallback.
+The installed RTX 5070 Ti reports 16303 MiB with driver 580.173.02. The complete
+activation evidence and repeatable commands are in `docs/ACTIVATION.md`.
+Headless and visible loaded-stage snapshots used 916 MiB and 871 MiB total,
+respectively, while keeping the viewport at 640×360 with real-time
+`RaytracedLighting`. The unsupported Mint result and IOMMU warning remain known
+risks; Ubuntu 24.04 is the fallback rather than an unrecorded last-minute change.
 
 ### 3. Create the development environment
 
@@ -150,12 +146,17 @@ synthetic publisher the single `/clock` source for both nodes.
 ```bash
 OMNI_KIT_ACCEPT_EULA=YES \
   ~/isaac/env_isaaclab/bin/python tools/isaac_5_1_smoke.py \
-  out/corridor.usda --updates 1
+  out/corridor.usda --updates 60 --report-gpu-memory
+
+OMNI_KIT_ACCEPT_EULA=YES \
+  ~/isaac/env_isaaclab/bin/python tools/isaac_5_1_smoke.py \
+  out/corridor.usda --gui --updates 240 --report-gpu-memory
 ```
 
 The smoke uses explicit real-time `RaytracedLighting`, 640×360, no path tracing,
-and no sensor render product. It validates composition and installed-version
-schemas; it is not yet the ROS camera bridge.
+and no sensor render product. Both modes validate composition and
+installed-version schemas; the finite GUI mode opens a visible viewport and
+closes itself. This is not yet the ROS camera bridge.
 
 ## Deliberate GPU budget
 

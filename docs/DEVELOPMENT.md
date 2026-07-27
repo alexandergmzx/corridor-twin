@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.0.0 |
+| Document version | 1.1.0 |
 | Last updated | 2026-07-26 |
 | Local platform | Linux Mint 22.3, ROS 2 Jazzy, Python 3.12 |
 | CI platform | Ubuntu 24.04, ROS 2 Jazzy, Python 3.12 |
@@ -102,6 +102,22 @@ introduced by the last baseline commit.
 The rewrite occurred before anyone else could base work on the repository. Now
 that `main` is shared on GitHub, its published commits must not be rewritten.
 Corrections are added as new, narrowly labelled commits.
+
+## Why GPU qualification is split into two commits
+
+The RTX 5070 Ti activation follows the same review-boundary rule without
+rewriting the published baseline:
+
+1. `443b1ee` (`test: add GPU qualification modes to Isaac smoke`) adds the
+   reusable `nvidia-smi` snapshot and finite visible-viewport mode. That commit
+   was exercised headless and with the GUI before it was recorded.
+2. The following `docs:` commit records this workstation's measured results,
+   the unsupported-Mint qualification, and the resulting design status.
+
+This separation is intentional. The first commit can be reviewed as executable,
+machine-independent test behavior; the second contains time- and host-specific
+evidence. Future GPU or driver requalification should normally update the
+evidence without changing the smoke tool.
 
 ## Commit labels going forward
 
