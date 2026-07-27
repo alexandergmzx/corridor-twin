@@ -263,6 +263,45 @@ Run the probe separately for each adapter mode. Require both processes to print
 their `PASS` marker; the adapter's local graph check alone does not prove DDS
 delivery or the external message contract.
 
+## Running the demonstration
+
+`tools/run_demo.sh` automates exactly the two-environment split above: the
+system-Jazzy consumers start first, then Isaac starts in a shell with
+`AMENT_PREFIX_PATH`, `PYTHONPATH`, `ROS_DISTRO` and `CMAKE_PREFIX_PATH` unset,
+because the adapter re-execs into its bundled Jazzy and aborts on leaked host
+paths rather than silently mixing two ABIs.
+
+```bash
+bash tools/run_demo.sh                       # GUI, RViz, A driving at 1.0 m/s
+bash tools/run_demo.sh --headless --record   # no viewport, rosbag the topics
+SPEED_MPS=0.6 bash tools/run_demo.sh         # compliant run, no violation
+SPEED_MPS=1.8 bash tools/run_demo.sh         # sustained speeding, one episode
+```
+
+The ROS side is `police_observer live_demo.launch.py`, which starts the
+camera-only observer, the `enforcement_view` display, and RViz with the saved
+layout. It runs on `use_sim_time:=true`: the adapter stamps camera messages from
+the simulation clock and the observer differentiates those stamps, so putting
+this side on wall time would mix two clocks inside one speed measurement.
+
+Markers to require in the Isaac log:
+
+| Marker | What it establishes |
+|---|---|
+| `ISAAC_ROS_CAMERA_RENDER_READY` | renderer state was read back from both settings trees, not echoed from the request |
+| `ISAAC_ROS_CAMERA_DRIVE` | `reached_end=True` means A completed the authored route |
+| `ISAAC_ROS_CAMERA_GPU` | VRAM against the RTX 5070 Ti budget |
+| `ISAAC_ROS_CAMERA_PASS` | one render product, one camera, no pose or truth publisher |
+
+`--drive-out` writes the commanded pose schedule to
+`out/evidence/live-demo/commanded-pose-schedule.json`. It is simulator truth,
+labelled `evaluator_only_commanded_pose_schedule`, and is never an observer
+input; the observer's own measurements arrive on `/police/speed_estimate`.
+
+If Isaac is unavailable the script says so and points at
+`synthetic_demo.launch.py`, which needs no GPU and is the recorded fallback for
+the demonstration.
+
 ## Official references used
 
 - [Isaac Sim 5.1 requirements](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html)

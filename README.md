@@ -190,7 +190,43 @@ The explicit `PYTHONPATH` is needed because `colcon test` launches the system
 Python even when the calling shell has an active venv; it keeps both `pxr` and
 the NumPy version used by ROS/OpenCV deterministic on this host.
 
-### 6. Run the simulator-free ROS demo
+### 6. Run the live demonstration
+
+One command, once the scene is generated and the workspace is built:
+
+```bash
+bash tools/run_demo.sh
+```
+
+It starts both halves of the demonstration in the two environments they require
+and never in one shell: the camera-only observer, the enforcement display and
+RViz on system Jazzy, then Isaac Sim on its bundled Jazzy driving A along the
+authored route. The observer side comes up first so the consumers have finished
+discovery before the publisher starts, which is the ordering the live camera
+contract in step 8 already validates.
+
+The default drives A at a constant **1.0 m/s**. That one unchanged speed is
+legal on the wide approach at a 1.2 m/s limit and illegal once the corridor
+narrows to a 0.8 m/s limit, so a single pass shows a compliant stretch and
+exactly one violation episode without anyone touching a throttle.
+
+| Option | Effect |
+|---|---|
+| `--headless` | no Isaac viewport; RViz still shows the camera feed and readout |
+| `--no-rviz` | observer and display only, for a terminal-only check |
+| `--record` | `ros2 bag record` the camera, estimate, violation and clock topics |
+| `SPEED_MPS=1.8` | sustained speeding: one episode that opens on the approach |
+| `SPEED_MPS=0.6` | fully compliant run, no violation |
+| `CORRIDOR_PROFILE=wide_corner_m6_n4_5` | a different authored `(m,n)` variant |
+
+Logs and the commanded-pose schedule land under `out/evidence/live-demo/`. The
+commanded schedule is simulator truth and is labelled as evaluator-only; it is
+never an observer input.
+
+If Isaac is unavailable, the script says so and points at the simulator-free
+fallback below, which is also the recorded fallback for the demonstration.
+
+### 7. Run the simulator-free ROS demo
 
 ```bash
 source /opt/ros/jazzy/setup.bash
@@ -211,7 +247,7 @@ NumPy 2.2 wheel, while ROS Jazzy's OpenCV/cv_bridge binaries use the NumPy 1.x
 ABI. No global package is modified. Add `use_sim_time:=true` to make the
 synthetic publisher the single `/clock` source for both nodes.
 
-### 7. Run the live Isaac camera contract
+### 8. Run the live Isaac camera contract
 
 Start the external probe in a system-ROS terminal before starting Isaac:
 
@@ -236,7 +272,7 @@ Add `--gui` for the finite visible-viewport check. Success requires both
 prove the ROS interface. The adapter creates exactly one render product and no
 pose, odometry, TF, depth, or test-truth publisher.
 
-### 8. Qualify rendered fiducials through the production ROS camera
+### 9. Qualify rendered fiducials through the production ROS camera
 
 Start a dedicated capture process in the system-Jazzy environment:
 
@@ -276,7 +312,7 @@ from the evaluator that reads the static schedule. Exact accepted commands and
 the actual-capture mirror control are in the
 [evidence notes](docs/evidence/static-fiducials/NOTES.md).
 
-### 9. Repeat the installed Isaac 5.1 composition smoke
+### 10. Repeat the installed Isaac 5.1 composition smoke
 
 ```bash
 OMNI_KIT_ACCEPT_EULA=YES \
