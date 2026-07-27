@@ -311,24 +311,47 @@ class GateSpeedEstimator:
 
 
 class ViolationDetector:
-    """Require consecutive conservative exceedances before emitting an event."""
+    """Emit one event per continuous speeding episode.
+
+    An episode opens when the confirmation rule is first satisfied and stays
+    open while the robot keeps exceeding the applicable limit, including across
+    a transition into a stricter zone. Only a conservative measurement at or
+    below the limit rearms the detector. See ADR 0014.
+
+    The earlier implementation reset immediately after emitting, so a steady
+    over-limit run produced a fresh event every ``consecutive_estimates``
+    measurements. That made the event count a function of how many gates
+    happened to be measurable rather than of the robot's behaviour.
+    """
 
     def __init__(self, marker_map: MarkerMap) -> None:
         self.marker_map = marker_map
         self.consecutive = 0
         self.first_time_s: float | None = None
         self.event_id = 0
+        self.episode_open = False
 
     def reset(self) -> None:
+        """Clear all episode state.
+
+        Called on temporal discontinuities, where continuity of an open episode
+        can no longer be asserted, as well as on a compliant measurement.
+        """
+
         self.consecutive = 0
         self.first_time_s = None
+        self.episode_open = False
 
     def update(self, measurement: SpeedMeasurement) -> Violation | None:
         conservative_speed = (
             measurement.speed_mps - self.marker_map.confidence_sigma * measurement.speed_stddev_mps
         )
         if conservative_speed <= measurement.speed_limit_mps:
+            # Compliance is the only thing that rearms.
             self.reset()
+            return None
+        if self.episode_open:
+            # Still the same episode, including after the limit tightened.
             return None
         if self.consecutive == 0:
             self.first_time_s = measurement.timestamp_s
@@ -337,11 +360,10 @@ class ViolationDetector:
             return None
         self.event_id += 1
         first = self.first_time_s if self.first_time_s is not None else measurement.timestamp_s
-        event = Violation(
+        self.episode_open = True
+        return Violation(
             event_id=self.event_id,
             estimate=measurement,
             exceedance_mps=conservative_speed - measurement.speed_limit_mps,
             confirmation_duration_s=max(0.0, measurement.timestamp_s - first),
         )
-        self.reset()
-        return event

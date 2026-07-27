@@ -18,6 +18,7 @@ supersedes the old record.
 | [0011](0011-visibility-semantics.md) | Accepted | Keep "A cannot see P" a geometric gate over the continuous turn |
 | [0012](0012-conservative-curved-path-visibility.md) | Accepted | Enclose curved camera motion conservatively before certifying visibility |
 | [0013](0013-size-fiducials-from-delivered-camera.md) | Accepted | Size and mount fiducials from the delivered production camera |
+| [0014](0014-violation-episode-semantics.md) | Accepted | Emit one violation per continuous speeding episode |
 
 ## Decision map
 
@@ -27,6 +28,7 @@ flowchart LR
     A4 --> A6["0006<br/>Scenario manifest"]
 
     A2["0002<br/>Camera-only evidence"] --> A7["0007<br/>Violation semantics"]
+    A7 --> A14["0014<br/>Violation episodes"]
     A3["0003<br/>Clock discipline"] --> A9["0009<br/>Isaac camera adapter"]
     A8["0008<br/>Runtime separation"] --> A9
     A2 --> A9

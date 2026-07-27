@@ -251,6 +251,13 @@ For each image:
 A violation requires a valid estimate and configurable confirmation. Arrival time
 at the subscriber is never used for speed.
 
+One event represents one continuous speeding episode
+([ADR 0014](adr/0014-violation-episode-semantics.md)). The detector rearms only
+on a conservative estimate at or below the applicable limit, so a steady
+over-limit run reports one offense however many gates it crosses, and tightening
+the limit mid-episode does not manufacture a second. Event count therefore
+measures behaviour rather than fiducial density.
+
 ## Speed-limit policy
 
 Corridor width alone does not define a legal limit. The supplied task states no

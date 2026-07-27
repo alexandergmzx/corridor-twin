@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Contract version | 0.3.2 |
+| Contract version | 0.3.3 |
 | Status | Implemented by synthetic and Isaac 5.1 publishers; `rgb8` now gated at the wire and offline, and both publishers share the production `cx=width/2` convention |
 | Last updated | 2026-07-27 |
 
@@ -100,6 +100,15 @@ A violation is a reliable, volatile event with a monotonically increasing
 process-local event ID. It embeds the complete triggering estimate. The event is
 emitted only after the conservative configured comparison and confirmation
 duration/consecutive-estimate requirement pass.
+
+**One event means one continuous speeding episode**
+([ADR 0014](adr/0014-violation-episode-semantics.md)). While an episode is open,
+further over-limit estimates extend it silently, including across a transition
+into a stricter zone; only a conservative estimate at or below the applicable
+limit rearms the detector. A consumer may therefore read repeat events as
+genuinely separate offenses, and must not infer episode length from event count
+— `confirmation_duration_s` carries that. Temporal resets clear an open episode,
+so continuity is never asserted across a clock or profile discontinuity.
 
 Restarting the node may reset the event ID; consumers must combine it with the
 header timestamp and publisher identity if global uniqueness is required.
