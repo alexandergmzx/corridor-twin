@@ -27,17 +27,19 @@ step.
 
 ## Architecture at a glance
 
-```text
-corridor.yaml ──> scene.build ──> corridor.usda
-       │                 └──────> corridor.manifest.json
-       │                                      │
-       └──────────────────────────────────────┤
-                                              v
-camera image + CameraInfo ──> police_observer ──> speed estimate / violation
-              synthetic frames ────────────────> test-harness truth comparison
-Isaac 5.1 camera graph ─────────────────────────> same camera contract + /clock
-
-composed USD + delivery path + P bounds ──> occlusion certificate
+```mermaid
+flowchart LR
+    Config["corridor.yaml"] --> Build["scene.build"]
+    Build --> USD["corridor.usda"]
+    Build --> Manifest["corridor.manifest.json"]
+    USD --> Isaac["Isaac Sim 5.1"]
+    Isaac --> Contract["Image + CameraInfo + /clock"]
+    Synthetic["Synthetic camera"] --> Contract
+    Contract --> Observer["police_observer"]
+    Manifest --> Observer
+    Observer --> Output["Speed estimate / violation"]
+    USD --> Proof["Occlusion certificate"]
+    Manifest --> Proof
 ```
 
 The observer is prohibited from reading simulated pose, odometry, TF-derived
@@ -236,6 +238,7 @@ of scope for this interview demo.
 
 ## Documentation
 
+- [Visual project map and growth tracker](docs/README.md)
 - [System design](docs/DESIGN.md)
 - [Sensor-feed contract](docs/SENSOR-FEED.md)
 - [Hardware and Isaac activation record](docs/ACTIVATION.md)

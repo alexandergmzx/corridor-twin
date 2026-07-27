@@ -48,6 +48,36 @@
 - IOMMU is enabled and reported as a warning. It did not prevent the small stage
   from composing or rendering, but it remains in the recorded risk list.
 
+## Activation progression
+
+```mermaid
+flowchart LR
+    HW["Hardware gates<br/>GPU + driver + VRAM<br/><b>PASS</b>"] --> Scene["Fresh scene + occlusion<br/><b>PASS</b>"]
+    Scene --> Smoke["Headless + visible composition<br/><b>PASS</b>"]
+    Smoke --> Camera["One-camera ROS contract<br/>headless + visible<br/><b>PASS</b>"]
+    Camera --> Motion["Robot motion and live speed<br/><b>NEXT</b>"]
+    OS["Linux Mint support gate<br/><b>FAIL</b><br/>Ubuntu 24.04 fallback"]:::conditional -.-> HW
+
+    classDef conditional fill:#5c471f,color:#ffffff,stroke:#ffc857,stroke-width:2px;
+```
+
+The OS result makes the workstation conditionally qualified even though every
+hardware and project-specific gate shown on the main path passes.
+
+## GPU-memory growth
+
+These are independent point-in-time totals from `nvidia-smi`, not values to add
+together. Headroom is measured against the project's 14,336 MiB soft ceiling.
+
+| Checkpoint | Render products | Viewport | Total used | Headroom to soft ceiling |
+|---|---:|---|---:|---:|
+| Initial desktop | 0 | Desktop only | 468 MiB | 13,868 MiB |
+| Corridor composition smoke | 0 | Headless | 916 MiB | 13,420 MiB |
+| Corridor composition smoke | 0 | Visible | 871 MiB | 13,465 MiB |
+| Live ROS camera contract | 1 | Headless | 2,494 MiB | 11,842 MiB |
+| Live ROS camera contract | 1 | Visible | 2,591 MiB | 11,745 MiB |
+| Project soft ceiling | — | — | 14,336 MiB | 0 MiB |
+
 ## Activation gate results
 
 | Gate | Result |

@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.4.0 |
+| Design version | 0.4.1 |
 | Status | Phase 1 implemented; RTX 5070 Ti and live Isaac camera contract qualified |
 | Last updated | 2026-07-26 |
 | Target ROS | ROS 2 Jazzy |
@@ -35,29 +35,48 @@ This is an interview artifact, not a production traffic-enforcement system.
 
 ## Component boundaries
 
-```text
-Scenario description
-  ├─> OpenUSD authoring ─> USDA + sidecar manifest
-  ├─> synthetic renderer ─> Image + CameraInfo + harness-only truth
-  └─> occlusion verifier ─> pass/fail certificate
+```mermaid
+flowchart TB
+    subgraph Authoring["CPU-authored scenario"]
+        Config["corridor.yaml"] --> Generator["corridor_scene / pure pxr"]
+        Generator --> USD["Human-readable USDA"]
+        Generator --> Manifest["Scenario manifest"]
+        USD --> StageTests["Composed-stage tests"]
+        USD --> Occlusion["Continuous occlusion proof"]
+        Manifest --> Occlusion
+    end
 
-Image + CameraInfo + manifest
-  └─> police observer
-        ├─> fiducial detections
-        ├─> camera station observations
-        ├─> gate-crossing speed estimates
-        └─> debounced violation events
+    subgraph Publishers["Interchangeable camera publishers"]
+        Synthetic["Synthetic ArUco renderer"]
+        Isaac["Isaac 5.1 camera graph<br/>one render product"]
+    end
 
-Isaac 5.1 smoke tool (installed-version API)
-  └─> composes USDA and checks profiles, camera count, and colliders
+    Synthetic --> CameraContract["Image + CameraInfo"]
+    Isaac --> CameraContract
+    Isaac --> Clock["/clock"]
 
-Isaac 5.1 camera/clock adapter (installed-version API)
-  └─> one render product ─> Image + CameraInfo + /clock
+    subgraph Observation["Permitted police observation"]
+        CameraContract --> Observer["police_observer"]
+        Manifest --> Observer
+        Clock --> Observer
+        Observer --> Detect["Fiducial detections"]
+        Detect --> Station["Camera station observations"]
+        Station --> Speed["Gate-crossing speed estimates"]
+        Speed --> Violation["Debounced violation events"]
+    end
+
+    Truth["Synthetic/simulator truth"] -. "test harness only" .-> Evaluation["Accuracy evaluator"]
+    Speed --> Evaluation
 ```
 
 `corridor_scene` and the perception core must remain importable without Isaac
 Sim. The ROS adapter may import ROS packages but must keep perception algorithms
 free of ROS node state so they can be tested with ordinary arrays and timestamps.
+
+The detailed milestone view is maintained in the
+[documentation map](README.md). The architectural invariant is that both camera
+publishers meet one contract; adding motion must not add a truth input to the
+observer.
 
 ## Scenario and coordinate contract
 
@@ -260,6 +279,35 @@ products before changing algorithms.
 
 ## Runtime environments
 
+```mermaid
+flowchart LR
+    subgraph Dev["Development and ROS runtime"]
+        Python312["System Python 3.12"]
+        JazzySystem["System ROS 2 Jazzy"]
+        USDCore["pip usd-core"]
+        Tests["pytest + colcon"]
+        Python312 --- JazzySystem
+        Python312 --- USDCore
+        Python312 --- Tests
+    end
+
+    subgraph Sim["Isaac runtime"]
+        Python311["Isaac Python 3.11"]
+        Isaac51["Isaac Sim 5.1"]
+        JazzyBundled["Bundled Jazzy bridge"]
+        Python311 --- Isaac51
+        Isaac51 --- JazzyBundled
+    end
+
+    USDCore -->|"USDA + manifest"| Isaac51
+    JazzyBundled -->|"DDS: Image + CameraInfo + /clock"| JazzySystem
+    Blocked["Do not share Python packages<br/>across this ABI boundary"]:::blocked
+    Python312 -.-> Blocked
+    Blocked -.-> Python311
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+```
+
 ### Development/ROS environment
 
 System Python 3.12 venv with `--system-site-packages`, ROS 2 Jazzy, `usd-core`, and
@@ -310,6 +358,8 @@ Phase 1 packages. The version-specific tools are isolated in
 
 ## Version history
 
+- **0.4.1 — 2026-07-26:** Added visual component and runtime-environment maps;
+  no interface or architecture decision changed.
 - **0.4.0 — 2026-07-26:** Added and live-validated the installed Isaac 5.1
   camera/clock adapter in headless and visible modes. The external ROS probe
   measured 15 Hz synchronized 640×360 RGB/calibration streams, simulation time,

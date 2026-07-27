@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.2.0 |
+| Document version | 1.3.0 |
 | Last updated | 2026-07-26 |
 | Local platform | Linux Mint 22.3, ROS 2 Jazzy, Python 3.12 |
 | CI platform | Ubuntu 24.04, ROS 2 Jazzy, Python 3.12 |
@@ -14,6 +14,18 @@ command:
 
 ```bash
 bash tools/check_workspace.sh
+```
+
+```mermaid
+flowchart LR
+    Local["Developer workstation"] --> Check["tools/check_workspace.sh"]
+    CI["GitHub Actions / Ubuntu 24.04"] --> Check
+    Check --> Ruff["Ruff"]
+    Ruff --> Pytest["Repository pytest"]
+    Pytest --> Build["colcon build"]
+    Build --> Packages["ROS package tests"]
+    Packages --> Result["colcon test-result"]
+    Result --> Gate["One pass/fail gate"]
 ```
 
 The script runs Ruff, the repository pytest suite, a symlink-install colcon
@@ -50,6 +62,17 @@ The repository has one workflow, `.github/workflows/ci.yml`. It:
 The workflow has read-only repository permissions. It does not run Isaac Sim,
 require a GPU, publish artifacts, deploy software, or mutate external systems.
 The installed Isaac smoke remains an explicit workstation activation check.
+
+### Current verification snapshot
+
+| Layer | Current result | Where it runs |
+|---|---|---|
+| Ruff | Pass | Local and GitHub Actions |
+| Repository pytest | 23 passed | Local and GitHub Actions |
+| ROS build | 3 packages built | Local and GitHub Actions |
+| ROS package tests | 14 passed, 0 failures | Local and GitHub Actions |
+| Isaac stage and camera checks | Pass headless and visible | Qualified GPU workstation only |
+| Camera-integration gate | [Run 30236111462](https://github.com/alexandergmzx/corridor-twin/actions/runs/30236111462) passed | GitHub Actions |
 
 ## CI recovery record
 
@@ -135,6 +158,21 @@ The live camera step has three different review and rollback boundaries:
 This is intentionally not one integration dump. Publisher behavior, independent
 verification, and time-specific evidence change for different reasons. The
 commits are additive on published `main`; no history is rewritten.
+
+## Documentation growth discipline
+
+| When this changes… | Update at minimum | Add a new ADR when… |
+|---|---|---|
+| Milestone status or next step | `docs/README.md` capability/growth map | The system boundary or strategy changes |
+| Geometry, variants, frames, or scene prims | `docs/DESIGN.md` | The authoring/parameterization decision changes |
+| Topics, messages, QoS, timestamps, or permissions | `docs/SENSOR-FEED.md` | A producer/consumer contract changes materially |
+| GPU, driver, simulator, VRAM, or live gate result | `docs/ACTIVATION.md` | The supported runtime strategy changes |
+| Environment, build, CI, or commit workflow | `docs/DEVELOPMENT.md` | A durable workflow trade-off is selected |
+| Durable architectural decision | ADR index plus affected detailed document | Always; accepted ADRs are not edited into a new decision |
+
+Diagrams show stable relationships; tables hold exact versions, measurements,
+and statuses. A behavior change should update its diagram and precise table in
+the same commit so the visual story cannot drift away from the executable one.
 
 ## Commit labels going forward
 

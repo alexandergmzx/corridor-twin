@@ -14,3 +14,27 @@ supersedes the old record.
 | [0007](0007-speed-policy-and-violation.md) | Demo accepted | Configure policy and conservative event semantics |
 | [0008](0008-runtime-environment-boundaries.md) | Accepted | Separate ROS/OpenUSD and Isaac runtimes |
 | [0009](0009-installed-isaac-ros-camera-adapter.md) | Accepted | Isolate one installed-version camera/clock adapter |
+
+## Decision map
+
+```mermaid
+flowchart LR
+    A1["0001<br/>Standalone USD"] --> A4["0004<br/>Profile variants"]
+    A4 --> A6["0006<br/>Scenario manifest"]
+
+    A2["0002<br/>Camera-only evidence"] --> A7["0007<br/>Violation semantics"]
+    A3["0003<br/>Clock discipline"] --> A9["0009<br/>Isaac camera adapter"]
+    A8["0008<br/>Runtime separation"] --> A9
+    A2 --> A9
+    A6 --> A9
+
+    A1 --> A5["0005<br/>Continuous occlusion"]
+
+    A5 --> Demo["Defensible interview demo"]
+    A7 --> Demo
+    A9 --> Demo
+```
+
+The arrows mean “constrains or enables,” not “supersedes.” For example, the live
+Isaac adapter is shaped simultaneously by the camera-only rule, clock rule,
+scenario manifest, and Python-runtime boundary.

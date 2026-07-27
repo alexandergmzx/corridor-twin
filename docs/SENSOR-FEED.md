@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Contract version | 0.3.0 |
+| Contract version | 0.3.1 |
 | Status | Implemented by synthetic and Isaac 5.1 publishers; live Isaac contract validated |
 | Last updated | 2026-07-26 |
 
@@ -14,6 +14,22 @@ simulator transforms, or test truth.
 
 Topic names in node code should be relative and remappable. The table shows the
 resolved demo names.
+
+## Evidence access matrix
+
+| Evidence | Producer/source | `police_observer` may consume? | Test evaluator may consume? | Why |
+|---|---|:---:|:---:|---|
+| RGB image | A's camera publisher | Yes | Yes | Primary indirect observation |
+| Camera calibration | Same publisher/render product | Yes | Yes | Converts pixels into geometric rays |
+| Surveyed marker map and width policy | Versioned scenario manifest | Yes | Yes | Known infrastructure, not robot truth |
+| `/clock` in simulated-time mode | Single active harness or Isaac source | Yes | Yes | Aligns acquisition timestamps |
+| Robot ground-truth pose | Simulator/harness | **No** | Yes | Would bypass camera perception |
+| Robot odometry | Robot/simulator | **No** | Yes | Would turn the observer into a direct speed reader |
+| Simulator-derived robot TF | Simulator | **No** | Yes | Equivalent truth shortcut through another interface |
+| Harness truth speed | Synthetic publisher/test harness | **No** | Yes | Used only to quantify estimator error |
+
+The observer's permission boundary is enforced in source/topic contract tests,
+not only described here.
 
 ## Topics
 
@@ -124,6 +140,33 @@ stamps, profile changes, and clock initialization transitions.
 The synthetic-clock integration test produced a violation stamped at 4.330643489
 seconds on the generated timeline, rather than host wall time. Its camera-derived
 speed was 1.8026 m/s for a 1.8 m/s truth input.
+
+## Message timing sequence
+
+```mermaid
+sequenceDiagram
+    participant C as Clock source
+    participant A as A camera publisher
+    participant P as police_observer
+    participant U as Result consumer
+    participant H as Test truth source
+    participant E as Test evaluator
+
+    C-->>P: /clock advances simulation time
+    A-->>P: Image(header.stamp = t, frame = optical)
+    A-->>P: CameraInfo(header.stamp = t, same frame)
+    Note over P: Pair by acquisition stamp<br/>callback arrival time is irrelevant
+    P->>P: Detect markers and estimate station
+    A-->>P: Next paired frame at t + Δt
+    P->>P: Interpolate gate crossing and speed
+    P-->>U: SpeedEstimate(measurement time)
+    opt Conservative limit exceeded long enough
+        P-->>U: SpeedViolation(event)
+    end
+    P-->>E: Camera-derived result
+    H-->>E: Ground-truth speed for error measurement
+    Note over P,H: No truth message or transform is sent to P
+```
 
 ## Forbidden dependencies
 
