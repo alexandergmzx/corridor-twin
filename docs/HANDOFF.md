@@ -2,14 +2,88 @@
 
 | Field | Value |
 |---|---|
-| Handoff version | 1.3.0 |
+| Handoff version | 1.4.0 |
 | Prepared | 2026-07-27 |
 | Branch | `main` |
 | Published base | `a416e47` on `origin/main` |
-| Last behavior commit to audit | `61bd4c9` plus the corner-enforcement correction |
-| Portable gate at this handoff | 117 repository tests, 72 ROS package tests |
-| Current gate | Review of corner enforcement before GPU requalification |
-| Next implementation slice | Runtime corridor-profile reload, then GPU requalification. **Not motion** |
+| Last behavior commit to audit | `772d027` |
+| Portable gate at this handoff | 117 repository tests (1 skipped without colcon-generated interfaces), 86 ROS package tests |
+| Current gate | Demonstration works end to end; static requalification still outstanding |
+| Next implementation slice | Close R17, then the paired static requalification |
+
+## Status since handoff 1.3.0 — the demonstration runs
+
+Priority moved from closing findings to producing a presentable demonstration.
+`bash tools/run_demo.sh` now drives A along the authored route in Isaac Sim
+while the camera-only observer measures its speed and RViz shows the result.
+The measured run is recorded in
+[`docs/evidence/live-demo/NOTES.md`](evidence/live-demo/NOTES.md).
+
+| Commit | What it added |
+|---|---|
+| `82417a8` | Deterministic synthetic accuracy reporter with a declared 15 Hz sampling schedule. Closes R2/R10/R13: figures can no longer be measured by hand on a convenient grid |
+| `e0bea0c` | R18 below. Continuity guard now judges a backward station step against the observations' own uncertainty |
+| `8edc076` | Continuous motion from simulation time, reusing the manifest trajectory and `_set_actor_pose` |
+| `e52ca12` | `enforcement_view` node and RViz layout. A is drawn at the *measured* station, never at truth |
+| `5b2bc6c` | One command, two environments, consumers first |
+| `772d027` | `ros2 launch` rejects an empty argument, so an unset profile stopped the whole ROS side from starting. Found by rehearsing |
+
+### Two findings the reporter surfaced
+
+**R17 — Medium, open and deliberately deferred.** On the default profile
+`nominal_m6_n3`, reference marker 84 sits at east-face `along_m: 0.0` while the
+corner mass's north edge is at exactly `y = 0.0` (that is `m/2 - n`). Its
+backing spans `y in (-0.643, +0.643)`, so half the plate is behind the corner
+building. `SyntheticCamera` projects without raycasting and renders it whole;
+the raycast audit in `tools/synthetic_observer_report.py` flags 59 of 164
+accepted frames on the approach. The other two profiles are clear, because
+their corner mass sits further south.
+
+The live run measured all four gates anyway, so this costs one of five
+reference plates rather than corner coverage — which is why it was deferred
+rather than fixed before the demonstration. A `validate_layout` invariant that
+rejects it is parked in `git stash@{0}`; it is ten lines and its error message
+is quoted below, so nothing is lost if the stash is dropped.
+
+```
+profile nominal_m6_n3: reference marker 84 reaches south to y=-0.6429 and is
+behind the corner mass, whose north edge is at y=0.0000
+```
+
+Note before fixing it: every occlusion-free placement measured also loses gate
+8.0 at 0.6 m/s, on backward steps of 4-9 mm. That was R18, now closed — so the
+relocation should be re-measured against the corrected guard rather than
+against the old one.
+
+**R18 — closed by `e0bea0c`.** `GateSpeedEstimator.is_discontinuous` reset the
+gate history on *any* backward station step. That is not satisfiable against
+this estimator's own noise:
+
+| Path speed | Advance/frame | p95 station noise | Ratio |
+|---:|---:|---:|---:|
+| 0.6 m/s | 0.0397 m | 0.0414 m | **0.96** |
+| 1.0 m/s | 0.0662 m | 0.0414 m | 1.60 |
+| 1.8 m/s | 0.1191 m | 0.0414 m | 2.88 |
+
+Every reset discarded `last_crossing` and silently dropped a speed measurement.
+Station is now judged at three sigma of the combined stated uncertainty; time
+stays strict. Measured noise steps sit at or below 0.5 sigma and the ambiguous
+single-marker pose sits at 3.4 sigma, and is rejected upstream on rank anyway.
+
+### Still outstanding, and not claimed anywhere
+
+1. **No canonical static qualification.** Unchanged. The live run does not
+   replace a paired dwell capture with its own mirror control.
+2. **Pose-to-render latency uncharacterised.** Whether a pose written before
+   `app.update()` lands in that frame or the next was not measured, and no
+   offset compensates for it. One camera period is 0.066 m at 1.0 m/s.
+3. **R11 runtime corridor-profile reload** is still not implemented; the
+   observer reads `corridor_profile` once at construction.
+4. **ADRs 0015 and 0016 are unwritten** — reference fiducials for corner
+   coverage, and the owner-approved 3.5 -> 4.0 m policy boundary.
+5. **`docs/DESIGN.md` still contains the superseded synthetic figures** and, at
+   its verification matrix, still says gates 8/10 are unmeasurable. The live run
+   contradicts that directly.
 
 ## Status since handoff 1.1.0
 

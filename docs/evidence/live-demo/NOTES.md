@@ -121,9 +121,35 @@ ISAAC_ROS_CAMERA_PASS updates=1433 profile=nominal_m6_n3 static_probe=False driv
   `app.update()` lands in that frame or the next is unmeasured, and no offset
   was applied to compensate for it. At 1.0 m/s one camera period is 0.066 m,
   which bounds the effect on a single station but has not been characterised.
-- Exercise the GUI path. This run was `--headless`; the viewport variant shares
-  the same graph but was not measured here.
+- Produce a full GUI run. The viewport path was confirmed separately (see
+  below) but the recorded enforcement result above is from `--headless`.
 - Say anything about profiles other than `nominal_m6_n3`.
+
+## Viewport path
+
+The presentation uses the GUI, so it was run separately:
+
+```bash
+EVIDENCE_DIR=$PWD/out/evidence/live-demo-gui UPDATES=600 bash tools/run_demo.sh
+```
+
+```
+ISAAC_ROS_CAMERA_RENDER_READY active_render_mode='RaytracedLighting' default_render_mode='RaytracedLighting'
+                              active_anti_aliasing=3 default_anti_aliasing=3
+ISAAC_ROS_CAMERA_DRIVE speed_mps=1.0 route_s_m=9.983 route_length_m=23.851 reached_end=False updates=600
+ISAAC_ROS_CAMERA_GPU name=NVIDIA GeForce RTX 5070 Ti used_mib=3547 total_mib=16303
+ISAAC_ROS_CAMERA_PASS updates=600 profile=nominal_m6_n3 static_probe=False drive=True render_products=1
+```
+
+The viewport costs 136 MiB over headless, 3547 against 3411, and the renderer
+state, render-product count and drive loop are unchanged. `reached_end=False`
+is the `UPDATES=600` cap used to keep this check short, not a failure: 600
+updates is 9.983 s of simulation time, so A covered the corridor approach and
+stopped short of the corner. The default `UPDATES=3000` is 50 s of simulation
+time against a 23.9 s route, which is what the headless run completed.
+
+Simulation advances at 60 Hz in both modes, matching the adapter contract's
+`simulation_hz`.
 
 ## Defect this rehearsal found
 
