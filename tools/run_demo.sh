@@ -101,11 +101,14 @@ echo
   source "$workspace_dir/install/setup.bash"
   set -u
   export PYTHONNOUSERSITE=1
-  exec ros2 launch police_observer live_demo.launch.py \
-    manifest:="$manifest" \
-    corridor_profile:="$profile" \
-    use_sim_time:=true \
-    rviz:="$rviz"
+  # ros2 launch rejects an empty value outright, so an unset profile has to be
+  # omitted rather than passed as corridor_profile:= -- otherwise the whole ROS
+  # side fails to start and the run looks like a DDS problem.
+  launch_args=(manifest:="$manifest" use_sim_time:=true rviz:="$rviz")
+  if [[ -n "$profile" ]]; then
+    launch_args+=(corridor_profile:="$profile")
+  fi
+  exec ros2 launch police_observer live_demo.launch.py "${launch_args[@]}"
 ) >"$ros_log" 2>&1 &
 children+=($!)
 echo "observer + display starting (log: $ros_log)"
