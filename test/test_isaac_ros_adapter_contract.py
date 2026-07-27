@@ -33,6 +33,7 @@ def test_adapter_has_one_small_rgb_camera_and_clock() -> None:
         "camera_hz": 15,
         "render_products": 1,
         "render_mode": "RaytracedLighting",
+        "anti_aliasing": 3,
     }
 
 
@@ -49,7 +50,7 @@ def test_static_probe_reuses_the_adapter_product_and_records_both_station_coordi
     assert defaults == {
         "stations_x_m": (0.5, 1.5, 3.0, 5.0, 7.0),
         "settle_updates": 12,
-        "capture_updates": 24,
+        "capture_updates": 36,
         "output": "out/evidence/static-fiducials/static-truth.json",
     }
     source = ADAPTER.read_text(encoding="utf-8")
@@ -58,6 +59,11 @@ def test_static_probe_reuses_the_adapter_product_and_records_both_station_coordi
     assert '"expected_station_x_m": camera_pose.x_m' in source
     assert "rep.create.render_product" not in source
     assert "ROS2CameraHelper" in source
+    assert 'settings.get_as_int("/rtx/post/aa/op")' in source
+    assert '"observed_active_anti_aliasing": sorted(' in source
+    assert '"observed_default_anti_aliasing": sorted(' in source
+    assert "IsaacCreateRenderProduct constructs its Hydra product" in source
+    assert '"render_product_warmup_updates": RENDER_PRODUCT_WARMUP_UPDATES' in source
 
 
 def test_adapter_self_isolates_isaac_python_from_system_ros() -> None:

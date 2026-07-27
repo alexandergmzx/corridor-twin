@@ -70,13 +70,15 @@ ADAPTER_CONTRACT = {
     "camera_hz": 15,
     "render_products": 1,
     "render_mode": "RaytracedLighting",
+    "anti_aliasing": 3,
 }
 
 ROBOT_PRIM = "/World/Actors/A"
+RENDER_PRODUCT_WARMUP_UPDATES = 12
 STATIC_PROBE_DEFAULTS = {
     "stations_x_m": (0.5, 1.5, 3.0, 5.0, 7.0),
     "settle_updates": 12,
-    "capture_updates": 24,
+    "capture_updates": 36,
     "output": "out/evidence/static-fiducials/static-truth.json",
 }
 
@@ -189,7 +191,14 @@ def _static_probe_manifest_path(args: argparse.Namespace, stage_path: Path) -> P
     return resolved
 
 
-def _run_static_probe(app, stage, args: argparse.Namespace, stage_path: Path, profile: str) -> int:
+def _run_static_probe(
+    app,
+    stage,
+    args: argparse.Namespace,
+    stage_path: Path,
+    profile: str,
+    render_warmup_reset_events: int,
+) -> int:
     """Hold A at fixed poses while the existing graph publishes production pixels."""
 
     # Installed reference: isaacsim.core.nodes/tests/test_core_nodes.py imports
@@ -219,8 +228,13 @@ def _run_static_probe(app, stage, args: argparse.Namespace, stage_path: Path, pr
     ):
         raise ValueError("static world-X stations must be strictly increasing")
 
+    import carb
+
+    settings = carb.settings.get_settings()
     clock = _isaacsim_core_nodes.acquire_interface()
     dwells: list[dict[str, object]] = []
+    observed_active_anti_aliasing: set[int] = set()
+    observed_default_anti_aliasing: set[int] = set()
     total_updates = 0
     for index, station_x_m in enumerate(stations_x_m):
         route_s_m = trajectory.approach_s_at_x(station_x_m)
@@ -230,6 +244,22 @@ def _run_static_probe(app, stage, args: argparse.Namespace, stage_path: Path, pr
         start_s = float(clock.get_sim_time())
         for _ in range(args.static_settle_updates):
             app.update()
+        active_anti_aliasing = settings.get_as_int("/rtx/post/aa/op")
+        default_anti_aliasing = settings.get_as_int("/rtx-defaults/post/aa/op")
+        observed_active_anti_aliasing.add(active_anti_aliasing)
+        observed_default_anti_aliasing.add(default_anti_aliasing)
+        if active_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]:
+            raise RuntimeError(
+                "renderer changed the active anti-aliasing mode: "
+                f"expected {ADAPTER_CONTRACT['anti_aliasing']}, "
+                f"found {active_anti_aliasing}"
+            )
+        if default_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]:
+            raise RuntimeError(
+                "renderer changed the default anti-aliasing mode: "
+                f"expected {ADAPTER_CONTRACT['anti_aliasing']}, "
+                f"found {default_anti_aliasing}"
+            )
         settled_start_s = float(clock.get_sim_time())
         for _ in range(args.static_capture_updates):
             app.update()
@@ -287,6 +317,18 @@ def _run_static_probe(app, stage, args: argparse.Namespace, stage_path: Path, pr
                 "camera_prim": ADAPTER_CONTRACT["camera_prim"],
                 "simulation_hz": ADAPTER_CONTRACT["simulation_hz"],
                 "camera_hz": ADAPTER_CONTRACT["camera_hz"],
+                "render_product_warmup_updates": RENDER_PRODUCT_WARMUP_UPDATES,
+                "render_warmup_reset_events": render_warmup_reset_events,
+                "render_settings": {
+                    "render_mode": ADAPTER_CONTRACT["render_mode"],
+                    "requested_anti_aliasing": ADAPTER_CONTRACT["anti_aliasing"],
+                    "observed_active_anti_aliasing": sorted(
+                        observed_active_anti_aliasing
+                    ),
+                    "observed_default_anti_aliasing": sorted(
+                        observed_default_anti_aliasing
+                    ),
+                },
                 "settle_updates": args.static_settle_updates,
                 "capture_updates": args.static_capture_updates,
                 "dwells": dwells,
@@ -453,7 +495,7 @@ def main() -> int:
             "width": ADAPTER_CONTRACT["width"],
             "height": ADAPTER_CONTRACT["height"],
             "renderer": ADAPTER_CONTRACT["render_mode"],
-            "anti_aliasing": 1,
+            "anti_aliasing": ADAPTER_CONTRACT["anti_aliasing"],
             "create_new_stage": False,
             "disable_viewport_updates": False,
             "fast_shutdown": True,
@@ -477,7 +519,8 @@ def main() -> int:
         profile = _select_profile(stage, args.profile)
         timeline = omni.timeline.get_timeline_interface()
         timeline.set_target_framerate(ADAPTER_CONTRACT["simulation_hz"])
-        carb.settings.get_settings().set_bool("/app/player/useFixedTimeStepping", True)
+        settings = carb.settings.get_settings()
+        settings.set_bool("/app/player/useFixedTimeStepping", True)
         _configure_camera_model()
         _create_graph()
         _validate_stage_and_graph()
@@ -488,12 +531,61 @@ def main() -> int:
             f"clock={ADAPTER_CONTRACT['clock_topic']}",
             f"resolution={ADAPTER_CONTRACT['width']}x{ADAPTER_CONTRACT['height']}",
             f"rate_hz={ADAPTER_CONTRACT['camera_hz']}",
+            f"anti_aliasing={ADAPTER_CONTRACT['anti_aliasing']}",
             "render_products=1",
             flush=True,
         )
         timeline.play()
+        # IsaacCreateRenderProduct constructs its Hydra product during the
+        # first playback updates. Discard those renders and verify the active
+        # mode after every warm-up update before admitting any static dwell.
+        render_warmup_reset_events = 0
+        stable_updates = 0
+        for _ in range(RENDER_PRODUCT_WARMUP_UPDATES):
+            app.update()
+            active_anti_aliasing = settings.get_as_int("/rtx/post/aa/op")
+            default_anti_aliasing = settings.get_as_int("/rtx-defaults/post/aa/op")
+            if (
+                active_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]
+                or default_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]
+            ):
+                render_warmup_reset_events += 1
+                stable_updates = 0
+            else:
+                stable_updates += 1
+        active_anti_aliasing = settings.get_as_int("/rtx/post/aa/op")
+        default_anti_aliasing = settings.get_as_int("/rtx-defaults/post/aa/op")
+        if (
+            active_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]
+            or default_anti_aliasing != ADAPTER_CONTRACT["anti_aliasing"]
+        ):
+            raise RuntimeError(
+                "post-create render product anti-aliasing does not match the contract: "
+                f"active={active_anti_aliasing}, default={default_anti_aliasing}"
+            )
+        if stable_updates < 3:
+            raise RuntimeError(
+                "render product anti-aliasing did not remain stable for three "
+                f"warm-up updates; stable_updates={stable_updates}"
+            )
+        print(
+            "ISAAC_ROS_CAMERA_RENDER_READY",
+            f"warmup_updates={RENDER_PRODUCT_WARMUP_UPDATES}",
+            f"reset_events={render_warmup_reset_events}",
+            f"stable_updates={stable_updates}",
+            f"active_anti_aliasing={active_anti_aliasing}",
+            f"default_anti_aliasing={default_anti_aliasing}",
+            flush=True,
+        )
         if args.static_probe_out is not None:
-            completed_updates = _run_static_probe(app, stage, args, stage_path, profile)
+            completed_updates = _run_static_probe(
+                app,
+                stage,
+                args,
+                stage_path,
+                profile,
+                render_warmup_reset_events,
+            )
         else:
             for _ in range(args.updates):
                 app.update()
