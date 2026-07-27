@@ -6,7 +6,7 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.1.0 |
+| Map version | 1.1.1 |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Current milestone | Geometry reconciled with the supplied diagram |
@@ -51,7 +51,7 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Continuous delivery trajectory | Working | Position and yaw continuous at both joins; every arc sample in drivable space | Follow it in Isaac |
 | Static physics geometry | Working | Ground/building collider schema tests and Isaac smoke | Exercise motion and collision behavior |
 | Camera-only speed estimator | Working on synthetic pixels | 1.8 m/s case measured within 0.0042 m/s; below-limit case stays quiet | Measure error from live Isaac images |
-| P occlusion | Working | Continuous proof over P's full volume and the swept turn, 204 composed-mesh rays, and a failing control | Re-run after any geometry/path change |
+| P occlusion | Working | Conservative arc enclosure over P's full volume, curved-source false-pass regression, 204 composed-mesh rays, and a visible control | Re-run after any geometry/path change |
 | GPU and real-time scene | Conditionally qualified | Hardware gates, headless/visible stage smokes, measured VRAM | Retain Ubuntu fallback because Mint is unsupported |
 | Isaac ROS camera contract | Working | Headless and visible external probes: 640×360 RGB, 15 Hz, paired calibration, `/clock` | Connect the moving robot without adding sensors |
 | Robot delivery motion | Next | Authored delivery path exists | Deterministic path follower and speed profile |
@@ -97,7 +97,7 @@ truth is available only to evaluation code.
 | Resolution and rate | 640×360 at 15 Hz | Increase only after live estimator accuracy is measured |
 | Renderer | Real-time `RaytracedLighting` | No interactive path tracing |
 | Sensors | RGB only | No depth, LiDAR, radar, or segmentation in the interview scope |
-| Live visible GPU memory | 2,591 MiB total | Remain below the 14,336 MiB soft ceiling |
+| Live visible GPU memory | 3,147 MiB total after geometry reconciliation | Remain below the 14,336 MiB soft ceiling |
 | Clock sources | Exactly 1 per time mode | Never run competing `/clock` publishers |
 
 ## Keeping this map current

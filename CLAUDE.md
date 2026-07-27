@@ -18,9 +18,9 @@ Commit as the repository's configured git identity and nothing else.
 ## What this project is
 
 An interview-sized digital twin: robot A delivers a package to person B through a
-tapered corridor and around a corner onto the next street. Traffic police P
-cannot see A, but receives A's front-camera feed over ROS 2 and estimates A's
-speed from surveyed ArUco wall fiducials.
+tapered corridor and around a corner onto the next street. Robot A cannot see
+traffic police P, but P receives A's front-camera feed over ROS 2 and estimates
+A's speed from surveyed ArUco wall fiducials.
 
 The supplied scenario source is `docs/ROBO_TASK.pdf`. Its prose and topology are
 authoritative. Its unlabelled drawing has no scale bar, so metric dimensions in

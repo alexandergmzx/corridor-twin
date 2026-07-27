@@ -78,8 +78,8 @@ def corridor_faces(profile: CorridorProfile, station_m: float, length_m: float) 
 def corridor_centerline(profile: CorridorProfile, station_m: float, length_m: float) -> float:
     """Return the Y of the corridor centreline at a station.
 
-    Because the taper is one-sided the centreline is not straight: it drifts
-    toward the fixed north face as the corridor narrows.
+    Because the taper is one-sided the straight centreline is not aligned with
+    world X: it drifts toward the fixed north face as the corridor narrows.
     """
 
     north, south = corridor_faces(profile, station_m, length_m)

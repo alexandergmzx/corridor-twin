@@ -2,7 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Record date | 2026-07-26 |
+| Initial record date | 2026-07-26 |
+| Last updated | 2026-07-27 |
 | Host | Linux Mint 22.3 Zena, kernel 6.8.0-136-generic |
 | CPU / RAM | Ryzen 9 5950X, 16 cores / 32 threads, 48 GB |
 | Current / demo GPU | GeForce RTX 5070 Ti, 16303 MiB reported by `nvidia-smi` |
@@ -75,6 +76,14 @@ true on 2026-07-26.
 The 14,336 MiB soft ceiling is unchanged and the largest reconciled measurement
 uses 22% of it. Mint remains unsupported by NVIDIA; that risk is unaffected.
 
+The subsequent proof-only correction in ADR 0012 did not change the generated
+USD, manifest geometry, renderer, or Isaac adapter, so repeating GPU measurements
+would measure the same artifact. The CPU certificate was rebuilt after replacing
+the turn's endpoint chord with a conservative analytic arc enclosure. All three
+profiles still pass; the nominal result remains 78 certified pairs, 204 audit
+rays, zero failures, and a 3.116 m nearest blocking surface. A new curved-source
+negative control now fails where the old endpoint-only method falsely passed.
+
 ## Activation progression
 
 ```mermaid
@@ -132,6 +141,10 @@ The two smoke logs are under the installed environment's
 The successful camera-adapter logs are in the same directory with timestamps
 `20260726_215349` (headless) and `20260726_215509` (visible). Each run terminated
 cleanly after 420 updates.
+
+The reconciled-scene runs recorded above are in that directory with timestamps
+`20260727_002342` (headless smoke, 1,486 MiB), `20260727_002449` (visible smoke,
+3,147 MiB), and `20260727_002416` (headless camera contract, 3,075 MiB).
 
 ## Isaac/ROS environment finding
 

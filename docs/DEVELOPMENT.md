@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.3.0 |
-| Last updated | 2026-07-26 |
+| Document version | 1.4.0 |
+| Last updated | 2026-07-27 |
 | Local platform | Linux Mint 22.3, ROS 2 Jazzy, Python 3.12 |
 | CI platform | Ubuntu 24.04, ROS 2 Jazzy, Python 3.12 |
 
@@ -65,14 +65,14 @@ The installed Isaac smoke remains an explicit workstation activation check.
 
 ### Current verification snapshot
 
-| Layer | Current result | Where it runs |
+| Layer | Current local result | Where it runs |
 |---|---|---|
-| Ruff | Pass | Local and GitHub Actions |
-| Repository pytest | 23 passed | Local and GitHub Actions |
-| ROS build | 3 packages built | Local and GitHub Actions |
-| ROS package tests | 14 passed, 0 failures | Local and GitHub Actions |
+| Ruff | Pass | Local and every GitHub push/PR |
+| Repository pytest | 58 passed | Local and every GitHub push/PR |
+| ROS build | 3 packages built | Local and every GitHub push/PR |
+| ROS package tests | 47 passed, 0 failures | Local and every GitHub push/PR |
 | Isaac stage and camera checks | Pass headless and visible | Qualified GPU workstation only |
-| Camera-integration gate | [Run 30236111462](https://github.com/alexandergmzx/corridor-twin/actions/runs/30236111462) passed | GitHub Actions |
+| Last published camera-integration gate | [Run 30236111462](https://github.com/alexandergmzx/corridor-twin/actions/runs/30236111462) passed | GitHub Actions |
 
 ## CI recovery record
 
@@ -158,6 +158,32 @@ The live camera step has three different review and rollback boundaries:
 This is intentionally not one integration dump. Publisher behavior, independent
 verification, and time-specific evidence change for different reasons. The
 commits are additive on published `main`; no history is rewritten.
+
+## Why the diagram reconciliation is split into additive commits
+
+The July 27 reconciliation is eight commits, not seven. Its boundaries follow
+review and rollback concerns; they do not pretend that geometry, trajectory,
+authoring, manifest generation, and visibility can build independently when they
+share one coordinate model.
+
+| Commit | Boundary | Why it stands alone |
+|---|---|---|
+| `77683b9` | Repository conventions | Establishes authorship, environment, and evidence rules before changing behavior |
+| `cf632c6` | Supplied PDF | Preserves the interviewer's source independently from its interpretation |
+| `9c17f04` | Scene geometry | Keeps the mutually dependent faces, actors, variants, manifest, trajectory, and visibility geometry atomic |
+| `0f44da2` | Observer correction | Isolates path-speed conversion and the two-marker acceptance rule from scene authoring |
+| `c10856b` | Information-flow contract | Makes A's software unawareness independently reviewable from physical occlusion |
+| `ff76480` | Design and ADRs | Records decisions only after the executable geometry and tests exist |
+| `e3c1818` | Synthetic truth semantics | Aligns the harness parameter and truth topic with actual path speed |
+| `7ebf1ea` | Host-specific requalification | Records measurements separately from machine-independent implementation |
+
+Review then found that the continuous checker enclosed the circular turn by its
+endpoint chord. The correction remains additive rather than rewriting those
+commits: `fix(scene): make curved-path visibility proof conservative` carries
+the implementation and direct regression as `dbb020c`, followed by
+`docs: correct visibility proof and requalification record` for ADR 0012,
+terminology, evidence provenance, and this history. This leaves one behavioral
+commit and one documentation commit with distinct rollback boundaries.
 
 ## Documentation growth discipline
 

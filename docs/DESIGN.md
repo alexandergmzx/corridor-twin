@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.5.0 |
+| Design version | 0.5.1 |
 | Status | Geometry reconciled with the supplied diagram; RTX 5070 Ti and live Isaac camera contract qualified |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
@@ -122,10 +122,10 @@ centerline(x) = (north_face(x) + south_face(x)) / 2
 marker survey, the delivery trajectory, and the visibility witnesses all derive
 from it, so the taper equation exists in exactly one place.
 
-A consequence worth stating: the centreline is **not** straight, so an X
-displacement is shorter than the distance actually travelled. Speed is converted
-by the path's X fraction before it is reported, or a tapered corridor would
-under-report speed by about 0.8%.
+A consequence worth stating: the centreline is straight but **not aligned with
+world X**, so an X displacement is shorter than the distance actually travelled.
+Speed is converted by the path's X fraction before it is reported, or a tapered
+corridor would under-report speed by about 0.8%.
 
 ### Delivery trajectory
 
@@ -290,12 +290,21 @@ arrival time.
 ## Occlusion verification
 
 The certificate is continuous over every trajectory interval, not a dense sample
-claim, and it covers P's full body volume rather than its centre. Witness planes
-are solved in closed form: where a ray crosses a plane its Y and Z are linear in
-the plane coordinate, and the slab's own bounds are linear too, so the feasible
-planes form an interval.
+claim, and it covers P's full body volume rather than its centre. Its conservative
+source enclosure is the essential distinction:
 
-Three properties are not optional, and each was forced by a concrete failure
+| Route piece | Camera-position enclosure | Why it is safe |
+|---|---|---|
+| Straight approach/departure | Exact endpoint segment | The real source stays in that convex segment |
+| Circular turn | Axis-aligned rectangle from both endpoint angles and every enclosed cardinal angle | The exact arc lies inside those analytic extrema; it is never replaced by its chord |
+
+Witness planes are solved in closed form over the source-enclosure vertices and
+target-subvolume corners. Where a ray crosses a plane its coordinates are linear
+in the plane coordinate, and the slab's own bounds are linear too, so the
+feasible planes form an interval. See
+[ADR 0012](adr/0012-conservative-curved-path-visibility.md).
+
+Four properties are not optional, and each was forced by a concrete failure
 found while proving the reconciled scene:
 
 - **Closed-form witness search.** A 240-point sampled search stepped over a
@@ -306,11 +315,18 @@ found while proving the reconciled scene:
   blocks each of them at its own depth.
 - **Witness planes of constant Y as well as constant X.** Where A draws level
   with P, no plane of constant X separates them at all.
+- **A conservative curved-source enclosure.** Arc endpoints describe a chord,
+  not the camera's intervening positions. A regression fixture demonstrates the
+  old false-pass: both endpoint rays cross a short wall while the mid-arc rays
+  clear it. Exact circular extrema now enclose that midpoint and reject the
+  fixture.
 
 The turn is swept as a yaw *range* per interval. Each frustum half-space is
-linear in the source-to-target offset, so enumerating source endpoints against
-target corners is exact for a fixed yaw; across a yaw range shorter than π the
-same condition holds throughout exactly when it holds at both ends.
+linear in the source-to-target offset, so enumerating vertices of the
+conservative source and target enclosures is exact for a fixed yaw; across a yaw
+range shorter than π the same condition holds throughout exactly when it holds
+at both ends. Taking the Cartesian product of position and yaw ranges may prove
+less than the correlated real motion, never more.
 
 The certificate reports wall occlusion and frustum exclusion as **separate**
 fields, and pursues a wall witness even where P is already off-screen. An
@@ -324,7 +340,9 @@ the audit. A negative test moves P into the clear corridor and must fail.
 Current result for the nominal profile: `passed`, line of sight blocked over the
 whole route, 78 certified interval/sub-volume pairs, 204 audit rays with 0
 failures, nearest blocking surface 3.116 m. 76 of the 78 are blocked by
-`SouthBuilding` and 2 by `CornerBuilding`.
+`SouthBuilding` and 2 by `CornerBuilding`; 50 use constant-X witnesses and 28
+use constant-Y witnesses. The certificate records `witness_axis` separately
+from `witness_coordinate_m`.
 
 ## ROS time model
 
@@ -460,7 +478,7 @@ Phase 1 packages. The version-specific tools are isolated in
 | Observer is camera-only | Source/topic contract tests and ROS graph design |
 | A is unaware of P | Source contract over robot-side files, additive to the geometric gate |
 | Estimator is accurate | Synthetic pixels measured against harness-only truth |
-| P cannot be seen | Continuous certificate over P's full volume plus 204-ray composed-USD audit |
+| P cannot be seen | Conservative continuous certificate over P's full volume, curved-source false-pass regression, plus 204-ray composed-USD audit |
 | The checker can fail | Visible negative control fails both the certificate and the audit |
 | Time reset behavior | Non-monotonic stamp and backward-station unit tests |
 | Demo GPU is qualified | 5070 Ti checker component results, headless/GUI smoke, and measured VRAM snapshots |

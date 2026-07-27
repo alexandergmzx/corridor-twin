@@ -132,9 +132,11 @@ or whose turn would not fit the junction.
 The occlusion command exits nonzero if any trajectory interval or composed-mesh
 audit ray is uncertified. It proves the binding requirement that A's camera
 never images P, and the stronger reciprocal claim that an opaque wall does the
-hiding. Current result for the nominal profile: 78 certified interval and
-sub-volume pairs, 204 audit rays with 0 failures, nearest blocking surface
-3.116 m.
+hiding. Straight route intervals use their exact endpoint segment; turn
+intervals use a conservative rectangle derived from the circular arc's exact
+extrema, so an arc is never replaced by its chord. Current result for the
+nominal profile: 78 certified interval and sub-volume pairs, 204 audit rays with
+0 failures, nearest blocking surface 3.116 m.
 
 Check the other authored profiles too, since each one moves P:
 

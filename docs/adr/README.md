@@ -16,6 +16,7 @@ supersedes the old record.
 | [0009](0009-installed-isaac-ros-camera-adapter.md) | Accepted | Isolate one installed-version camera/clock adapter |
 | [0010](0010-supplied-diagram-geometry.md) | Accepted | Take topology from the supplied diagram, keep scale a project choice |
 | [0011](0011-visibility-semantics.md) | Accepted | Keep "A cannot see P" a geometric gate over the continuous turn |
+| [0012](0012-conservative-curved-path-visibility.md) | Accepted | Enclose curved camera motion conservatively before certifying visibility |
 
 ## Decision map
 
@@ -38,7 +39,8 @@ flowchart LR
     A5 --> A11
     A2 --> A11
 
-    A11 --> Demo["Defensible interview demo"]
+    A11 --> A12["0012<br/>Curved-path enclosure"]
+    A12 --> Demo["Defensible interview demo"]
     A7 --> Demo
     A9 --> Demo
 
@@ -53,3 +55,7 @@ scenario manifest, and Python-runtime boundary.
 ADR 0011 **extends** ADR 0005 rather than replacing it: the decision to prove
 occlusion continuously and audit composed USD still stands, and 0011 carries it
 onto the reconciled topology and the continuous turn.
+
+ADR 0012 corrects the implementation detail that initially represented a turn
+interval by its endpoint chord. It extends 0005 and 0011 without weakening their
+continuous-coverage decision.
