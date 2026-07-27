@@ -66,6 +66,42 @@ def test_interface_definitions_exist() -> None:
     assert (message_dir / "SpeedViolation.msg").is_file()
 
 
+def test_robot_side_sources_are_unaware_of_the_police() -> None:
+    """A must not detect, model, or react to P.
+
+    This is additive to the geometric visibility gate, never a replacement for
+    it: P could be plainly visible in A's pixels even if A's code ignored them.
+    """
+
+    forbidden = ("police_bounds", "p_bounds", "speed_violation", "SpeedViolation")
+    robot_side = [
+        ROOT / "src/corridor_scene/scene/trajectory.py",
+        ROOT / "tools/isaac_5_1_ros_camera.py",
+        ROOT / "tools/isaac_5_1_smoke.py",
+    ]
+    violations: list[str] = []
+    for path in robot_side:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        violations += [
+            f"{path.relative_to(ROOT)} -> {token}" for token in forbidden if token in text
+        ]
+    assert violations == []
+
+
+def test_observer_consumes_no_actor_ground_truth() -> None:
+    """P reads pixels, calibration, time, and the survey. Nothing else."""
+
+    observer = ROOT / "src/police_observer/police_observer"
+    forbidden = ("p_bounds", "police_bounds", "delivery_path", "b_xyz", "a_start")
+    violations: list[str] = []
+    for path in observer.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        violations += [f"{path.name} -> {token}" for token in forbidden if token in text]
+    assert violations == []
+
+
 def test_phase_one_python_has_no_isaac_dependencies() -> None:
     source_roots = [
         ROOT / "src/corridor_scene",
