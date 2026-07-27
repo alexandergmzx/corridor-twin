@@ -103,16 +103,59 @@ def test_robot_side_sources_are_unaware_of_the_police() -> None:
     assert violations == []
 
 
+# Everything that can influence a published speed estimate. The rule below is
+# about what may reach a measurement, so it is enumerated rather than taken as
+# "every file in the package": a file added later that feeds the estimate must
+# be added here deliberately.
+ESTIMATE_PATH_MODULES = (
+    "node.py",
+    "estimator.py",
+    "synthetic.py",
+    "synthetic_node.py",
+)
+
+
 def test_observer_consumes_no_actor_ground_truth() -> None:
     """P reads pixels, calibration, time, and the survey. Nothing else."""
 
     observer = ROOT / "src/police_observer/police_observer"
     forbidden = ("p_bounds", "police_bounds", "delivery_path", "b_xyz", "a_start")
+    present = {path.name for path in observer.rglob("*.py")} - {"__init__.py"}
+    unclassified = present - set(ESTIMATE_PATH_MODULES) - {"viz_node.py"}
+    assert unclassified == set(), (
+        f"classify {sorted(unclassified)}: does it feed a published estimate, or only display one?"
+    )
+
     violations: list[str] = []
-    for path in observer.rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        violations += [f"{path.name} -> {token}" for token in forbidden if token in text]
+    for name in ESTIMATE_PATH_MODULES:
+        text = (observer / name).read_text(encoding="utf-8")
+        violations += [f"{name} -> {token}" for token in forbidden if token in text]
     assert violations == []
+
+
+def test_display_may_draw_the_scene_but_never_locates_the_robot_from_truth() -> None:
+    """The display is held to a different rule than the estimate path, on purpose.
+
+    P knows where P is standing and where the delivery is going; those are
+    surveyed scenario facts, not sensor readings, and drawing them is what makes
+    the concealment visible. What the display must never do is learn where *A*
+    is from anything but a published, camera-derived estimate -- that is the
+    claim the whole demonstration rests on.
+    """
+
+    view = ROOT / "src/police_observer/police_observer/viz_node.py"
+    raw = view.read_text(encoding="utf-8")
+    # Audit code, not the docstring that explains which sources it refuses.
+    docstring = ast.get_docstring(ast.parse(raw))
+    text = raw.replace(docstring, "", 1) if docstring else raw
+
+    # A's authored start pose and any simulator-side pose channel stay out.
+    for forbidden in ("a_start", "get_world_pose", "Odometry", "ground_truth", "/tf"):
+        assert forbidden not in text, f"the display must not read {forbidden}"
+
+    # A's drawn position must be a function of a subscribed estimate's station.
+    assert "estimate.station_m" in text
+    assert "approach_s_at_x" in text
 
 
 def test_phase_one_python_has_no_isaac_dependencies() -> None:

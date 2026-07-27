@@ -1,0 +1,98 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Enforcement view1
+      Splitter Ratio: 0.5
+    Tree Height: 600
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.05
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 160; 160; 164
+      Enabled: true
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 40
+      Reference Frame: <Fixed Frame>
+      Value: true
+    # The single permitted sensor. Everything the observer knows is derived
+    # from these pixels; nothing else on this display is a sensor.
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: A front camera (the only sensor)
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /robot/front_camera/image_raw
+      Value: true
+    # Corridor, occluding walls, route, fiducials, P, B, A's *measured*
+    # position and the enforcement readout, all from police_observer's
+    # enforcement_view node.
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Enforcement view
+      Namespaces: {}
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /police/enforcement_view
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 26; 28; 32
+    Fixed Frame: world
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 30
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.06
+        Swap Stereo Eyes: false
+        Value: false
+      Focal Point:
+        X: 8
+        Y: -1
+        Z: 0
+      Name: Corridor overview
+      Pitch: 1.1
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz_default_plugins)
+      Yaw: 4.2
+    Saved: ~
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 900
+  Hide Left Dock: false
+  Hide Right Dock: true
+  Width: 1600
+  X: 60
+  Y: 60

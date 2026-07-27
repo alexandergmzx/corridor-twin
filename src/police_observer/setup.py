@@ -14,6 +14,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
         (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
+        (os.path.join("share", package_name, "rviz"), glob("rviz/*.rviz")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -26,6 +27,7 @@ setup(
         "console_scripts": [
             "police-observer = police_observer.node:main",
             "synthetic-camera-publisher = police_observer.synthetic_node:main",
+            "enforcement-view = police_observer.viz_node:main",
         ]
     },
 )
