@@ -1,0 +1,122 @@
+{
+  "schema_version": "1.0",
+  "date": "2026-07-27",
+  "profile": "nominal_m6_n3",
+  "commits": {
+    "isaac_render_contract": "bb203c0",
+    "scene_fiducials": "3f7fa37"
+  },
+  "runtime": {
+    "driver": "580.173.02",
+    "gpu": "NVIDIA GeForce RTX 5070 Ti",
+    "isaac_sim": "5.1.0-rc.19+release.26219.9c81211b.gl",
+    "kit_log": "kit_20260727_023440.log",
+    "ros_distribution": "jazzy"
+  },
+  "camera": {
+    "captured_pairs": 57,
+    "encoding": "rgb8",
+    "frame_id": "robot_front_camera_optical_frame",
+    "height_px": 360,
+    "intrinsic_matrix": [
+      417.0321044921875,
+      0.0,
+      320.0,
+      0.0,
+      417.0321044921875,
+      180.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "maximum_intrinsic_error_px": 0.000014816998316291574,
+    "rate_hz": 14.999999250000037,
+    "render_products": 1,
+    "width_px": 640
+  },
+  "renderer": {
+    "active_anti_aliasing_enum": [3],
+    "default_anti_aliasing_enum": [3],
+    "mode": "RaytracedLighting",
+    "path_tracing": false,
+    "warmup_contract_mismatches": 0,
+    "warmup_updates": 12
+  },
+  "criteria": {
+    "maximum_corner_rmse_px": 3.0,
+    "maximum_reprojection_rmse_px": 3.0,
+    "maximum_station_error_m": 0.05,
+    "minimum_passing_frames_per_dwell": 2,
+    "required_frames_per_dwell": 3
+  },
+  "dwells": [
+    {
+      "expected_station_x_m": 0.5,
+      "matched_frames": 7,
+      "maximum_corner_rmse_px": 1.4590463625038772,
+      "maximum_reprojection_rmse_px": 0.9488650112582661,
+      "maximum_station_error_m": 0.006175090513692416,
+      "passing_selected_frames": 3,
+      "selected_frames": 3
+    },
+    {
+      "expected_station_x_m": 1.5,
+      "matched_frames": 9,
+      "maximum_corner_rmse_px": 1.5500460595766057,
+      "maximum_reprojection_rmse_px": 1.0916463182310288,
+      "maximum_station_error_m": 0.0043957008991224455,
+      "passing_selected_frames": 3,
+      "selected_frames": 3
+    },
+    {
+      "expected_station_x_m": 3.0,
+      "matched_frames": 9,
+      "maximum_corner_rmse_px": 1.5202166565375639,
+      "maximum_reprojection_rmse_px": 0.9619090750484975,
+      "maximum_station_error_m": 0.0039303649915085614,
+      "passing_selected_frames": 3,
+      "selected_frames": 3
+    },
+    {
+      "expected_station_x_m": 5.0,
+      "matched_frames": 9,
+      "maximum_corner_rmse_px": 1.3778022410364954,
+      "maximum_reprojection_rmse_px": 0.8244038851831744,
+      "maximum_station_error_m": 0.008063538587061103,
+      "passing_selected_frames": 3,
+      "selected_frames": 3
+    },
+    {
+      "expected_station_x_m": 7.0,
+      "matched_frames": 9,
+      "maximum_corner_rmse_px": 1.2940570230794688,
+      "maximum_reprojection_rmse_px": 0.7232262381623461,
+      "maximum_station_error_m": 0.010562958131319355,
+      "passing_selected_frames": 3,
+      "selected_frames": 3
+    }
+  ],
+  "positive_gate": {
+    "maximum_corner_rmse_px": 1.5500460595766057,
+    "maximum_reprojection_rmse_px": 1.0916463182310288,
+    "maximum_station_error_m": 0.010562958131319355,
+    "passed": true,
+    "phantom_ids": [],
+    "required_dwells_passed": 5
+  },
+  "mirror_negative_control": {
+    "expected_failure_observed": true,
+    "gate_passed": false,
+    "passing_selected_frames": 0
+  },
+  "gpu_memory": {
+    "project_soft_ceiling_mib": 14336,
+    "reported_total_mib": 16303,
+    "used_mib": 3024
+  },
+  "truth_isolation": {
+    "commanded_pose_published_to_ros": false,
+    "estimator_truth_input": false,
+    "truth_usage": "independent file-only evaluator"
+  }
+}

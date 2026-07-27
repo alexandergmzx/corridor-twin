@@ -6,11 +6,11 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.1.1 |
+| Map version | 1.2.0 |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | Geometry reconciled with the supplied diagram |
-| Next milestone | Move A on the authored trajectory and measure speed from live pixels |
+| Current milestone | Production-camera fiducials qualified at five static approach dwells |
+| Next milestone | Move A deterministically on the authored trajectory |
 
 ## Read the documentation in this order
 
@@ -23,6 +23,7 @@ increments without requiring a reader to reconstruct status from commit history.
 | Whether the workstation is demo-ready | [Activation record](ACTIVATION.md) | 5 minutes |
 | How to build, test, commit, and recover CI | [Development workflow](DEVELOPMENT.md) | 7 minutes |
 | Why a technical choice was accepted | [ADR index](adr/README.md) | 2 minutes plus selected ADR |
+| What measured evidence supports a claim | [Evidence index](evidence/README.md) | 2 minutes plus selected topic |
 | How to run the demo | [Top-level README](../README.md) | 10 minutes |
 
 ## Project growth map
@@ -31,10 +32,10 @@ increments without requiring a reader to reconstruct status from commit history.
 flowchart LR
     P1["1. Simulation-independent foundation<br/>USD + variants + colliders<br/>observer + synthetic feed<br/>occlusion proof<br/><b>WORKING</b>"]
     P2["2. GPU activation<br/>RTX 5070 Ti<br/>headless + visible smoke<br/><b>QUALIFIED*</b>"]
-    P3["3. ROS camera bridge<br/>Image + CameraInfo + clock<br/>external live probe<br/><b>WORKING</b>"]
+    P3["3. Production camera gate<br/>ROS pixels + calibration + clock<br/>five static station dwells<br/><b>QUALIFIED</b>"]
     P4["4. Robot motion<br/>follow delivery path<br/>controlled speed profile<br/><b>NEXT</b>"]
     P5["5. Live estimation<br/>Isaac pixels to observer<br/>error and violation evidence<br/><b>PENDING</b>"]
-    P6["6. Demo hardening<br/>diagram reconciliation<br/>failure cases + rehearsal<br/><b>PENDING</b>"]
+    P6["6. Demo hardening<br/>failure cases + evidence pack<br/>launch path + rehearsal<br/><b>PENDING</b>"]
 
     P1 --> P2 --> P3 --> P4 --> P5 --> P6
 ```
@@ -50,10 +51,10 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Next street, junction, corner mass | Working | Convex collider prims per variant; B and P placed from the wall faces | Drive A through the junction |
 | Continuous delivery trajectory | Working | Position and yaw continuous at both joins; every arc sample in drivable space | Follow it in Isaac |
 | Static physics geometry | Working | Ground/building collider schema tests and Isaac smoke | Exercise motion and collision behavior |
-| Camera-only speed estimator | Working on synthetic pixels | 1.8 m/s case measured within 0.0042 m/s; below-limit case stays quiet | Measure error from live Isaac images |
+| Camera-only station/speed estimator | Working on synthetic motion and static Isaac pixels | Synthetic 1.8 m/s within 0.0042 m/s; static Isaac station error at most 0.010563 m | Measure speed during deterministic Isaac motion |
 | P occlusion | Working | Conservative arc enclosure over P's full volume, curved-source false-pass regression, 204 composed-mesh rays, and a visible control | Re-run after any geometry/path change |
 | GPU and real-time scene | Conditionally qualified | Hardware gates, headless/visible stage smokes, measured VRAM | Retain Ubuntu fallback because Mint is unsupported |
-| Isaac ROS camera contract | Working | Headless and visible external probes: 640×360 RGB, 15 Hz, paired calibration, `/clock` | Connect the moving robot without adding sensors |
+| Isaac ROS camera contract | Qualified through rendered fiducials | 640×360 RGB at 15 Hz; paired calibration; five static dwells pass; mirrored actual capture fails | Connect deterministic motion without adding sensors |
 | Robot delivery motion | Next | Authored delivery path exists | Deterministic path follower and speed profile |
 | Live end-to-end violation | Pending | Synthetic end-to-end path already works | Isaac camera → observer → estimate/violation comparison |
 
@@ -97,7 +98,7 @@ truth is available only to evaluation code.
 | Resolution and rate | 640×360 at 15 Hz | Increase only after live estimator accuracy is measured |
 | Renderer | Real-time `RaytracedLighting` | No interactive path tracing |
 | Sensors | RGB only | No depth, LiDAR, radar, or segmentation in the interview scope |
-| Live visible GPU memory | 3,147 MiB total after geometry reconciliation | Remain below the 14,336 MiB soft ceiling |
+| Current one-product GPU memory | 3,024 MiB in the static rendered-fiducial gate | Remain below the 14,336 MiB soft ceiling |
 | Clock sources | Exactly 1 per time mode | Never run competing `/clock` publishers |
 
 ## Keeping this map current

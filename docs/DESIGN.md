@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.5.1 |
-| Status | Geometry reconciled with the supplied diagram; RTX 5070 Ti and live Isaac camera contract qualified |
+| Design version | 0.6.0 |
+| Status | Static production-camera fiducial gate qualified; deterministic live motion is next |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Target ROS | ROS 2 Jazzy |
@@ -228,7 +228,13 @@ A has to drive through.
 
 Markers have unique IDs, known metric size, and surveyed 3D corners. Plates are
 canted toward the corridor approach so a forward camera does not view markers at
-near-edge-on angles.
+near-edge-on angles. The code is 0.40 m square and sits on a white plate `9/7`
+its size, preserving one quiet-zone module outside the black border. Plate cant
+is measured from each wall's actual local corridor-facing normal. A solved
+bracket standoff keeps the complete backing at least 15 mm out of both the
+straight north wall and the tapered south wall; centering a canted plate a fixed
+distance from its wall is insufficient because one edge can still intersect the
+building mesh. See [ADR 0013](adr/0013-size-fiducials-from-delivered-camera.md).
 
 For each image:
 
@@ -286,6 +292,30 @@ A live ROS 2 launch was also exercised in both wall-time and synthetic-clock
 modes. The latter produced the same 1.8026 m/s event at simulated time 4.3306 s,
 confirming that the observer uses image acquisition stamps rather than callback
 arrival time.
+
+### Static production-camera qualification
+
+Before adding motion, the existing Isaac camera graph holds A at five approach
+poses. A system-Jazzy process captures only `Image`, `CameraInfo`, and `/clock`.
+Pixel analysis runs the real `ArucoStationEstimator` without a truth parameter;
+a separate evaluator then compares its observations and point-ordered corners
+with commanded camera poses from a file that is never published to ROS.
+
+```mermaid
+flowchart LR
+    Pose["Commanded static pose"] --> Isaac["Isaac camera graph"]
+    Isaac --> Feed["Image + CameraInfo + /clock"]
+    Feed --> Estimate["Pixel-only estimator"]
+    Pose -. "file-only" .-> Evaluate["Independent evaluator"]
+    Estimate --> Evaluate
+```
+
+The accepted nominal run passed 3/3 selected frames at every world-X dwell
+`0.5, 1.5, 3.0, 5.0, 7.0 m`. Maximum station error was 0.010563 m, corner RMSE
+1.550047 px, and estimator reprojection RMSE 1.091647 px. The delivered K matrix
+and 14.999999 Hz rate were constant, and no unsurveyed ID appeared. Mirroring
+the same captured frames produced zero passing frames. The curated evidence is
+under [static fiducial evidence](evidence/static-fiducials/NOTES.md).
 
 ## Occlusion verification
 
@@ -374,6 +404,12 @@ odometry, transform, TF, depth, segmentation, or truth publisher. The camera is
 configured with the current 5.1 OpenCV pinhole schema rather than the deprecated
 physical-distortion schema.
 
+The installed real-time renderer reports anti-aliasing/super-resolution enum 3
+(DLSS) after the Hydra product materializes. The adapter discards 12 product and
+shader warm-up updates, then asserts the active and default values after warm-up
+and at each admitted static dwell. This avoids recording a requested startup
+value as though it were observed renderer state.
+
 Isaac's Python 3.11 process uses the bridge extension's bundled Jazzy libraries.
 The external observer/probe uses system Jazzy under Python 3.12. The adapter
 re-executes once with user/system ROS Python paths removed so a Python 3.12
@@ -410,6 +446,11 @@ With the one render product and ROS graph active, total GPU memory snapshots wer
 2,494 MiB headless and 2,591 MiB visible. Both live modes independently delivered
 12 synchronized image/calibration pairs at exactly 15 Hz and retained more than
 11 GB of headroom below the 14 GB soft ceiling.
+
+After the reconciled geometry and physical fiducial correction, the accepted
+static production-camera gate used 3,024 MiB headless while delivering 57 paired
+frames. This is the measurement relevant to the current scene and still leaves
+11,312 MiB below the soft ceiling.
 
 The earlier RTX 5060 8 GB check remains historical evidence: the checker failed
 both its internal 10 GB VRAM threshold and the unsupported OS gate, although the
@@ -483,6 +524,7 @@ Phase 1 packages. The version-specific tools are isolated in
 | Time reset behavior | Non-monotonic stamp and backward-station unit tests |
 | Demo GPU is qualified | 5070 Ti checker component results, headless/GUI smoke, and measured VRAM snapshots |
 | Live camera contract is correct | External ROS probe of paired stamps, frames, dimensions, encoding, calibration, QoS, rate, clocks, and publisher cardinality |
+| Rendered fiducials are measurable | Five static Isaac dwells pass station, reprojection, corner-order, calibration, and rate gates; the mirrored actual capture fails |
 | GPU constraints are explicit | One camera, 640×360, real-time rendering, no path tracing, and a 14 GB soft ceiling |
 
 ## Risks and mitigations
@@ -493,8 +535,9 @@ Phase 1 packages. The version-specific tools are isolated in
   render products.
 - **Variant changes versus physics caches:** pause/reset simulation when switching
   profiles until installed-version behavior is verified.
-- **Wall-marker perspective:** cant plates and require at least two markers per
-  solved frame.
+- **Wall-marker sampling and mounting:** use 0.40 m codes with geometric white
+  quiet zones, solve plate clearance from each local wall normal, and require at
+  least two markers per solved frame.
 - **Unscaled source drawing:** the diagram fixes topology but states no metric
   length, so lengths are published as `metric_scale: demo_assumption` rather
   than presented as surveyed values.
@@ -509,6 +552,12 @@ Phase 1 packages. The version-specific tools are isolated in
 
 ## Version history
 
+- **0.6.0 — 2026-07-27:** Qualified the production Isaac/ROS pixels at five
+  static approach dwells. Increased the surveyed code to 0.40 m, added physical
+  white quiet-zone plates, and solved canted bracket standoff against the real
+  wall normals after GPU evidence exposed tags intersecting the building mesh.
+  Recorded the post-create DLSS enum, 3,024 MiB VRAM, 0.010563 m maximum station
+  error, and a passing mirror negative control.
 - **0.5.0 — 2026-07-27:** Reconciled the scene with the supplied
   [`ROBO_TASK.pdf`](ROBO_TASK.pdf): one-sided taper, authored next street and
   corner mass, P derived from the occluding faces, and a continuous line-arc-line

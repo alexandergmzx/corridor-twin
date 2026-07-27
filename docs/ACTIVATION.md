@@ -84,6 +84,45 @@ profiles still pass; the nominal result remains 78 certified pairs, 204 audit
 rays, zero failures, and a 3.116 m nearest blocking surface. A new curved-source
 negative control now fails where the old endpoint-only method falsely passed.
 
+## Static rendered-fiducial qualification — 2026-07-27
+
+The camera contract alone proved message delivery, not that the pixels supported
+the intended measurement. The next gate reused the same one-product OmniGraph
+and held A at five world-X stations while a separate system-Jazzy process saved
+actual `Image`, `CameraInfo`, and `/clock` messages.
+
+The first captures correctly failed: 24 cm codes were undersampled, lacked a
+physical white quiet zone, and their 35-degree plates were centered so close to
+the wall that roughly half of each tag intersected the opaque building mesh.
+The accepted scene uses 40 cm surveyed codes, a `9/7` white backing, and a
+wall-normal bracket solve that preserves 15 mm clearance for the complete
+backing. [ADR 0013](adr/0013-size-fiducials-from-delivered-camera.md) records the
+decision and rejected alternatives.
+
+| Measurement | Accepted result |
+|---|---:|
+| Captured synchronized pairs | 57 |
+| Required world-X dwells | 5/5 passed |
+| Selected frames per dwell | 3/3 passed at every dwell |
+| Maximum station error | 0.010563 m |
+| Maximum detected-corner RMSE | 1.550047 px |
+| Maximum estimator reprojection RMSE | 1.091647 px |
+| Delivered image frequency | 14.999999 Hz |
+| Maximum K-matrix error | 0.0000149 px |
+| Unsurveyed marker IDs | 0 |
+| Mirrored actual-capture control | Gate failed; 0 passing frames |
+| Active/default renderer enum | 3 / 3 after 12 warm-up updates |
+| Total GPU memory | 3,024 MiB |
+
+The acceptance limits were fixed before the run: 0.05 m station error, 3.0 px
+corner and reprojection RMSE, at least two of three frames per dwell, and
+14.5-15.5 Hz. Simulator pose was never a ROS input or estimator argument; only
+the independent file-based evaluator read the commanded static schedule.
+
+The Kit log is `kit_20260727_023440.log`. Curated commands, a representative
+frame, and a stable per-dwell JSON result are in the
+[static-fiducial evidence record](evidence/static-fiducials/NOTES.md).
+
 ## Activation progression
 
 ```mermaid
@@ -91,7 +130,8 @@ flowchart LR
     HW["Hardware gates<br/>GPU + driver + VRAM<br/><b>PASS</b>"] --> Scene["Fresh scene + occlusion<br/><b>PASS</b>"]
     Scene --> Smoke["Headless + visible composition<br/><b>PASS</b>"]
     Smoke --> Camera["One-camera ROS contract<br/>headless + visible<br/><b>PASS</b>"]
-    Camera --> Motion["Robot motion and live speed<br/><b>NEXT</b>"]
+    Camera --> Static["Rendered fiducial station gate<br/><b>PASS</b>"]
+    Static --> Motion["Robot motion and live speed<br/><b>NEXT</b>"]
     OS["Linux Mint support gate<br/><b>FAIL</b><br/>Ubuntu 24.04 fallback"]:::conditional -.-> HW
 
     classDef conditional fill:#5c471f,color:#ffffff,stroke:#ffc857,stroke-width:2px;
@@ -115,6 +155,7 @@ together. Headroom is measured against the project's 14,336 MiB soft ceiling.
 | Reconciled composition smoke | 0 | Headless | 1,486 MiB | 12,850 MiB |
 | Reconciled composition smoke | 0 | Visible | 3,147 MiB | 11,189 MiB |
 | Reconciled live ROS camera contract | 1 | Headless | 3,075 MiB | 11,261 MiB |
+| Static rendered-fiducial gate | 1 | Headless | 3,024 MiB | 11,312 MiB |
 | Project soft ceiling | — | — | 14,336 MiB | 0 MiB |
 
 ## Activation gate results
@@ -130,6 +171,7 @@ together. Headroom is measured against the project's 14,336 MiB soft ceiling.
 | Below 14 GB soft ceiling | Pass with large margin |
 | One-camera render-product steady state | Pass, 2,494 MiB headless / 2,591 MiB visible |
 | Live camera/CameraInfo/clock ROS contract | Pass in headless and visible modes at 15.000 Hz |
+| Static rendered ArUco station gate | Pass at all five nominal dwells; mirrored actual capture fails |
 | Synthetic ROS regression before adapter | Covered by the full workspace test |
 
 The compatibility checker log is

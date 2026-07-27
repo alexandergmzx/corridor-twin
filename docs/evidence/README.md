@@ -26,9 +26,9 @@ location; it must not silently replace the reviewed artifact.
 
 ## Recorded topics
 
-No GPU-rendered topic has been promoted yet. The first planned entry is the
-static production-camera fiducial qualification. It will be added only after
-the positive gate and its negative controls have run.
+| Topic | Accepted claim | Evidence |
+|---|---|---|
+| Static production-camera fiducials | The one-product Isaac ROS feed supports surveyed station recovery at all five nominal approach dwells; a mirror control fails | [Notes and stable summary](static-fiducials/NOTES.md) |
 
 See [repository conventions](../../CLAUDE.md) for the evidence and authorship
 rules.

@@ -24,8 +24,15 @@ live-stream checks.
 carries the drawing's one-sided taper, a real perpendicular next street with a
 corner mass, and a continuous line-arc-line delivery trajectory. P is placed
 from the occluding wall faces, so it follows the geometry when a different
-`(m,n)` profile is selected. Robot motion along that trajectory is the next
-integration step.
+`(m,n)` profile is selected.
+
+**Static production-camera fiducials qualified — 2026-07-27.** The existing
+one-product Isaac ROS graph now passes surveyed station recovery at five nominal
+approach dwells. All 15 selected frames passed; maximum station error was
+0.010563 m, the delivered rate was 14.999999 Hz, and a mirror applied to the
+same capture produced zero passing frames. The final run used 3,024 MiB. This
+gate exposed and corrected buried, undersampled marker plates before motion was
+added. Deterministic motion along the authored trajectory is next.
 
 ## Architecture at a glance
 
@@ -63,6 +70,10 @@ the image header.
   outside the CPU-testable packages.
 - `tools/ros_camera_contract_probe.py`: simulator-independent live ROS contract
   probe.
+- `tools/ros_aruco_capture.py` and `tools/aruco_render_gate.py`: production-feed
+  capture plus truth-isolated static station qualification.
+- `docs/evidence`: curated measured results and provenance; bulk runs remain
+  under ignored `out/evidence`.
 
 ## Build and run
 
@@ -95,6 +106,10 @@ totals were 2,494 MiB headless and 2,591 MiB visible. Every run used real-time
 `RaytracedLighting`; none used path tracing. The unsupported Mint result and
 IOMMU warning remain known risks; Ubuntu 24.04 is the fallback rather than an
 unrecorded last-minute change.
+
+The current reconciled scene's static rendered-fiducial gate is the most relevant
+measurement: one headless product used 3,024 MiB while delivering 57 synchronized
+pairs. See the [accepted evidence](docs/evidence/static-fiducials/NOTES.md).
 
 ### 3. Create the development environment
 
@@ -214,7 +229,47 @@ Add `--gui` for the finite visible-viewport check. Success requires both
 prove the ROS interface. The adapter creates exactly one render product and no
 pose, odometry, TF, depth, or test-truth publisher.
 
-### 8. Repeat the installed Isaac 5.1 composition smoke
+### 8. Qualify rendered fiducials through the production ROS camera
+
+Start a dedicated capture process in the system-Jazzy environment:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+PYTHONNOUSERSITE=1 .venv/bin/python tools/ros_aruco_capture.py \
+  --out-dir out/evidence/static-fiducials/manual/capture \
+  --minimum-pairs 18 --timeout 240 --idle-after-minimum 3
+```
+
+In the Isaac shell, hold A at the five required world-X stations while reusing
+the same camera graph:
+
+```bash
+env -u ROS_DISTRO -u AMENT_PREFIX_PATH -u PYTHONPATH \
+OMNI_KIT_ACCEPT_EULA=YES \
+~/isaac/env_isaaclab/bin/python tools/isaac_5_1_ros_camera.py \
+  out/corridor.usda --manifest out/corridor.manifest.json \
+  --profile nominal_m6_n3 \
+  --static-probe-out out/evidence/static-fiducials/manual/static-truth.json \
+  --report-gpu-memory
+```
+
+Then run the offline acceptance comparison:
+
+```bash
+PYTHONPATH=src/police_observer .venv/bin/python tools/aruco_render_gate.py \
+  --capture out/evidence/static-fiducials/manual/capture/capture.json \
+  --truth out/evidence/static-fiducials/manual/static-truth.json \
+  --manifest out/corridor.manifest.json --profile nominal_m6_n3 \
+  --out out/evidence/static-fiducials/manual/aruco-gate.json
+```
+
+The capture process receives no pose or truth topic. Pixel analysis is separate
+from the evaluator that reads the static schedule. Exact accepted commands and
+the actual-capture mirror control are in the
+[evidence notes](docs/evidence/static-fiducials/NOTES.md).
+
+### 9. Repeat the installed Isaac 5.1 composition smoke
 
 ```bash
 OMNI_KIT_ACCEPT_EULA=YES \
@@ -284,6 +339,7 @@ of scope for this interview demo.
 - [Hardware and Isaac activation record](docs/ACTIVATION.md)
 - [Development workflow, CI recovery, and commit history](docs/DEVELOPMENT.md)
 - [Architecture decisions](docs/adr/README.md)
+- [Measured evidence index](docs/evidence/README.md)
 
 ## License
 

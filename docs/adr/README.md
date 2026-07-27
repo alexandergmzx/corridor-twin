@@ -17,6 +17,7 @@ supersedes the old record.
 | [0010](0010-supplied-diagram-geometry.md) | Accepted | Take topology from the supplied diagram, keep scale a project choice |
 | [0011](0011-visibility-semantics.md) | Accepted | Keep "A cannot see P" a geometric gate over the continuous turn |
 | [0012](0012-conservative-curved-path-visibility.md) | Accepted | Enclose curved camera motion conservatively before certifying visibility |
+| [0013](0013-size-fiducials-from-delivered-camera.md) | Accepted | Size and mount fiducials from the delivered production camera |
 
 ## Decision map
 
@@ -40,7 +41,11 @@ flowchart LR
     A2 --> A11
 
     A11 --> A12["0012<br/>Curved-path enclosure"]
+    A2 --> A13["0013<br/>Camera-sized fiducials"]
+    A6 --> A13
+    A9 --> A13
     A12 --> Demo["Defensible interview demo"]
+    A13 --> Demo
     A7 --> Demo
     A9 --> Demo
 
