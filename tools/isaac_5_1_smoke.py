@@ -88,8 +88,10 @@ def main() -> int:
         required = (
             "/World/PhysicsScene",
             "/World/Environment/Ground",
-            "/World/Environment/Corridor/LeftBuilding",
-            "/World/Environment/Corridor/RightBuilding",
+            "/World/Environment/Corridor/NorthBuilding",
+            "/World/Environment/Corridor/SouthBuilding",
+            "/World/Environment/Corridor/CornerBuilding",
+            "/World/Environment/Corridor/EastBuilding",
             "/World/Actors/A/CameraMount/FrontCamera",
         )
         missing = [path for path in required if not stage.GetPrimAtPath(path)]
@@ -109,12 +111,14 @@ def main() -> int:
             f"context_cameras={','.join(camera_paths)}",
             flush=True,
         )
-        for name in ("LeftBuilding", "RightBuilding"):
+        for name in ("NorthBuilding", "SouthBuilding", "CornerBuilding", "EastBuilding"):
             prim = stage.GetPrimAtPath(f"/World/Environment/Corridor/{name}")
             if not prim.HasAPI(UsdPhysics.CollisionAPI):
                 raise RuntimeError(f"{name} lost its collision schema")
-        corridor = stage.GetPrimAtPath("/World/Environment/Corridor")
-        variants = corridor.GetVariantSets().GetVariantSet("corridorProfile")
+        # The variant set sits on the default prim: a variant only contributes
+        # opinions inside its own namespace, and the actors move with (m,n).
+        world = stage.GetPrimAtPath("/World")
+        variants = world.GetVariantSets().GetVariantSet("corridorProfile")
         if args.report_gpu_memory:
             gpu_name, used_mib, total_mib = gpu_memory_snapshot()
             print(

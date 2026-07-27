@@ -14,6 +14,8 @@ supersedes the old record.
 | [0007](0007-speed-policy-and-violation.md) | Demo accepted | Configure policy and conservative event semantics |
 | [0008](0008-runtime-environment-boundaries.md) | Accepted | Separate ROS/OpenUSD and Isaac runtimes |
 | [0009](0009-installed-isaac-ros-camera-adapter.md) | Accepted | Isolate one installed-version camera/clock adapter |
+| [0010](0010-supplied-diagram-geometry.md) | Accepted | Take topology from the supplied diagram, keep scale a project choice |
+| [0011](0011-visibility-semantics.md) | Accepted | Keep "A cannot see P" a geometric gate over the continuous turn |
 
 ## Decision map
 
@@ -30,11 +32,24 @@ flowchart LR
 
     A1 --> A5["0005<br/>Continuous occlusion"]
 
-    A5 --> Demo["Defensible interview demo"]
+    Task["ROBO_TASK.pdf"] --> A10["0010<br/>Diagram geometry"]
+    A4 --> A10
+    A10 --> A11["0011<br/>Visibility semantics"]
+    A5 --> A11
+    A2 --> A11
+
+    A11 --> Demo["Defensible interview demo"]
     A7 --> Demo
     A9 --> Demo
+
+    classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
+    class Task source;
 ```
 
 The arrows mean “constrains or enables,” not “supersedes.” For example, the live
 Isaac adapter is shaped simultaneously by the camera-only rule, clock rule,
 scenario manifest, and Python-runtime boundary.
+
+ADR 0011 **extends** ADR 0005 rather than replacing it: the decision to prove
+occlusion continuously and audit composed USD still stands, and 0011 carries it
+onto the reconciled topology and the continuous turn.

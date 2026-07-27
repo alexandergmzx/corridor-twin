@@ -6,15 +6,17 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.0.0 |
-| Last updated | 2026-07-26 |
-| Current milestone | Live Isaac camera contract validated |
-| Next milestone | Move A on the authored path and measure speed from live pixels |
+| Map version | 1.1.0 |
+| Last updated | 2026-07-27 |
+| Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
+| Current milestone | Geometry reconciled with the supplied diagram |
+| Next milestone | Move A on the authored trajectory and measure speed from live pixels |
 
 ## Read the documentation in this order
 
 | If you need to understand… | Start here | Typical reading time |
 |---|---|---:|
+| The scenario as supplied | [Source task and diagram](ROBO_TASK.pdf) | 2 minutes |
 | What exists and what comes next | This page | 3 minutes |
 | Why the system is divided this way | [System design](DESIGN.md) | 8 minutes |
 | Exactly what P may consume | [Sensor-feed contract](SENSOR-FEED.md) | 6 minutes |
@@ -44,10 +46,12 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 
 | Capability | State | Evidence now | Next proof needed |
 |---|---|---|---|
-| Parametric tapered corridor | Working; dimensions still provisional | Composed-stage width tests for every USD variant | Reconcile A/B/P and policy with supplied diagram |
+| Parametric tapered corridor | Working; topology reconciled | One-sided taper measured from the composed stage for every USD variant | None; metric scale stays a declared demo choice |
+| Next street, junction, corner mass | Working | Convex collider prims per variant; B and P placed from the wall faces | Drive A through the junction |
+| Continuous delivery trajectory | Working | Position and yaw continuous at both joins; every arc sample in drivable space | Follow it in Isaac |
 | Static physics geometry | Working | Ground/building collider schema tests and Isaac smoke | Exercise motion and collision behavior |
-| Camera-only speed estimator | Working on synthetic pixels | 1.8 m/s case measured within 0.0026 m/s; below-limit case stays quiet | Measure error from live Isaac images |
-| P occlusion | Working | Continuous interval proof plus 226 composed-mesh rays and a failing control | Re-run after any geometry/path change |
+| Camera-only speed estimator | Working on synthetic pixels | 1.8 m/s case measured within 0.0042 m/s; below-limit case stays quiet | Measure error from live Isaac images |
+| P occlusion | Working | Continuous proof over P's full volume and the swept turn, 204 composed-mesh rays, and a failing control | Re-run after any geometry/path change |
 | GPU and real-time scene | Conditionally qualified | Hardware gates, headless/visible stage smokes, measured VRAM | Retain Ubuntu fallback because Mint is unsupported |
 | Isaac ROS camera contract | Working | Headless and visible external probes: 640×360 RGB, 15 Hz, paired calibration, `/clock` | Connect the moving robot without adding sensors |
 | Robot delivery motion | Next | Authored delivery path exists | Deterministic path follower and speed profile |
@@ -57,6 +61,7 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 
 ```mermaid
 flowchart LR
+    Task["ROBO_TASK.pdf<br/>topology only"] --> Config
     Config["Versioned scenario config"] --> Author["Pure pxr authoring"]
     Author --> USD["corridor.usda"]
     Author --> Manifest["corridor.manifest.json"]

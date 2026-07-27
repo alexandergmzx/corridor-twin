@@ -2,9 +2,10 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.4.1 |
-| Status | Phase 1 implemented; RTX 5070 Ti and live Isaac camera contract qualified |
-| Last updated | 2026-07-26 |
+| Design version | 0.5.0 |
+| Status | Geometry reconciled with the supplied diagram; RTX 5070 Ti and live Isaac camera contract qualified |
+| Last updated | 2026-07-27 |
+| Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Target ROS | ROS 2 Jazzy |
 | Target host | Linux Mint 22 demo host / Ubuntu 24.04 supported fallback |
 | Current / target GPU | RTX 5070 Ti, 16 GB |
@@ -82,24 +83,92 @@ observer.
 
 - Stage units: meters (`metersPerUnit = 1.0`).
 - Up axis: Z.
-- Corridor station: distance along the authored delivery centerline.
+- Corridor station: world X. Markers are surveyed at a station, gates sit at
+  marker stations, and the estimator recovers station from PnP.
 - Map frame: `corridor_map`.
 - Camera optical frame: X right, Y down, Z forward, following ROS camera
   conventions.
-- A, B, P, and the full path are not frozen until the supplied diagram is added.
 
-The current draft assumes a 12 m corridor and provides three named profiles. The
-numbers are configuration defaults, not recovered facts from the absent diagram.
+### What the supplied diagram fixes, and what it does not
+
+[`ROBO_TASK.pdf`](ROBO_TASK.pdf) is a plan view with no scale bar, no dimension
+text, and widths labelled only as the symbols `m` and `n`. Its topology is
+authoritative; its pixel lengths are not. See
+[ADR 0010](adr/0010-supplied-diagram-geometry.md).
+
+| From the source | A project choice |
+|---|---|
+| `m >= n`, narrowing toward the corner | Corridor length, 12.0 m |
+| One straight face, one tapering face | Next-street width 6.0 m, length 10.0 m |
+| A perpendicular next street with real walls | Turn radius 2.0 m |
+| B along that street, P at its corner | B at 8.0 m along the street |
+
+The config and the manifest publish this as
+`topology: reconciled_with_supplied_diagram` and
+`metric_scale: demo_assumption`.
+
+### One-sided taper
+
+The north face is straight and the south face carries the whole taper:
+
+```text
+width(x)      = m + (n - m)·x / L
+north_face(x) = +m / 2
+south_face(x) = north_face(x) - width(x)
+centerline(x) = (north_face(x) + south_face(x)) / 2
+```
+
+`geometry.corridor_faces` is the single source of truth: wall footprints, the
+marker survey, the delivery trajectory, and the visibility witnesses all derive
+from it, so the taper equation exists in exactly one place.
+
+A consequence worth stating: the centreline is **not** straight, so an X
+displacement is shorter than the distance actually travelled. Speed is converted
+by the path's X fraction before it is reported, or a tapered corridor would
+under-report speed by about 0.8%.
+
+### Delivery trajectory
+
+The route is line → circular arc → line, exposing position **and** yaw
+continuously. A polyline with one heading per segment can hide a visibility
+window that a real rotating camera sweeps through, so the visibility gate
+consumes this trajectory and bounds whole intervals of the turn.
+
+For the nominal profile: 12.851 m approach at 7.13°, a 2.0 m-radius arc
+sweeping 97.13°, then a 7.609 m departure — 23.851 m in total.
 
 ## Corridor variants
 
-The root scenario prim owns one `corridorProfile` variant set. Each variant is a
+The default prim owns one `corridorProfile` variant set. Each variant is a
 complete, named `(entry width m, corner width n)` profile. The selected variant
-authors numeric width attributes and all dependent wall/marker geometry.
+authors numeric width attributes and all dependent geometry — walls, markers,
+**and** A, P, and the route, because all of them follow the corridor faces.
+
+The variant set sits on `/World` rather than on the corridor prim: a variant
+only contributes opinions inside its own prim's namespace, and the actors live
+under `/World/Actors`.
 
 The CLI `--m` and `--n` values define and select the nominal requested profile.
 Additional named profiles come from configuration. Variants are deliberately not
 described as continuous numeric parameters.
+
+## Visibility semantics
+
+The task states that A cannot see P. That is a hard geometric gate, not an
+assertion, and four concepts stay distinct
+([ADR 0011](adr/0011-visibility-semantics.md)):
+
+| Concept | Question | Directional? |
+|---|---|---|
+| Physical line of sight | Does an opaque wall intersect the camera-to-P segment? | No; normally reciprocal |
+| A-camera visibility | Is any part of P inside the frustum *and* unoccluded? | Yes |
+| A software awareness | Does A detect, model, or react to P? | Yes |
+| P data access | Does P subscribe to A's Image, CameraInfo, and the survey? | Yes |
+
+P reading A's camera feed is a network relationship, not a sightline. The
+software-awareness rule is enforced by a source contract and is **additive**: P
+could be plainly visible in A's pixels even if A's code ignored them, so it can
+never stand in for the geometric gate.
 
 ## Generated artifacts
 
@@ -119,14 +188,17 @@ under `out/` and are not source-controlled by default.
 Stable prim paths:
 
 ```text
-/World
+/World                                  <- owns the corridorProfile variant set
   /PhysicsScene
   /Environment
     /Ground
-    /CrossStreet
     /Corridor
-      /LeftBuilding
-      /RightBuilding
+      /RoadSurface
+      /NextStreetSurface
+      /NorthBuilding                    <- straight face
+      /SouthBuilding                    <- tapering face
+      /CornerBuilding                   <- corner mass; hides P
+      /EastBuilding                     <- next street's far kerb
       /Fiducials
   /Actors
     /A
@@ -138,9 +210,19 @@ Stable prim paths:
     /DeliveryPath
 ```
 
+Renamed at design 0.5.0, because the old names described a symmetry that no
+longer exists: `LeftBuilding → NorthBuilding`, `RightBuilding → SouthBuilding`.
+`CornerBuilding`, `EastBuilding`, and `NextStreetSurface` are new, and the
+former `CrossStreet` cube is replaced by the authored street.
+
 Buildings are closed low-poly volumes, not zero-thickness display faces. Ground
 and buildings are static colliders. Applying collision without a parent rigid
 body intentionally produces a static collider.
+
+The corridor's south wall and the next street's west wall are two overlapping
+**convex** prims rather than one L-shaped prim: the walls carry `convexHull`
+collision approximations, and an L-shaped hull would silently fill the junction
+A has to drive through.
 
 ## Camera-derived speed
 
@@ -165,10 +247,11 @@ at the subscriber is never used for speed.
 
 ## Speed-limit policy
 
-Corridor width alone does not define a legal limit. The manifest contains an
-explicitly provisional, demonstration-only piecewise policy. It must be approved
-before the interview geometry is frozen. The event records the policy profile,
-width, limit, measured speed, uncertainty, gates, and confirmation duration.
+Corridor width alone does not define a legal limit. The supplied task states no
+limit, so the manifest carries an explicitly demonstration-only piecewise
+policy keyed on clear width. The diagram does confirm what the policy keys on:
+the corner is the narrow point. The event records the policy profile, width,
+limit, measured speed, uncertainty, gates, and confirmation duration.
 
 ## Synthetic validation
 
@@ -178,10 +261,26 @@ on a test-only topic for the evaluator. A source contract test proves that the
 observer adapter contains no truth or odometry subscription.
 
 The implemented clean synthetic test uses actual ArUco pixels, camera intrinsics,
-detection, PnP, gate interpolation, and the violation debounce. At 1.8 m/s it
-measured 1.8016 and 1.8026 m/s (maximum absolute error 0.0026 m/s) and emitted
-one event; at 1.0 m/s it emitted no event. Noise, blur, dropped-frame, and
-acceleration cases remain extensions rather than claimed coverage.
+detection, PnP, gate interpolation, and the violation debounce. On the
+reconciled geometry, at a true path speed of 1.8 m/s it measured 1.7958 and
+1.7977 m/s (maximum absolute error 0.0042 m/s) and emitted one event; at
+1.0 m/s it measured 1.0009 and 0.9866 m/s and emitted no event. Noise, blur,
+dropped-frame, and acceleration cases remain extensions rather than claimed
+coverage.
+
+Two accuracy defects were found and fixed while reconciling the geometry, both
+invisible under the previous symmetric corridor:
+
+- **Station is world X, but the path is not.** Under a one-sided taper the route
+  runs at about 7° to X, so gate spacing along X is shorter than the distance
+  travelled and every estimate read low by 0.8%, roughly 0.014 m/s at 1.8 m/s.
+  Gate spacing is now converted before differentiating.
+- **Single-marker frames are ambiguous.** Four coplanar correspondences let
+  planar PnP fit almost exactly while recovering the wrong pose. One such frame
+  produced a 0.21 m backward station jump at a reprojection error of 0.02 px,
+  which reset the gate history and silently dropped a measurement. A low
+  residual is not evidence here, so a second marker is now required — the
+  mitigation this document already prescribed.
 
 A live ROS 2 launch was also exercised in both wall-time and synthetic-clock
 modes. The latter produced the same 1.8026 m/s event at simulated time 4.3306 s,
@@ -190,16 +289,42 @@ arrival time.
 
 ## Occlusion verification
 
-The primary certificate is continuous over every authored path segment, not a
-dense sample claim. Before the turn it finds interval witnesses at which every
-camera-to-P-box ray crosses the south wall in both horizontal and vertical
-extent. Once P lies wholly outside one strict camera-frustum half-space, the
-certificate records frustum exclusion. Together these cover the whole route.
+The certificate is continuous over every trajectory interval, not a dense sample
+claim, and it covers P's full body volume rather than its centre. Witness planes
+are solved in closed form: where a ray crosses a plane its Y and Z are linear in
+the plane coordinate, and the slab's own bounds are linear too, so the feasible
+planes form an interval.
 
-An independent diagnostic then reads composed world-space meshes from the USD and
-performs segment/triangle intersections. A negative test moves P into the clear
-corridor and must fail. Camera orientation may provide an additional frustum
-check, but off-axis placement alone does not count as occlusion.
+Three properties are not optional, and each was forced by a concrete failure
+found while proving the reconciled scene:
+
+- **Closed-form witness search.** A 240-point sampled search stepped over a
+  feasible window only 8 mm wide near the corridor entry and reported P as
+  possibly visible when it was not.
+- **Subdividing P's volume, not just the route.** No single plane can contain
+  rays to opposite corners of P inside one 0.5 m wall, even though the wall
+  blocks each of them at its own depth.
+- **Witness planes of constant Y as well as constant X.** Where A draws level
+  with P, no plane of constant X separates them at all.
+
+The turn is swept as a yaw *range* per interval. Each frustum half-space is
+linear in the source-to-target offset, so enumerating source endpoints against
+target corners is exact for a fixed yaw; across a yaw range shorter than π the
+same condition holds throughout exactly when it holds at both ends.
+
+The certificate reports wall occlusion and frustum exclusion as **separate**
+fields, and pursues a wall witness even where P is already off-screen. An
+off-screen P is never relabelled as wall-occluded.
+
+An independent diagnostic then reads composed world-space meshes from the USD
+and performs segment/triangle intersections, discovering meshes by applied
+collision schema so that renaming or adding a building cannot silently shrink
+the audit. A negative test moves P into the clear corridor and must fail.
+
+Current result for the nominal profile: `passed`, line of sight blocked over the
+whole route, 78 certified interval/sub-volume pairs, 204 audit rays with 0
+failures, nearest blocking surface 3.116 m. 76 of the 78 are blocked by
+`SouthBuilding` and 2 by `CornerBuilding`.
 
 ## ROS time model
 
@@ -327,10 +452,16 @@ Phase 1 packages. The version-specific tools are isolated in
 |---|---|
 | Stage is reproducible | Generator tests and readable USDA output |
 | Widths equal m/n | Composed mesh measurement for every selected variant |
+| Taper is one-sided | North face is one straight line; south face carries the full `m - n` |
+| One geometry source | Composed USD, manifest occluders, and `corridor_faces` cross-checked |
 | Colliders exist | Applied-schema/attribute tests and Isaac 5.1 smoke |
+| Turn is continuous | Position and yaw continuity at both joins; yaw monotone through the arc |
+| Turn fits | Every arc sample lies in drivable space for every profile |
 | Observer is camera-only | Source/topic contract tests and ROS graph design |
+| A is unaware of P | Source contract over robot-side files, additive to the geometric gate |
 | Estimator is accurate | Synthetic pixels measured against harness-only truth |
-| P cannot be seen | Continuous certificate plus 226-ray composed-USD audit |
+| P cannot be seen | Continuous certificate over P's full volume plus 204-ray composed-USD audit |
+| The checker can fail | Visible negative control fails both the certificate and the audit |
 | Time reset behavior | Non-monotonic stamp and backward-station unit tests |
 | Demo GPU is qualified | 5070 Ti checker component results, headless/GUI smoke, and measured VRAM snapshots |
 | Live camera contract is correct | External ROS probe of paired stamps, frames, dimensions, encoding, calibration, QoS, rate, clocks, and publisher cardinality |
@@ -344,9 +475,11 @@ Phase 1 packages. The version-specific tools are isolated in
   render products.
 - **Variant changes versus physics caches:** pause/reset simulation when switching
   profiles until installed-version behavior is verified.
-- **Wall-marker perspective:** cant plates and combine multiple markers.
-- **Missing diagram values:** configuration remains explicitly draft rather than
-  embedding undocumented geometry.
+- **Wall-marker perspective:** cant plates and require at least two markers per
+  solved frame.
+- **Unscaled source drawing:** the diagram fixes topology but states no metric
+  length, so lengths are published as `metric_scale: demo_assumption` rather
+  than presented as surveyed values.
 - **Clock discontinuity:** clear temporal state on jumps.
 - **User-site NumPy 2.2 conflicts with Jazzy OpenCV:** the demo launch disables
   user-site packages; the repo venv pins NumPy below 2.
@@ -358,6 +491,13 @@ Phase 1 packages. The version-specific tools are isolated in
 
 ## Version history
 
+- **0.5.0 — 2026-07-27:** Reconciled the scene with the supplied
+  [`ROBO_TASK.pdf`](ROBO_TASK.pdf): one-sided taper, authored next street and
+  corner mass, P derived from the occluding faces, and a continuous line-arc-line
+  delivery trajectory. Strengthened the visibility gate to cover P's full volume
+  across a swept yaw range and to report wall occlusion separately from frustum
+  exclusion. Corrected an 0.8% speed under-report caused by measuring station
+  along X, and rejected single-marker frames whose planar PnP pose is ambiguous.
 - **0.4.1 — 2026-07-26:** Added visual component and runtime-environment maps;
   no interface or architecture decision changed.
 - **0.4.0 — 2026-07-26:** Added and live-validated the installed Isaac 5.1

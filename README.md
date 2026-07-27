@@ -20,10 +20,12 @@ The checker still marks the host unsupported because it is Linux Mint. This is
 recorded as a platform risk rather than hidden by the successful hardware and
 live-stream checks.
 
-The provisional A/B/P coordinates and demonstration speed policy still need to
-be reconciled with the interviewer-supplied diagram before calling the geometry
-final. Robot motion along the authored delivery path is the next integration
-step.
+**Geometry reconciled with the supplied diagram — 2026-07-27.** The corridor now
+carries the drawing's one-sided taper, a real perpendicular next street with a
+corner mass, and a continuous line-arc-line delivery trajectory. P is placed
+from the occluding wall faces, so it follows the geometry when a different
+`(m,n)` profile is selected. Robot motion along that trajectory is the next
+integration step.
 
 ## Architecture at a glance
 
@@ -64,13 +66,24 @@ the image header.
 
 ## Build and run
 
-### 1. Reconcile the provisional inputs
+### 1. Read the reconciled scenario
 
-- Add the supplied diagram to `docs/` or reconcile its coordinates with
-  `src/corridor_scene/config/corridor.yaml`.
-- Reconcile A, B, P, and the delivery path with the diagram.
-- Approve the named `(m,n)` profiles.
-- Define the demonstration-only width-to-speed-limit rules.
+The supplied task and drawing are versioned at [`docs/ROBO_TASK.pdf`](docs/ROBO_TASK.pdf).
+It is a plan view with no scale bar and widths labelled only as `m` and `n`, so
+the project separates what it fixes from what the project chooses:
+
+| From the source | A project choice |
+|---|---|
+| `m >= n`, narrowing toward the corner | Corridor length, 12.0 m |
+| One straight face, one tapering face | Next-street width 6.0 m, length 10.0 m |
+| A perpendicular next street with real walls | Turn radius 2.0 m |
+| B along that street, P at its corner | B at 8.0 m along the street |
+
+`src/corridor_scene/config/corridor.yaml` publishes this as
+`topology: reconciled_with_supplied_diagram` and
+`metric_scale: demo_assumption`. The speed limit is a demonstration-only
+piecewise rule, because the task states none. See
+[ADR 0010](docs/adr/0010-supplied-diagram-geometry.md).
 
 ### 2. Review the demo GPU qualification
 
@@ -112,9 +125,27 @@ python -m scene.occlusion \
   --out out/occlusion-certificate.json
 ```
 
-The build creates the USDA, `corridor.manifest.json`, and marker PNG files. The
-occlusion command exits nonzero if any continuous path interval or composed-mesh
-audit ray is uncertified.
+The build creates the USDA, `corridor.manifest.json`, and marker PNG files, and
+rejects any authored profile whose layout would put P in a wall or in the road,
+or whose turn would not fit the junction.
+
+The occlusion command exits nonzero if any trajectory interval or composed-mesh
+audit ray is uncertified. It proves the binding requirement that A's camera
+never images P, and the stronger reciprocal claim that an opaque wall does the
+hiding. Current result for the nominal profile: 78 certified interval and
+sub-volume pairs, 204 audit rays with 0 failures, nearest blocking surface
+3.116 m.
+
+Check the other authored profiles too, since each one moves P:
+
+```bash
+python -m scene.occlusion --stage out/corridor.usda \
+  --manifest out/corridor.manifest.json \
+  --profile wide_corner_m6_n4_5 --out out/occlusion-wide.json
+python -m scene.occlusion --stage out/corridor.usda \
+  --manifest out/corridor.manifest.json \
+  --profile uniform_m6_n6 --out out/occlusion-uniform.json
+```
 
 ### 5. Build and test ROS
 
@@ -224,8 +255,14 @@ headroom for the GUI and ROS bridge.
   and image acquisition timestamps.
 - Synthetic frames make the estimator falsifiable before simulator rendering is
   trusted.
-- P's occlusion is a tested continuous geometric property with failing controls,
-  not a visual claim.
+- The supplied drawing is treated as evidence about topology, not about scale;
+  every metric length is declared a project choice rather than dressed up as a
+  survey.
+- "A cannot see P" stays a geometric gate over P's whole body and the whole
+  turn, with failing controls. The rule that A's software ignores P is additive:
+  P could fill A's pixels while A's code ignored them.
+- The proof reports wall occlusion separately from being merely off-screen, and
+  never relabels one as the other.
 - Simulated time uses one `/clock` publisher and resets estimator state on time
   jumps.
 - Isaac-specific code is isolated and checked against the installed version's API.
@@ -238,6 +275,7 @@ of scope for this interview demo.
 
 ## Documentation
 
+- [Supplied task and diagram](docs/ROBO_TASK.pdf)
 - [Visual project map and growth tracker](docs/README.md)
 - [System design](docs/DESIGN.md)
 - [Sensor-feed contract](docs/SENSOR-FEED.md)
