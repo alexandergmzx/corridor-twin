@@ -57,13 +57,13 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Next street, junction, corner mass | Working | Convex collider prims per variant; B and P placed from the wall faces | Drive A through the junction |
 | Continuous delivery trajectory | Working | Position and yaw continuous at both joins; every arc sample in drivable space | Follow it in Isaac |
 | Static physics geometry | Working | Ground/building collider schema tests and Isaac smoke | Exercise motion and collision behavior |
-| Camera-only station/speed estimator | Working on synthetic motion and static Isaac pixels | All four gates measured; corner-only violation reported at 1.0 m/s; worst station error 0.0391 m nominal over the covered window | Measure speed during deterministic Isaac motion |
+| Camera-only station/speed estimator | **Working on live Isaac pixels** | All four gates measured in a live run; max speed error 0.0371 m/s at 1.0 m/s truth; one violation at the corner. [Evidence](evidence/live-demo/NOTES.md) | Repeat across the other `(m,n)` profiles |
 | P occlusion | Working | Conservative arc enclosure over P's full volume, curved-source false-pass regression, 204 composed-mesh rays, and a visible control | Re-run after any geometry/path change |
 | GPU and real-time scene | Conditionally qualified | Hardware gates, headless/visible stage smokes, measured VRAM | Retain Ubuntu fallback because Mint is unsupported |
 | Isaac ROS camera contract | Pixels qualified; **renderer claim invalidated** | 640×360 RGB at 15 Hz; paired calibration; five static dwells pass; mirrored actual capture fails. The run's renderer mode was requested, never read back | Fresh paired requalification with measured renderer state |
-| Corner enforcement coverage | Working on synthetic pixels | Height-staggered reference plates restore gates 8.0 and 10.0, and a corner-only violation is now confirmable. Accepted markers are raycast-verified unoccluded at centre and corners, and rank-3, across all three profiles | Confirm through rendered Isaac pixels |
-| Robot delivery motion | Blocked | Authored delivery path exists | Coverage and requalification first; then a deterministic path follower and speed profile |
-| Live end-to-end violation | Pending | Synthetic end-to-end path already works | Isaac camera → observer → estimate/violation comparison |
+| Corner enforcement coverage | **Confirmed on rendered Isaac pixels** | Height-staggered reference plates carry the pose through the strict zone in a real render; gates 8.0 and 10.0 both measured, so the corner rule is confirmable. [Frame](evidence/live-demo/corner-references.png) | Repeat after any geometry change |
+| Robot delivery motion | **Working** | A completes the 23.851 m route in 23.867 s of simulation time, driven from `/clock`; `reached_end=True` | Measure the pose-to-render latency, which is still uncharacterised |
+| Live end-to-end violation | **Working** | One command runs Isaac → camera → observer → RViz; exactly one violation at station 10.0 m, exceedance 0.194 m/s, 3411 MiB VRAM, one render product | Rehearse the GUI path and the recorded fallback on the presentation machine |
 
 ## Evidence boundary
 

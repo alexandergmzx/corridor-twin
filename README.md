@@ -36,10 +36,23 @@ so it is not a current qualification; its summary is preserved unmodified as
 `qualification-summary-v1-request-echo-invalidated.json`. **There is no canonical
 static qualification until the planned requalification passes.**
 
-The gate did expose and correct buried, undersampled marker plates. Two things
-now precede motion: enforcement coverage must reach the corner, since gates 8.0
-and 10.0 currently fall outside the camera frustum, and the static qualification
-must be re-earned on the corrected geometry.
+The gate did expose and correct buried, undersampled marker plates.
+
+**Live camera-only enforcement demonstration working — 2026-07-27.** One
+command drives A along the authored route in Isaac Sim while the police
+observer recovers speed from that camera alone. At a constant 1.0 m/s the run
+measured all four enforcement gates with a maximum speed error of 0.0371 m/s,
+stayed compliant on the wide approach, and raised **exactly one** violation once
+the corridor narrowed and the limit tightened — 0.194 m/s over the 0.80 m/s
+corner rule, at station 10.0 m. A completed the 23.851 m route in 23.867 s of
+simulation time using 3411 MiB of the RTX 5070 Ti and one render product, with
+the renderer mode read back rather than requested. See the
+[measured evidence](docs/evidence/live-demo/NOTES.md).
+
+Two things are still outstanding and are not claimed: there is no canonical
+**static** qualification until the planned paired requalification passes, and
+the pose-to-render latency has not been characterised, so no offset compensates
+for it.
 
 ## Architecture at a glance
 
