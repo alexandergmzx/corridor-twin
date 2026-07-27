@@ -53,18 +53,45 @@ class SyntheticCamera:
         self.rate_hz = float(camera["rate_hz"])
         self.dictionary_name = str(raw["fiducials"]["dictionary"])
         self.dictionary = _aruco_dictionary(self.dictionary_name)
+        block = raw["profiles"][profile]
         self.markers = {
             int(marker["id"]): np.asarray(marker["aruco_corner_order_xyz_m"], dtype=np.float64)
-            for marker in raw["profiles"][profile]["markers"]
+            for marker in block["markers"]
         }
         self.images = {
             marker_id: _marker_image(self.dictionary, marker_id) for marker_id in self.markers
         }
+        # Follow the authored corridor centreline rather than assuming it runs
+        # along y = 0. Under a one-sided taper the centreline drifts toward the
+        # straight north face, and a camera left on the old axis would view
+        # every marker off-centre.
+        route = block.get("delivery_trajectory", {})
+        heading = route.get("approach_heading", (1.0, 0.0))
+        self.approach_heading = (float(heading[0]), float(heading[1]))
+        start = route.get("start_xyz_m", (0.0, 0.0, 0.0))
+        self.approach_start_xy = (float(start[0]), float(start[1]))
+
+    def centerline_y(self, station_m: float) -> float:
+        """Return the centreline Y at a corridor station (world X)."""
+
+        forward_x, forward_y = self.approach_heading
+        origin_x, origin_y = self.approach_start_xy
+        return origin_y + (forward_y / forward_x) * (station_m - origin_x)
 
     def _world_to_camera(self, world: np.ndarray, station_m: float) -> np.ndarray:
-        relative = world - np.array([station_m, 0.0, self.camera_height_m])
-        # Optical X is world -Y, optical Y is world -Z, optical Z is world +X.
-        return np.column_stack((-relative[:, 1], -relative[:, 2], relative[:, 0]))
+        forward_x, forward_y = self.approach_heading
+        origin = np.array([station_m, self.centerline_y(station_m), self.camera_height_m])
+        relative = world - origin
+        # ROS optical frame: X right, Y down, Z forward along the heading. With
+        # a heading of +X this reduces to the axis-aligned case of X = world -Y
+        # and Y = world -Z.
+        return np.column_stack(
+            (
+                relative[:, 0] * forward_y - relative[:, 1] * forward_x,
+                -relative[:, 2],
+                relative[:, 0] * forward_x + relative[:, 1] * forward_y,
+            )
+        )
 
     def render(
         self,

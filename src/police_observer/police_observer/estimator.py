@@ -71,6 +71,12 @@ class MarkerMap:
     speed_rules: tuple[tuple[float, float], ...]
     confidence_sigma: float
     consecutive_estimates: int
+    # Station is measured along world X, which is also how markers are
+    # surveyed. Under a one-sided taper the delivery path runs at a small angle
+    # to X, so an X displacement is shorter than the distance actually
+    # travelled. This is the X component of the path's unit heading; dividing
+    # by it converts an axis speed into the true speed the policy is about.
+    path_axis_fraction: float = 1.0
 
     @classmethod
     def from_manifest(cls, path: Path, profile_name: str | None = None) -> MarkerMap:
@@ -96,6 +102,9 @@ class MarkerMap:
             speed_rules=rules,
             confidence_sigma=float(policy["confidence_sigma"]),
             consecutive_estimates=int(policy["consecutive_estimates"]),
+            path_axis_fraction=float(
+                profile.get("delivery_trajectory", {}).get("approach_heading", (1.0, 0.0))[0]
+            ),
         )
 
     def width_at(self, station_m: float) -> float:
@@ -127,10 +136,16 @@ class ArucoStationEstimator:
         marker_map: MarkerMap,
         dictionary_name: str,
         maximum_reprojection_rmse_px: float = 3.0,
+        minimum_markers: int = 2,
     ) -> None:
         self.marker_map = marker_map
         self.dictionary = _aruco_dictionary(dictionary_name)
         self.maximum_reprojection_rmse_px = maximum_reprojection_rmse_px
+        # A single square gives four coplanar correspondences, which planar PnP
+        # can fit perfectly while recovering the wrong pose. Such a frame looks
+        # excellent by reprojection error, so the residual filter cannot catch
+        # it; requiring a second marker is what makes the solve well posed.
+        self.minimum_markers = minimum_markers
         if hasattr(cv2.aruco, "DetectorParameters_create"):
             self.parameters = cv2.aruco.DetectorParameters_create()
         else:
@@ -184,7 +199,7 @@ class ArucoStationEstimator:
             object_points.append(surveyed)
             image_points.append(pixels)
             used_ids.append(marker_id)
-        if not object_points:
+        if len(object_points) < self.minimum_markers:
             return None
 
         world = np.concatenate(object_points).astype(np.float64)
@@ -270,8 +285,14 @@ class GateSpeedEstimator:
                 elapsed = crossing_time - from_time
                 distance = gate_station - self.marker_map.gate_stations_m[from_id]
                 if elapsed > 1e-6 and distance > 0.0:
-                    speed = distance / elapsed
-                    speed_sigma = math.sqrt(from_sigma**2 + crossing_sigma**2) / elapsed
+                    # Convert the along-X gate spacing into distance actually
+                    # travelled before differentiating, so a tapered corridor
+                    # does not systematically under-report speed.
+                    axis_fraction = self.marker_map.path_axis_fraction
+                    speed = distance / elapsed / axis_fraction
+                    speed_sigma = (
+                        math.sqrt(from_sigma**2 + crossing_sigma**2) / elapsed / axis_fraction
+                    )
                     results.append(
                         SpeedMeasurement(
                             timestamp_s=crossing_time,

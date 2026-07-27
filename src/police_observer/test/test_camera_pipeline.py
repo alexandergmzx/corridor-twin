@@ -25,6 +25,14 @@ def pipeline(tmp_path_factory: pytest.TempPathFactory):
 
 
 def _run_constant_speed(pipeline, truth_speed_mps: float):
+    """Drive the camera along the authored path at a known true speed.
+
+    The camera is addressed by corridor station, which is world X, while the
+    delivery path runs at a small angle to X under a one-sided taper. Scaling
+    by that fraction makes ``truth_speed_mps`` the distance actually travelled
+    per second, which is the quantity the speed policy is written about.
+    """
+
     camera, marker_map, pose = pipeline
     speed = GateSpeedEstimator(marker_map)
     violations = ViolationDetector(marker_map)
@@ -33,7 +41,7 @@ def _run_constant_speed(pipeline, truth_speed_mps: float):
     frame = 0
     while True:
         elapsed = frame / camera.rate_hz
-        station = truth_speed_mps * elapsed
+        station = truth_speed_mps * elapsed * marker_map.path_axis_fraction
         if station > 7.2:
             break
         observation = pose.estimate(
@@ -63,6 +71,45 @@ def test_sub_limit_sequence_does_not_emit_violation(pipeline) -> None:
     assert len(measurements) >= 2
     assert max(abs(value.speed_mps - 1.0) for value in measurements) < 0.02
     assert events == []
+
+
+def test_single_marker_frames_are_rejected(pipeline) -> None:
+    """Guard against planar PnP's pose ambiguity.
+
+    Four coplanar points from one square can be fitted almost exactly while the
+    recovered pose is wrong, so a low reprojection error is not evidence here.
+    Such a frame produced a 0.21 m backward station jump, which then reset the
+    gate history and silently dropped a speed measurement.
+    """
+
+    camera, marker_map, _ = pipeline
+    permissive = ArucoStationEstimator(marker_map, camera.dictionary_name, minimum_markers=1)
+    strict = ArucoStationEstimator(marker_map, camera.dictionary_name)
+    assert strict.minimum_markers >= 2
+
+    station = 5.5333
+    image = camera.render(station)
+    corners, identifiers = strict.detect(image)
+    assert identifiers is not None and len(identifiers) == 1
+
+    loose = permissive.estimate(image, camera.calibration, timestamp_s=1.0)
+    assert loose is not None
+    assert loose.reprojection_rmse_px < 0.1  # looks excellent, but is not
+    assert abs(loose.station_m - station) > 0.1
+    assert strict.estimate(image, camera.calibration, timestamp_s=1.0) is None
+
+
+def test_measured_speed_is_path_speed_not_axis_speed(pipeline) -> None:
+    """A tapered corridor must not systematically under-report speed."""
+
+    _, marker_map, _ = pipeline
+    assert marker_map.path_axis_fraction < 1.0
+    measurements, _ = _run_constant_speed(pipeline, 1.8)
+    assert measurements
+    # Without the path correction every estimate would read low by this factor.
+    axis_only = [value.speed_mps * marker_map.path_axis_fraction for value in measurements]
+    assert max(abs(value.speed_mps - 1.8) for value in measurements) < 0.02
+    assert min(abs(value - 1.8) for value in axis_only) > 0.01
 
 
 def test_timestamp_and_backward_station_reset_history(pipeline) -> None:
