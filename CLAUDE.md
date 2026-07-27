@@ -159,9 +159,24 @@ Update the affected document in the same change that alters a claim:
 | System boundary or design version | `docs/DESIGN.md` |
 | Milestone or capability status | `docs/README.md` |
 | Durable trade-off | a new ADR under `docs/adr/` |
+| Rendered frame, log, or measured artifact | `docs/evidence/<topic>/` |
 
 ADRs are immutable once accepted. Amend or supersede with a new ADR; do not edit
 a decision after the fact.
+
+### Evidence artifacts
+
+- Generate bulk, intermediate, and nondeterministic output under
+  `out/evidence/<topic>/`; tools must not overwrite committed evidence by
+  default.
+- Promote only representative frames and stable summaries into
+  `docs/evidence/<topic>/`, in the documentation commit that records the
+  measured result.
+- Every topic directory under `docs/evidence/` must contain `NOTES.md` with the
+  exact command, Isaac version, GPU, resolution, frequency, settings, and
+  pass/fail result. The evidence index itself is exempt.
+- Curate artifacts. A frame without provenance is decoration, and an unbounded
+  log dump is not a reviewable result.
 
 ## Commit conventions
 

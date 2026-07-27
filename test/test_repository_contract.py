@@ -12,6 +12,7 @@ def test_required_documents_exist() -> None:
         "docs/DESIGN.md",
         "docs/DEVELOPMENT.md",
         "docs/SENSOR-FEED.md",
+        "docs/evidence/README.md",
         "docs/adr/README.md",
     ]
     assert all((ROOT / path).is_file() for path in required)
@@ -25,6 +26,7 @@ def test_visual_documentation_entry_points_exist() -> None:
         "docs/SENSOR-FEED.md": 1,
         "docs/ACTIVATION.md": 1,
         "docs/DEVELOPMENT.md": 1,
+        "docs/evidence/README.md": 1,
         "docs/adr/README.md": 1,
     }
     for relative_path, expected_minimum in minimum_mermaid_blocks.items():
@@ -46,6 +48,7 @@ def test_visual_documentation_local_links_resolve() -> None:
         ROOT / "docs/SENSOR-FEED.md",
         ROOT / "docs/ACTIVATION.md",
         ROOT / "docs/DEVELOPMENT.md",
+        ROOT / "docs/evidence/README.md",
         ROOT / "docs/adr/README.md",
     ]
     missing: list[str] = []
@@ -57,6 +60,16 @@ def test_visual_documentation_local_links_resolve() -> None:
             local_target = target.split("#", maxsplit=1)[0]
             if not (document.parent / local_target).exists():
                 missing.append(f"{document.relative_to(ROOT)} -> {target}")
+    assert missing == []
+
+
+def test_versioned_evidence_topics_have_provenance() -> None:
+    evidence_root = ROOT / "docs/evidence"
+    missing = [
+        str(path.relative_to(ROOT))
+        for path in evidence_root.iterdir()
+        if path.is_dir() and not (path / "NOTES.md").is_file()
+    ]
     assert missing == []
 
 
