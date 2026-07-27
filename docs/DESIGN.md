@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.7.0 |
+| Design version | 0.7.1 |
 | Status | Corner enforcement coverage restored with reference fiducials; static renderer claim still invalidated pending requalification |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
@@ -283,28 +283,47 @@ observer adapter contains no truth or odometry subscription.
 
 The implemented clean synthetic test uses actual ArUco pixels, camera intrinsics,
 detection, PnP, gate interpolation, and the violation debounce. Re-measured after
-reference fiducials restored coverage to the corner, over the full enforcement
-run to x = 11.5:
+reference fiducials restored coverage to the corner:
 
-| True path speed | Measured per gate (m/s) | Max error | Events |
-|---|---|---:|---:|
-| 1.8 m/s | 1.8019, 1.7949, 1.7690, 1.8225 | 0.0310 m/s | 1 |
-| 1.0 m/s | 1.0020, 0.9998, 0.9747, 1.0183 | 0.0253 m/s | 0 |
-| 0.6 m/s | 0.6006, 0.5972, 0.5877, 0.6113 | 0.0123 m/s | 0 |
+| True path speed | Measured per gate (m/s) | Events | Meaning |
+|---|---|---:|---|
+| 0.6 m/s | 0.6006, 0.5972, 0.5877, 0.6113 | 0 | Compliant everywhere |
+| 1.0 m/s | 1.0020, 0.9998, 0.9747, 1.0183 | 1 | Legal on the approach, **corner-only offense** |
+| 1.8 m/s | 1.8019, 1.7949, 1.7690, 1.8225 | 1 | One continuous episode from the approach |
 
-All four enforcement gates now produce a measurement, and the tightest 0.8 m/s
-corner rule is evaluated for the first time. Error is larger than the previous
-0.0161 m/s because the run is twice as long and now includes the hard region
-past x = 8, where only far-field references remain in the frustum.
+All four enforcement gates now produce a measurement, and a violation confined to
+the narrow corner is reported for the first time.
 
-**A limitation the corner coverage exposes rather than fixes.** The 0.8 m/s zone
-begins at x = 10, so exactly one gate pair — 8 → 10 — ever lands inside it. With
-`consecutive_estimates: 2`, a violation confined to the corner can never be
-confirmed. The 1.0 m/s run above exceeds the corner limit and correctly reports
-no event for that reason. The 1.8 m/s event is opened earlier under the 1.2 m/s
-rule and continues as one episode. Making the corner independently enforceable
-would need either another gate inside the 0.8 m/s zone or a zone-entry
-confirmation rule, and neither is in this milestone.
+**Two changes made that possible, both forced by measurement.**
+
+The strict zone was moved from 3.5 m to 4.0 m clear width. At 3.5 m it began at
+x = 10 and contained exactly one gate, so with a two-estimate confirmation rule a
+corner-only violation could never be confirmed — a sustained 1.0 m/s run past the
+corner reported nothing at all. Widening the zone keeps the conservative debounce
+rather than weakening it.
+
+The estimator now rejects rank-deficient correspondence sets. Counting markers is
+not sufficient: the two east-face plates are coplanar, so accepting them as "two
+markers" reintroduced exactly the planar-PnP ambiguity the reference layout was
+meant to remove. It produced a 0.113 m station error at x = 11 before the rank
+rule was added.
+
+### Measured coverage window
+
+| Profile | Worst station error over x ∈ [2.0, 10.8] | Last valid station |
+|---|---:|---:|
+| `nominal_m6_n3` | 0.0391 m | 10.8 m |
+| `wide_corner_m6_n4_5` | 0.0459 m | 10.8 m |
+| `uniform_m6_n6` | 0.0555 m | 10.4 m |
+
+Coverage is required through the last enforcement gate at x = 10 plus enough
+margin to bracket its crossing, not to the end of the corridor. Past that only
+the coplanar east-face pair remains in view and the estimator correctly refuses
+to emit a pose.
+
+`uniform_m6_n6` peaks slightly above the 0.05 m gate. It is the deliberate
+no-taper control, where clear width is 6.0 m throughout, so the corner rule never
+applies to it and the excess touches no gate it actually uses.
 
 A live ROS 2 launch was also exercised in both wall-time and synthetic-clock
 modes. The latter produced a 1.7858 m/s event at simulated time 4.368860 s,

@@ -6,7 +6,7 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.4.0 |
+| Map version | 1.4.1 |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Current milestone | Renderer/camera contract corrected; static renderer claim invalidated, so no canonical qualification exists |
@@ -57,11 +57,11 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Next street, junction, corner mass | Working | Convex collider prims per variant; B and P placed from the wall faces | Drive A through the junction |
 | Continuous delivery trajectory | Working | Position and yaw continuous at both joins; every arc sample in drivable space | Follow it in Isaac |
 | Static physics geometry | Working | Ground/building collider schema tests and Isaac smoke | Exercise motion and collision behavior |
-| Camera-only station/speed estimator | Working on synthetic motion and static Isaac pixels | All four gates measured to x = 11.5; synthetic 1.8 m/s within 0.0310 m/s; static Isaac station error at most 0.010563 m | Measure speed during deterministic Isaac motion |
+| Camera-only station/speed estimator | Working on synthetic motion and static Isaac pixels | All four gates measured; corner-only violation reported at 1.0 m/s; worst station error 0.0391 m nominal over the covered window | Measure speed during deterministic Isaac motion |
 | P occlusion | Working | Conservative arc enclosure over P's full volume, curved-source false-pass regression, 204 composed-mesh rays, and a visible control | Re-run after any geometry/path change |
 | GPU and real-time scene | Conditionally qualified | Hardware gates, headless/visible stage smokes, measured VRAM | Retain Ubuntu fallback because Mint is unsupported |
 | Isaac ROS camera contract | Pixels qualified; **renderer claim invalidated** | 640×360 RGB at 15 Hz; paired calibration; five static dwells pass; mirrored actual capture fails. The run's renderer mode was requested, never read back | Fresh paired requalification with measured renderer state |
-| Corner enforcement coverage | Working on synthetic pixels | Height-staggered reference plates restore gates 8.0 and 10.0; the 0.8 m/s rule is now evaluated. Every accepted marker is raycast-verified unoccluded and rank-3 | Confirm through rendered Isaac pixels |
+| Corner enforcement coverage | Working on synthetic pixels | Height-staggered reference plates restore gates 8.0 and 10.0, and a corner-only violation is now confirmable. Accepted markers are raycast-verified unoccluded at centre and corners, and rank-3, across all three profiles | Confirm through rendered Isaac pixels |
 | Robot delivery motion | Blocked | Authored delivery path exists | Coverage and requalification first; then a deterministic path follower and speed profile |
 | Live end-to-end violation | Pending | Synthetic end-to-end path already works | Isaac camera → observer → estimate/violation comparison |
 

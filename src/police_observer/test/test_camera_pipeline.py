@@ -80,12 +80,22 @@ def test_single_marker_frames_are_rejected(pipeline) -> None:
     recovered pose is wrong, so a low reprojection error is not evidence here.
     Such a frame produced a 0.21 m backward station jump, which then reset the
     gate history and silently dropped a speed measurement.
+
+    The production estimator now rejects this on rank rather than marker count,
+    which is strictly stronger. The permissive control has to opt out of both
+    rules to reproduce the historical failure at all.
     """
 
     camera, marker_map, _ = pipeline
-    permissive = ArucoStationEstimator(marker_map, camera.dictionary_name, minimum_markers=1)
+    permissive = ArucoStationEstimator(
+        marker_map,
+        camera.dictionary_name,
+        minimum_markers=1,
+        minimum_correspondence_rank=2,
+    )
     strict = ArucoStationEstimator(marker_map, camera.dictionary_name)
     assert strict.minimum_markers >= 2
+    assert strict.minimum_correspondence_rank == 3
 
     station = 5.5333
     rendered = camera.render(station)
@@ -159,3 +169,75 @@ def test_observer_adapter_contains_no_truth_subscription() -> None:
     source = (Path(__file__).parents[1] / "police_observer" / "node.py").read_text(encoding="utf-8")
     assert "ground_truth" not in source
     assert "Odometry" not in source
+
+
+def _drive(pipeline_parts, truth_mps: float, until_x_m: float = 10.8):
+    """Run the full pixel-to-violation stack at a constant true path speed."""
+
+    from police_observer.estimator import ObserverPipeline
+
+    camera, marker_map, _ = pipeline_parts
+    pose = ArucoStationEstimator(marker_map, camera.dictionary_name)
+    pipeline = ObserverPipeline(marker_map)
+    measurements, events = [], []
+    frame = 0
+    while True:
+        elapsed = frame / camera.rate_hz
+        station_x_m = truth_mps * elapsed * marker_map.path_axis_fraction
+        if station_x_m > until_x_m:
+            break
+        observation = pose.estimate(
+            camera.render(station_x_m), camera.calibration, timestamp_s=1.0 + elapsed
+        )
+        if observation is not None:
+            for measurement, violation in pipeline.update(observation):
+                measurements.append(measurement)
+                if violation is not None:
+                    events.append((violation, measurement))
+        frame += 1
+    return measurements, events
+
+
+def test_every_enforcement_gate_is_measured(pipeline) -> None:
+    """Gates 8 and 10 were unreachable before the reference fiducials."""
+
+    measurements, _ = _drive(pipeline, 1.0)
+    assert [m.station_m for m in measurements] == [4.0, 6.0, 8.0, 10.0]
+    assert any(m.speed_limit_mps == 0.8 for m in measurements)
+
+
+def test_corner_speeding_alone_produces_one_violation(pipeline) -> None:
+    """1.0 m/s is legal on the wide approach and illegal past the narrowing.
+
+    Two gates now sit inside the 0.8 m/s zone, so the conservative
+    two-estimate confirmation can actually be satisfied there. With only one
+    such gate the corner rule could be evaluated but never confirmed.
+    """
+
+    measurements, events = _drive(pipeline, 1.0)
+    assert len(events) == 1
+    violation, measurement = events[0]
+    assert measurement.speed_limit_mps == 0.8
+    assert measurement.station_m == 10.0
+    assert violation.exceedance_mps > 0.0
+    # The wide approach was compliant, so nothing fired before the corner.
+    assert all(m.speed_mps <= m.speed_limit_mps for m in measurements if m.station_m <= 6.0)
+
+
+def test_compliant_run_produces_no_violation(pipeline) -> None:
+    measurements, events = _drive(pipeline, 0.6)
+    assert measurements
+    assert events == []
+    assert all(m.speed_mps < m.speed_limit_mps for m in measurements)
+
+
+def test_sustained_speeding_stays_one_continuous_episode(pipeline) -> None:
+    """Crossing into the stricter corner zone must not open a second offense."""
+
+    measurements, events = _drive(pipeline, 1.8)
+    assert len(events) == 1
+    violation, measurement = events[0]
+    # The episode opens on the wide approach, before the corner rule applies.
+    assert measurement.speed_limit_mps == 1.2
+    assert violation.event_id == 1
+    assert any(m.speed_limit_mps == 0.8 for m in measurements)

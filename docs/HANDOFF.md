@@ -2,14 +2,14 @@
 
 | Field | Value |
 |---|---|
-| Handoff version | 1.2.0 |
+| Handoff version | 1.3.0 |
 | Prepared | 2026-07-27 |
 | Branch | `main` |
 | Published base | `a416e47` on `origin/main` |
-| Last behavior commit to audit | `d19d02f` |
-| Portable gate at this handoff | 106 repository tests, 61 ROS package tests |
-| Current gate | None. Stage 0 is closed; proceed into coverage |
-| Next implementation slice | Stage 1, restore enforcement-gate coverage. **Not motion** |
+| Last behavior commit to audit | `61bd4c9` plus the corner-enforcement correction |
+| Portable gate at this handoff | 117 repository tests, 72 ROS package tests |
+| Current gate | Review of corner enforcement before GPU requalification |
+| Next implementation slice | Runtime corridor-profile reload, then GPU requalification. **Not motion** |
 
 ## Status since handoff 1.1.0
 
@@ -18,6 +18,8 @@
 | `b81300c` | R6. Four interview-facing pages still called the invalidated run qualified, and the activation table labelled the anti-aliasing enum a renderer enum |
 | `73d89de` | R7. `ViolationDetector` rearmed with no compliant measurement, so a steady over-limit run emitted an event every two measurements. ADR 0014 records one-event-per-episode |
 | `d19d02f` | The reset defect that review found in `73d89de`: `GateSpeedEstimator` reset itself on a continuity break without telling the detector, so an episode survived a clock jump and suppressed the next offense. Both stages now run through `ObserverPipeline` |
+| `61bd4c9` | Reference fiducials restore gates 8.0 and 10.0 with marker roles, schema-0.2 compatibility, and raycast-verified visibility |
+| this commit | Corner enforcement made real: the strict zone now contains two gates so a corner-only violation can be confirmed, and the estimator rejects rank-deficient correspondence sets that reintroduced planar-PnP ambiguity past x = 11 |
 
 ## Status since handoff 1.0.0
 
@@ -168,9 +170,9 @@ The last clean run on 2026-07-27 produced:
 | Layer | Expected result |
 |---|---:|
 | Ruff | Pass |
-| Repository pytest | 109 passed |
+| Repository pytest | 117 passed |
 | Colcon build | 3 packages built |
-| ROS package tests | 64 tests, 0 errors, 0 failures, 0 skipped |
+| ROS package tests | 72 tests, 0 errors, 0 failures, 0 skipped |
 
 The ament test run currently prints deprecation warnings about implicit `None`
 returns; they are not failures, but they should not be silently relabelled as a

@@ -154,6 +154,7 @@ class ArucoStationEstimator:
         dictionary_name: str,
         maximum_reprojection_rmse_px: float = 3.0,
         minimum_markers: int = 2,
+        minimum_correspondence_rank: int = 3,
     ) -> None:
         self.marker_map = marker_map
         self.dictionary = _aruco_dictionary(dictionary_name)
@@ -163,6 +164,12 @@ class ArucoStationEstimator:
         # excellent by reprojection error, so the residual filter cannot catch
         # it; requiring a second marker is what makes the solve well posed.
         self.minimum_markers = minimum_markers
+        # Counting markers is not sufficient. Two markers lying on one plane —
+        # for example both far-field plates on the same building face — are
+        # exactly as ambiguous as one, and no marker count detects that. The
+        # correspondence set itself must span three dimensions. Lowering this is
+        # only for regressions that need to reproduce the ambiguity on purpose.
+        self.minimum_correspondence_rank = minimum_correspondence_rank
         if hasattr(cv2.aruco, "DetectorParameters_create"):
             self.parameters = cv2.aruco.DetectorParameters_create()
         else:
@@ -221,6 +228,16 @@ class ArucoStationEstimator:
 
         world = np.concatenate(object_points).astype(np.float64)
         pixels = np.concatenate(image_points).astype(np.float64)
+        # Reject a rank-deficient correspondence set before solving. Two plates
+        # on one building face are coplanar and reintroduce the planar-PnP
+        # ambiguity that the marker-count rule was meant to remove, so the
+        # geometry is checked directly rather than inferred from how many
+        # markers were seen.
+        if (
+            np.linalg.matrix_rank(world - world.mean(axis=0), tol=1e-6)
+            < self.minimum_correspondence_rank
+        ):
+            return None
         flag = cv2.SOLVEPNP_ITERATIVE if len(world) >= 6 else cv2.SOLVEPNP_IPPE
         success, rotation_vector, translation = cv2.solvePnP(
             world,

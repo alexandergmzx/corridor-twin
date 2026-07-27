@@ -1,4 +1,4 @@
-schema_version: 0.2.0
+schema_version: 0.3.0
 status: topology_reconciled_metric_scale_demo_assumption
 
 provenance:
@@ -93,8 +93,15 @@ police:
 speed_policy:
   status: demonstration_only
   kind: piecewise_constant_by_clear_width
+  # The strict zone begins at 4.0 m clear width, which is x >= 8 on the nominal
+  # taper, so gates 8 and 10 both fall inside it. At the previous 3.5 m only
+  # gate 10 did, leaving exactly one measurement in the zone; with a two-estimate
+  # confirmation rule a violation confined to the corner could then never be
+  # confirmed, and a sustained 1.0 m/s run past the corner reported nothing.
+  # Widening the zone rather than weakening confirmation keeps the conservative
+  # debounce that stops single noisy frames becoming enforcement events.
   rules:
-    - {maximum_width_m: 3.5, limit_mps: 0.8}
+    - {maximum_width_m: 4.0, limit_mps: 0.8}
     - {maximum_width_m: 5.0, limit_mps: 1.2}
     - {maximum_width_m: 1000.0, limit_mps: 1.5}
   confidence_sigma: 2.0

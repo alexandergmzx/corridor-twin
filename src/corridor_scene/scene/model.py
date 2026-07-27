@@ -266,6 +266,35 @@ def validate_scenario(scenario: Scenario) -> None:
     if not 0.0 < street.b_distance_m < street.length_m:
         raise ValueError("B must stand inside the authored next street")
 
+    references = scenario.fiducials.references
+    if references.id_base < 0:
+        raise ValueError("reference id base must not be negative")
+    # Reserve a range above every gate id so the two never collide, and keep
+    # both inside the ArUco dictionary.
+    if references.id_base + len(references.plates) > 100:
+        raise ValueError("reference ids must stay inside DICT_5X5_100")
+    north_face = max(profile.entry_width_m for profile in scenario.profiles) / 2.0
+    for index, plate in enumerate(references.plates):
+        if plate.surface not in {"north_wall", "east_face"}:
+            raise ValueError(f"reference plate {index} has unknown surface {plate.surface!r}")
+        if plate.size_m <= 0.0:
+            raise ValueError(f"reference plate {index} has a non-positive size")
+        if not 0.0 <= plate.cant_deg < 90.0:
+            raise ValueError(f"reference plate {index} has an unusable cant {plate.cant_deg}")
+        # The plate plus its 9/7 backing must clear the ground and stay under
+        # the building it is mounted on.
+        reach = plate.size_m / 2.0 * 9.0 / 7.0
+        if plate.height_m - reach <= 0.0:
+            raise ValueError(f"reference plate {index} reaches below ground")
+        if plate.height_m + reach >= scenario.building_height_m:
+            raise ValueError(f"reference plate {index} reaches above its building")
+        # And it must sit within the host face rather than off its end.
+        if plate.surface == "north_wall":
+            if not -scenario.west_margin_m <= plate.along_m <= scenario.street_east_m:
+                raise ValueError(f"reference plate {index} is off the north wall")
+        elif not scenario.street_south_m <= plate.along_m <= north_face:
+            raise ValueError(f"reference plate {index} is off the east face")
+
     police = scenario.police
     if any(extent <= 0.0 for extent in police.body_size_xyz_m):
         raise ValueError("P must have a positive body volume")

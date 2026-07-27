@@ -435,32 +435,43 @@ def test_role_less_markers_stay_gates_and_unknown_roles_fail(
         MarkerMap.from_manifest(broken_path)
 
 
+@pytest.mark.parametrize(
+    "widths", [(6.0, 3.0), (6.0, 4.5), (6.0, 6.0)], ids=["nominal", "wide", "uniform"]
+)
 def test_corner_coverage_uses_unoccluded_non_coplanar_references(
-    generated: tuple[Path, Path],
+    tmp_path: Path, widths: tuple[float, float]
 ) -> None:
-    """Coverage must not depend on a plate the buildings actually hide.
+    """Coverage must not depend on a plate the buildings hide, or on one plane.
 
-    SyntheticCamera only projects; it never raycasts against geometry. So the
-    accepted markers are re-checked here against the composed meshes, and their
-    combined corners must span rank 3 rather than being perpendicular only by
-    construction.
+    SyntheticCamera only projects; it never raycasts against geometry, so the
+    accepted markers are re-checked here against the composed meshes. Centres
+    *and* every corner are cast, because a plate whose centre is clear can still
+    have a corner buried. The accepted correspondences must also span rank 3:
+    two plates on one building face are as ambiguous as one, and no marker count
+    detects that.
+
+    Coverage is required through the last enforcement gate plus the margin
+    needed to bracket its crossing, not to the end of the corridor. Past that
+    only the coplanar east-face pair remains in view, and the estimator is
+    expected to reject those frames rather than emit an ambiguous pose.
     """
 
-    stage_path, manifest_path = generated
+    stage_path, manifest_path = build_scene(None, tmp_path / "corridor.usda", *widths)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     scenario = load_scenario()
-    profile = scenario.profile(scenario.default_profile)
+    profile = scenario.profile(manifest["selected_profile"])
     trajectory = delivery_trajectory(scenario, profile)
     stage = Usd.Stage.Open(str(stage_path))
     triangles = [t for prim in opaque_mesh_prims(stage) for t in _mesh_triangles(prim)]
 
+    block = manifest["profiles"][manifest["selected_profile"]]
     surveyed = {
         marker["id"]: np.asarray(marker["corners_xyz_m"], dtype=np.float64)
-        for marker in manifest["profiles"][manifest["selected_profile"]]["markers"]
+        for marker in block["markers"]
     }
-    references = {
+    planes = {
         marker["id"]: marker["side"]
-        for marker in manifest["profiles"][manifest["selected_profile"]]["markers"]
+        for marker in block["markers"]
         if marker["role"] == "reference"
     }
     camera = SyntheticCamera(manifest_path)
@@ -468,28 +479,63 @@ def test_corner_coverage_uses_unoccluded_non_coplanar_references(
         MarkerMap.from_manifest(manifest_path), camera.dictionary_name
     )
 
-    checked = 0
-    for station_x_m in (8.0, 9.0, 10.0):
+    last_gate = max(
+        marker["station_m"] for marker in block["markers"] if marker["role"] == "gate"
+    )
+    stations = [8.0, 9.0, 10.0, last_gate + 0.4]
+    for station_x_m in stations:
         pose = trajectory.camera_pose_at(trajectory.approach_s_at_x(station_x_m))
         origin = (pose.x_m, pose.y_m, pose.z_m)
         observation = estimator.estimate(
             camera.render(station_x_m), camera.calibration, timestamp_s=1.0 + station_x_m
         )
         assert observation is not None, f"no estimate at x={station_x_m}"
-
         accepted = list(observation.marker_ids)
+
         for marker_id in accepted:
-            centre = surveyed[marker_id].mean(axis=0)
-            blocked = any(
-                _segment_hits_triangle(origin, tuple(centre), triangle) is not None
-                for triangle in triangles
-            )
-            assert not blocked, f"accepted marker {marker_id} is occluded at x={station_x_m}"
+            corners = surveyed[marker_id]
+            for target in [corners.mean(axis=0), *corners]:
+                blocked = any(
+                    _segment_hits_triangle(origin, tuple(target), triangle) is not None
+                    for triangle in triangles
+                )
+                assert not blocked, f"marker {marker_id} is occluded at x={station_x_m}"
 
-        planes = {references.get(marker_id) for marker_id in accepted} - {None}
-        assert len(planes) >= 2, f"x={station_x_m} leans on one reference plane: {planes}"
+        combined = np.concatenate([surveyed[marker_id] for marker_id in accepted])
+        rank = np.linalg.matrix_rank(combined - combined.mean(axis=0), tol=1e-6)
+        assert rank == 3, (
+            f"x={station_x_m} accepted a rank-{rank} set from planes "
+            f"{ {planes.get(i, 'corridor') for i in accepted} }"
+        )
 
-        corners = np.concatenate([surveyed[marker_id] for marker_id in accepted])
-        assert np.linalg.matrix_rank(corners - corners.mean(axis=0), tol=1e-6) == 3
-        checked += 1
-    assert checked == 3
+
+def test_coplanar_reference_pair_alone_is_rejected(generated: tuple[Path, Path]) -> None:
+    """The estimator must refuse rank-deficient sets, not rely on the layout.
+
+    Past the covered window only the two east-face plates remain, and they are
+    coplanar. Counting markers would accept that pair; the rank rule does not.
+    """
+
+    _, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    block = manifest["profiles"][manifest["selected_profile"]]
+    east = [m for m in block["markers"] if m["side"] == "east_face"]
+    assert len(east) == 2
+
+    corners = np.concatenate(
+        [np.asarray(m["corners_xyz_m"], dtype=np.float64) for m in east]
+    )
+    assert np.linalg.matrix_rank(corners - corners.mean(axis=0), tol=1e-6) == 2
+
+    estimator = ArucoStationEstimator(
+        MarkerMap.from_manifest(manifest_path), str(manifest["fiducials"]["dictionary"])
+    )
+    assert estimator.minimum_correspondence_rank == 3
+
+
+def test_generated_manifests_declare_the_new_schema(generated: tuple[Path, Path]) -> None:
+    """Roles and reference plates are new fields, so the schema moves with them."""
+
+    _, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "0.3.0"
