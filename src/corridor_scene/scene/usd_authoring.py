@@ -10,9 +10,9 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade
 from .geometry import (
     MARKER_BACKING_OFFSET_M,
     MARKER_BACKING_SCALE,
+    all_surveys,
     building_footprints,
     corridor_faces,
-    marker_surveys,
     person_b_xyz,
     police_bounds,
 )
@@ -250,7 +250,7 @@ def _author_profile(
             building_material,
         )
     UsdGeom.Xform.Define(stage, "/World/Environment/Corridor/Fiducials")
-    for survey in marker_surveys(scenario, profile):
+    for survey in all_surveys(scenario, profile):
         _marker_mesh(
             stage,
             f"/World/Environment/Corridor/Fiducials/Marker_{survey.marker_id:03d}",
@@ -389,7 +389,7 @@ def author_stage(
     marker_backing_material = _color_material(stage, "MarkerBacking", (1.0, 1.0, 1.0))
 
     marker_ids = {
-        survey.marker_id for profile in profiles for survey in marker_surveys(scenario, profile)
+        survey.marker_id for profile in profiles for survey in all_surveys(scenario, profile)
     }
     marker_materials = {marker_id: _marker_material(stage, marker_id) for marker_id in marker_ids}
 

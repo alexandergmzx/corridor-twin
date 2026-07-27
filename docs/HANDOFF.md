@@ -168,9 +168,9 @@ The last clean run on 2026-07-27 produced:
 | Layer | Expected result |
 |---|---:|
 | Ruff | Pass |
-| Repository pytest | 97 passed |
+| Repository pytest | 109 passed |
 | Colcon build | 3 packages built |
-| ROS package tests | 52 tests, 0 errors, 0 failures, 0 skipped |
+| ROS package tests | 64 tests, 0 errors, 0 failures, 0 skipped |
 
 The ament test run currently prints deprecation warnings about implicit `None`
 returns; they are not failures, but they should not be silently relabelled as a

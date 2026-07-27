@@ -6,7 +6,7 @@ import argparse
 import re
 from pathlib import Path
 
-from .geometry import marker_surveys, validate_layout
+from .geometry import all_surveys, validate_layout
 from .manifest import manifest_data, write_manifest
 from .marker_assets import generate_marker_images
 from .model import CorridorProfile, load_scenario
@@ -49,7 +49,7 @@ def build_scene(config: Path | None, output: Path, m: float, n: float) -> tuple[
         validate_trajectory(scenario, profile, delivery_trajectory(scenario, profile))
     output.parent.mkdir(parents=True, exist_ok=True)
     marker_ids = {
-        marker.marker_id for profile in profiles for marker in marker_surveys(scenario, profile)
+        marker.marker_id for profile in profiles for marker in all_surveys(scenario, profile)
     }
     generate_marker_images(
         output.parent / "markers",

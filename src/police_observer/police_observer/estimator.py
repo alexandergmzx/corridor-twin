@@ -87,7 +87,24 @@ class MarkerMap:
             int(marker["id"]): np.asarray(marker["aruco_corner_order_xyz_m"], dtype=np.float64)
             for marker in profile["markers"]
         }
-        stations = tuple(sorted({float(marker["station_m"]) for marker in profile["markers"]}))
+        # A marker without an explicit role is a gate, so schema-0.2 manifests
+        # and preserved historical evidence stay readable. An unknown role is a
+        # hard error: silently treating it as a reference would drop a real
+        # enforcement station, and silently treating it as a gate would invent
+        # one the robot never crosses.
+        roles = {marker["id"]: str(marker.get("role", "gate")) for marker in profile["markers"]}
+        unknown = sorted({role for role in roles.values()} - {"gate", "reference"})
+        if unknown:
+            raise ValueError(f"manifest uses unknown marker roles: {unknown}")
+        stations = tuple(
+            sorted(
+                {
+                    float(marker["station_m"])
+                    for marker in profile["markers"]
+                    if roles[marker["id"]] == "gate"
+                }
+            )
+        )
         policy = raw["speed_policy"]
         rules = tuple(
             (float(rule["maximum_width_m"]), float(rule["limit_mps"])) for rule in policy["rules"]

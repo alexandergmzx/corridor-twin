@@ -15,7 +15,7 @@ from typing import Any
 
 from .geometry import (
     a_start_xyz,
-    marker_surveys,
+    all_surveys,
     occluders,
     person_b_xyz,
     police_bounds,
@@ -55,8 +55,9 @@ def manifest_data(
                         marker.corners_xyz_m[index] for index in (3, 2, 1, 0)
                     ),
                     "normal_xyz": marker.normal_xyz,
+                    "role": marker.role,
                 }
-                for marker in marker_surveys(scenario, profile)
+                for marker in all_surveys(scenario, profile)
             ],
         }
     return {

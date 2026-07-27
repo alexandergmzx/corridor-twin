@@ -62,6 +62,23 @@ fiducials:
   first_station_m: 2.0
   spacing_m: 2.0
   wall_plate_cant_deg: 35.0
+  # Far-field reference plates. Past camera x ~ 7.5 the corridor wall markers
+  # leave the 75 deg frustum, so gates 8.0 and 10.0 produced no estimate and the
+  # 0.8 m/s corner rule was unreachable. These restore coverage.
+  #
+  # Sizes and heights were measured, not chosen. Larger plates are worse: they
+  # collide in-image and clip. Placing them at one height is worse still,
+  # because plates receding along a wall telescope into a contiguous strip and
+  # each nearer one paints over the farther one's ArUco quiet zone. Staggering
+  # the heights is what makes them decode together.
+  references:
+    id_base: 80
+    plates:
+      - {surface: north_wall, along_m: 13.0, height_m: 0.9, size_m: 0.60, cant_deg: 35.0}
+      - {surface: north_wall, along_m: 15.0, height_m: 2.0, size_m: 0.60, cant_deg: 35.0}
+      - {surface: north_wall, along_m: 17.0, height_m: 3.1, size_m: 0.60, cant_deg: 35.0}
+      - {surface: east_face,  along_m: 2.2,  height_m: 2.6, size_m: 1.00, cant_deg: 0.0}
+      - {surface: east_face,  along_m: 0.0,  height_m: 1.0, size_m: 1.00, cant_deg: 0.0}
 
 police:
   # P stands at the corner on the non-drivable side of the corner wall. The

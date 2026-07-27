@@ -33,6 +33,25 @@ class CameraSpec:
 
 
 @dataclass(frozen=True)
+class ReferencePlateSpec:
+    """One far-field reference plate on a named flat surface."""
+
+    surface: str
+    along_m: float
+    height_m: float
+    size_m: float
+    cant_deg: float
+
+
+@dataclass(frozen=True)
+class ReferenceFiducialSpec:
+    """Reference plates and the id range reserved for them."""
+
+    id_base: int
+    plates: tuple[ReferencePlateSpec, ...]
+
+
+@dataclass(frozen=True)
 class FiducialSpec:
     """Surveyed marker layout parameters."""
 
@@ -41,6 +60,7 @@ class FiducialSpec:
     first_station_m: float
     spacing_m: float
     wall_plate_cant_deg: float
+    references: ReferenceFiducialSpec
 
 
 @dataclass(frozen=True)
@@ -164,12 +184,26 @@ def load_scenario(path: Path | None = None) -> Scenario:
         mount_height_m=float(camera_raw["mount_height_m"]),
     )
     fiducial_raw = raw["fiducials"]
+    reference_raw = fiducial_raw["references"]
     fiducials = FiducialSpec(
         dictionary=str(fiducial_raw["dictionary"]),
         marker_size_m=float(fiducial_raw["marker_size_m"]),
         first_station_m=float(fiducial_raw["first_station_m"]),
         spacing_m=float(fiducial_raw["spacing_m"]),
         wall_plate_cant_deg=float(fiducial_raw["wall_plate_cant_deg"]),
+        references=ReferenceFiducialSpec(
+            id_base=int(reference_raw["id_base"]),
+            plates=tuple(
+                ReferencePlateSpec(
+                    surface=str(plate["surface"]),
+                    along_m=float(plate["along_m"]),
+                    height_m=float(plate["height_m"]),
+                    size_m=float(plate["size_m"]),
+                    cant_deg=float(plate["cant_deg"]),
+                )
+                for plate in reference_raw["plates"]
+            ),
+        ),
     )
     street_raw = geometry["next_street"]
     next_street = NextStreetSpec(

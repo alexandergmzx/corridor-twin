@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.6.2 |
-| Status | Renderer/camera contract corrected; static renderer claim invalidated pending requalification; enforcement coverage does not yet reach the corner |
+| Design version | 0.7.0 |
+| Status | Corner enforcement coverage restored with reference fiducials; static renderer claim still invalidated pending requalification |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Target ROS | ROS 2 Jazzy |
@@ -282,42 +282,29 @@ observer adapter contains no truth or odometry subscription.
 > move these values again. Treat them as indicative until then.
 
 The implemented clean synthetic test uses actual ArUco pixels, camera intrinsics,
-detection, PnP, gate interpolation, and the violation debounce. Re-measured on
-the 0.40 m fiducial plates and the production `cx=width/2` convention, at a true
-path speed of 1.8 m/s it measured 1.8000 and 1.7839 m/s (maximum absolute error
-0.0161 m/s) and emitted one event; at 1.0 m/s it measured 1.0022 and 0.9963 m/s
-(maximum absolute error 0.0037 m/s) and emitted no event. Noise, blur,
-dropped-frame, and acceleration cases remain extensions rather than claimed
-coverage.
+detection, PnP, gate interpolation, and the violation debounce. Re-measured after
+reference fiducials restored coverage to the corner, over the full enforcement
+run to x = 11.5:
 
-The 1.8 m/s figure is four times looser than the 0.0042 m/s recorded before the
-plates were enlarged, and the cause is measured rather than assumed. Feeding
-identical renders through both principal-point conventions gives 0.0170 m/s for
-`(width-1)/2` and 0.0161 m/s for `width/2`, so the convention change slightly
-*improved* accuracy and is not responsible. The degradation comes from the
-fiducial resize: around station 5.5 only two plates remain in view and their
-projected geometry is weak, producing station errors up to 0.043 m there against
-roughly 0.005 m elsewhere. Gate 6.0 is interpolated through that band. This is a
-known weak-geometry region of the synthetic route, not an estimator regression,
-and the live Isaac qualification is unaffected because it dwells at surveyed
-stations rather than crossing this band.
+| True path speed | Measured per gate (m/s) | Max error | Events |
+|---|---|---:|---:|
+| 1.8 m/s | 1.8019, 1.7949, 1.7690, 1.8225 | 0.0310 m/s | 1 |
+| 1.0 m/s | 1.0020, 0.9998, 0.9747, 1.0183 | 0.0253 m/s | 0 |
+| 0.6 m/s | 0.6006, 0.5972, 0.5877, 0.6113 | 0.0123 m/s | 0 |
 
-Two accuracy defects were found and fixed while reconciling the geometry, both
-invisible under the previous symmetric corridor:
+All four enforcement gates now produce a measurement, and the tightest 0.8 m/s
+corner rule is evaluated for the first time. Error is larger than the previous
+0.0161 m/s because the run is twice as long and now includes the hard region
+past x = 8, where only far-field references remain in the frustum.
 
-- **Station is world X, but the path is not.** Under a one-sided taper the route
-  runs at about 7° to X, so gate spacing along X is shorter than the distance
-  travelled and every estimate read low by 0.8%, roughly 0.014 m/s at 1.8 m/s.
-  Gate spacing is now converted before differentiating.
-- **Single-marker frames are ambiguous.** Four coplanar correspondences let
-  planar PnP fit almost exactly while recovering the wrong pose, which reset the
-  gate history and silently dropped a measurement. A second marker is now
-  required — the mitigation this document already prescribed. Re-measured on the
-  0.40 m plates, an isolated tag at station 5.5333 fits at 0.135 px residual
-  while being 0.084 m wrong, whereas the two-plate fit on the same frame reports
-  a *worse* 0.849 px residual and is more accurate at 0.049 m. Residual is
-  anti-correlated with accuracy for a single planar square, which is precisely
-  why a reprojection filter cannot screen these frames.
+**A limitation the corner coverage exposes rather than fixes.** The 0.8 m/s zone
+begins at x = 10, so exactly one gate pair — 8 → 10 — ever lands inside it. With
+`consecutive_estimates: 2`, a violation confined to the corner can never be
+confirmed. The 1.0 m/s run above exceeds the corner limit and correctly reports
+no event for that reason. The 1.8 m/s event is opened earlier under the 1.2 m/s
+rule and continues as one episode. Making the corner independently enforceable
+would need either another gate inside the 0.8 m/s zone or a zone-entry
+confirmation rule, and neither is in this milestone.
 
 A live ROS 2 launch was also exercised in both wall-time and synthetic-clock
 modes. The latter produced a 1.7858 m/s event at simulated time 4.368860 s,

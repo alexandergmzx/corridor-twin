@@ -6,6 +6,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from police_observer.estimator import ArucoStationEstimator, MarkerMap
+from police_observer.synthetic import SyntheticCamera
 from pxr import Usd, UsdGeom, UsdPhysics
 from scene.build import build_scene
 from scene.geometry import (
@@ -17,7 +19,8 @@ from scene.geometry import (
     police_bounds,
 )
 from scene.model import load_scenario
-from scene.occlusion import verify
+from scene.occlusion import _mesh_triangles, _segment_hits_triangle, opaque_mesh_prims, verify
+from scene.trajectory import delivery_trajectory
 
 BUILDINGS = ("NorthBuilding", "SouthBuilding", "CornerBuilding", "EastBuilding")
 
@@ -205,6 +208,7 @@ def test_marker_plates_stay_on_the_corridor_side_of_actual_walls(
     for name, block in manifest["profiles"].items():
         assert variants.SetVariantSelection(name)
         profile = next(p for p in scenario.profiles if p.name == name)
+        north_face, _ = corridor_faces(profile, 0.0, scenario.corridor_length_m)
         for marker in block["markers"]:
             root = "/World/Environment/Corridor/Fiducials"
             backing = UsdGeom.Mesh(
@@ -212,15 +216,27 @@ def test_marker_plates_stay_on_the_corridor_side_of_actual_walls(
             )
             assert backing
             for point in backing.GetPointsAttr().Get():
-                north, south = corridor_faces(profile, point[0], scenario.corridor_length_m)
+                # The clearance rule is shared, but each plate is measured
+                # against its own host surface. Reference plates live on the
+                # north wall extension and the east building face, not on the
+                # tapered corridor walls.
                 if marker["side"] == "north":
+                    north, _ = corridor_faces(profile, point[0], scenario.corridor_length_m)
                     signed_clearance = north - point[1]
-                else:
+                elif marker["side"] == "south":
+                    _, south = corridor_faces(profile, point[0], scenario.corridor_length_m)
                     slope = (
                         profile.entry_width_m - profile.corner_width_m
                     ) / scenario.corridor_length_m
                     signed_clearance = (point[1] - south) / math.hypot(slope, 1.0)
+                elif marker["side"] == "north_wall":
+                    signed_clearance = north_face - point[1]
+                elif marker["side"] == "east_face":
+                    signed_clearance = scenario.street_east_m - point[0]
+                else:
+                    raise AssertionError(f"unknown marker surface {marker['side']!r}")
                 assert signed_clearance >= MARKER_WALL_CLEARANCE_M - 1e-5
+                assert 0.0 < point[2] < scenario.building_height_m
 
 
 def test_marker_codes_have_a_geometric_white_quiet_zone(
@@ -357,3 +373,123 @@ def test_visible_negative_control_fails(generated: tuple[Path, Path], tmp_path: 
     assert not result.line_of_sight_blocked_everywhere
     # The independent composed-mesh audit must agree, not just the analytic proof.
     assert result.usd_audit_failures > 0
+
+
+def test_reference_plates_never_become_enforcement_gates(
+    generated: tuple[Path, Path],
+) -> None:
+    """A reference plate at x=18 would be a gate the robot never crosses.
+
+    Without the role split the observer's gate list becomes
+    (2, 4, 6, 8, 10, 13, 15, 17, 18), which corrupts every crossing
+    interpolation.
+    """
+
+    _, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for block in manifest["profiles"].values():
+        roles = {marker["id"]: marker["role"] for marker in block["markers"]}
+        assert set(roles.values()) == {"gate", "reference"}
+        gates = sorted({m["station_m"] for m in block["markers"] if m["role"] == "gate"})
+        assert gates == [2.0, 4.0, 6.0, 8.0, 10.0]
+        references = [m for m in block["markers"] if m["role"] == "reference"]
+        assert references
+        assert all(m["station_m"] not in gates for m in references)
+        # Ids must stay unique across both roles.
+        assert len(roles) == len(block["markers"])
+
+    marker_map = MarkerMap.from_manifest(manifest_path)
+    assert marker_map.gate_stations_m == (2.0, 4.0, 6.0, 8.0, 10.0)
+    # References are still valid pose evidence.
+    assert len(marker_map.marker_corners) == len(
+        manifest["profiles"][manifest["selected_profile"]]["markers"]
+    )
+
+
+def test_role_less_markers_stay_gates_and_unknown_roles_fail(
+    generated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Schema-0.2 manifests carry no role and must keep working."""
+
+    _, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selected = manifest["selected_profile"]
+    block = manifest["profiles"][selected]
+
+    legacy = json.loads(json.dumps(manifest))
+    legacy_block = legacy["profiles"][selected]
+    legacy_block["markers"] = [
+        {key: value for key, value in marker.items() if key != "role"}
+        for marker in block["markers"]
+        if marker["role"] == "gate"
+    ]
+    legacy_path = tmp_path / "schema-0.2.json"
+    legacy_path.write_text(json.dumps(legacy), encoding="utf-8")
+    assert MarkerMap.from_manifest(legacy_path).gate_stations_m == (2.0, 4.0, 6.0, 8.0, 10.0)
+
+    broken = json.loads(json.dumps(manifest))
+    broken["profiles"][selected]["markers"][0]["role"] = "landmark"
+    broken_path = tmp_path / "unknown-role.json"
+    broken_path.write_text(json.dumps(broken), encoding="utf-8")
+    with pytest.raises(ValueError, match="unknown marker roles"):
+        MarkerMap.from_manifest(broken_path)
+
+
+def test_corner_coverage_uses_unoccluded_non_coplanar_references(
+    generated: tuple[Path, Path],
+) -> None:
+    """Coverage must not depend on a plate the buildings actually hide.
+
+    SyntheticCamera only projects; it never raycasts against geometry. So the
+    accepted markers are re-checked here against the composed meshes, and their
+    combined corners must span rank 3 rather than being perpendicular only by
+    construction.
+    """
+
+    stage_path, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    scenario = load_scenario()
+    profile = scenario.profile(scenario.default_profile)
+    trajectory = delivery_trajectory(scenario, profile)
+    stage = Usd.Stage.Open(str(stage_path))
+    triangles = [t for prim in opaque_mesh_prims(stage) for t in _mesh_triangles(prim)]
+
+    surveyed = {
+        marker["id"]: np.asarray(marker["corners_xyz_m"], dtype=np.float64)
+        for marker in manifest["profiles"][manifest["selected_profile"]]["markers"]
+    }
+    references = {
+        marker["id"]: marker["side"]
+        for marker in manifest["profiles"][manifest["selected_profile"]]["markers"]
+        if marker["role"] == "reference"
+    }
+    camera = SyntheticCamera(manifest_path)
+    estimator = ArucoStationEstimator(
+        MarkerMap.from_manifest(manifest_path), camera.dictionary_name
+    )
+
+    checked = 0
+    for station_x_m in (8.0, 9.0, 10.0):
+        pose = trajectory.camera_pose_at(trajectory.approach_s_at_x(station_x_m))
+        origin = (pose.x_m, pose.y_m, pose.z_m)
+        observation = estimator.estimate(
+            camera.render(station_x_m), camera.calibration, timestamp_s=1.0 + station_x_m
+        )
+        assert observation is not None, f"no estimate at x={station_x_m}"
+
+        accepted = list(observation.marker_ids)
+        for marker_id in accepted:
+            centre = surveyed[marker_id].mean(axis=0)
+            blocked = any(
+                _segment_hits_triangle(origin, tuple(centre), triangle) is not None
+                for triangle in triangles
+            )
+            assert not blocked, f"accepted marker {marker_id} is occluded at x={station_x_m}"
+
+        planes = {references.get(marker_id) for marker_id in accepted} - {None}
+        assert len(planes) >= 2, f"x={station_x_m} leans on one reference plane: {planes}"
+
+        corners = np.concatenate([surveyed[marker_id] for marker_id in accepted])
+        assert np.linalg.matrix_rank(corners - corners.mean(axis=0), tol=1e-6) == 3
+        checked += 1
+    assert checked == 3

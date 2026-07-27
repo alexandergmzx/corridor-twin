@@ -24,6 +24,12 @@ MARKER_BACKING_SCALE = 9.0 / 7.0
 MARKER_BACKING_OFFSET_M = 0.002
 MARKER_WALL_CLEARANCE_M = 0.015
 
+# A gate marker defines an enforcement station. A reference marker is pose
+# evidence only and must never become a gate the robot is measured against.
+GATE_ROLE = "gate"
+REFERENCE_ROLE = "reference"
+MARKER_ROLES = frozenset({GATE_ROLE, REFERENCE_ROLE})
+
 
 @dataclass(frozen=True)
 class MarkerSurvey:
@@ -34,6 +40,7 @@ class MarkerSurvey:
     side: str
     corners_xyz_m: tuple[Vec3, Vec3, Vec3, Vec3]
     normal_xyz: Vec3
+    role: str = GATE_ROLE
 
 
 @dataclass(frozen=True)
@@ -198,15 +205,61 @@ def occluders(scenario: Scenario, profile: CorridorProfile) -> tuple[Occluder, .
     )
 
 
+def plate_survey(
+    anchor_xyz: Vec3,
+    wall_normal_xy: Vec2,
+    cant_rad: float,
+    size_m: float,
+    ) -> tuple[Vec3, tuple[Vec3, Vec3, Vec3, Vec3], Vec3]:
+    """Return (centre, corners, normal) for one canted plate on a flat surface.
+
+    The standoff solves for the plate's *backing* clearing its host wall: the
+    nearest backing edge sits exactly ``MARKER_WALL_CLEARANCE_M`` proud of the
+    surface regardless of cant. Both gate and reference plates go through this,
+    so one clearance rule exists rather than two that can drift apart.
+    """
+
+    half = size_m / 2.0
+    cosine = math.cos(cant_rad)
+    sine = math.sin(cant_rad)
+    normal = (
+        cosine * wall_normal_xy[0] - sine * wall_normal_xy[1],
+        sine * wall_normal_xy[0] + cosine * wall_normal_xy[1],
+        0.0,
+    )
+    horizontal = (-normal[1], normal[0], 0.0)
+    wall_dot_normal = wall_normal_xy[0] * normal[0] + wall_normal_xy[1] * normal[1]
+    wall_dot_horizontal = abs(
+        wall_normal_xy[0] * horizontal[0] + wall_normal_xy[1] * horizontal[1]
+    )
+    plate_half = half * MARKER_BACKING_SCALE
+    standoff = (
+        plate_half * wall_dot_horizontal + MARKER_WALL_CLEARANCE_M
+    ) / wall_dot_normal + MARKER_BACKING_OFFSET_M
+    center = (
+        anchor_xyz[0] + normal[0] * standoff,
+        anchor_xyz[1] + normal[1] * standoff,
+        anchor_xyz[2],
+    )
+    corners = tuple(
+        (
+            center[0] - horizontal[0] * half * along,
+            center[1] - horizontal[1] * half * along,
+            center[2] + half * up,
+        )
+        for along, up in ((1.0, -1.0), (-1.0, -1.0), (-1.0, 1.0), (1.0, 1.0))
+    )
+    return center, corners, normal  # type: ignore[return-value]
+
+
 def marker_surveys(scenario: Scenario, profile: CorridorProfile) -> tuple[MarkerSurvey, ...]:
-    """Place paired, canted markers on the actual corridor wall faces."""
+    """Place paired, canted enforcement markers on the corridor wall faces."""
 
     spec = scenario.fiducials
     station = spec.first_station_m
     marker_id = 0
     surveys: list[MarkerSurvey] = []
     cant = math.radians(spec.wall_plate_cant_deg)
-    half = spec.marker_size_m / 2.0
     _, south_slope = _south_face_line(scenario, profile)
     while station < scenario.corridor_length_m:
         north_face, south_face = corridor_faces(profile, station, scenario.corridor_length_m)
@@ -219,52 +272,11 @@ def marker_surveys(scenario: Scenario, profile: CorridorProfile) -> tuple[Marker
             else:
                 magnitude = math.hypot(south_slope, 1.0)
                 wall_normal_xy = (-south_slope / magnitude, 1.0 / magnitude)
-            rotation = -side_sign * cant
-            cosine = math.cos(rotation)
-            sine = math.sin(rotation)
-            normal = (
-                cosine * wall_normal_xy[0] - sine * wall_normal_xy[1],
-                sine * wall_normal_xy[0] + cosine * wall_normal_xy[1],
-                0.0,
-            )
-            horizontal = (-normal[1], normal[0], 0.0)
-            wall_dot_normal = (
-                wall_normal_xy[0] * normal[0] + wall_normal_xy[1] * normal[1]
-            )
-            wall_dot_horizontal = abs(
-                wall_normal_xy[0] * horizontal[0]
-                + wall_normal_xy[1] * horizontal[1]
-            )
-            plate_half = half * MARKER_BACKING_SCALE
-            standoff = (
-                plate_half * wall_dot_horizontal + MARKER_WALL_CLEARANCE_M
-            ) / wall_dot_normal + MARKER_BACKING_OFFSET_M
-            center = (
-                station + normal[0] * standoff,
-                face_y + normal[1] * standoff,
-                1.2,
-            )
-            corners = (
-                (
-                    center[0] - horizontal[0] * half,
-                    center[1] - horizontal[1] * half,
-                    center[2] - half,
-                ),
-                (
-                    center[0] + horizontal[0] * half,
-                    center[1] + horizontal[1] * half,
-                    center[2] - half,
-                ),
-                (
-                    center[0] + horizontal[0] * half,
-                    center[1] + horizontal[1] * half,
-                    center[2] + half,
-                ),
-                (
-                    center[0] - horizontal[0] * half,
-                    center[1] - horizontal[1] * half,
-                    center[2] + half,
-                ),
+            _, corners, normal = plate_survey(
+                (station, face_y, 1.2),
+                wall_normal_xy,
+                -side_sign * cant,
+                spec.marker_size_m,
             )
             surveys.append(
                 MarkerSurvey(
@@ -273,11 +285,67 @@ def marker_surveys(scenario: Scenario, profile: CorridorProfile) -> tuple[Marker
                     side=side_name,
                     corners_xyz_m=corners,
                     normal_xyz=normal,
+                    role=GATE_ROLE,
                 )
             )
             marker_id += 1
         station += spec.spacing_m
     return tuple(surveys)
+
+
+def reference_surveys(scenario: Scenario, profile: CorridorProfile) -> tuple[MarkerSurvey, ...]:
+    """Place far-field reference plates that restore coverage near the corner.
+
+    These are pose evidence only. Near the corner the corridor is `n` wide, so
+    wall markers sit about n/2 from the centreline and anything two metres ahead
+    subtends more than the 37.5 degree half-FOV. The limit is angular, not
+    resolution, so coverage past the last wall gate needs targets three to eight
+    metres ahead — which means surfaces beyond the corridor's end.
+
+    Two properties matter and both were measured rather than assumed. The two
+    host planes are perpendicular, so a frame combining them yields non-coplanar
+    correspondences instead of reintroducing the planar-PnP ambiguity. And the
+    plates are staggered in height: placed at one height they telescope along
+    the receding wall into a contiguous image strip, where each nearer plate
+    paints over the farther one's ArUco quiet zone and only one decodes.
+    """
+
+    references = scenario.fiducials.references
+    north_face, _ = corridor_faces(profile, 0.0, scenario.corridor_length_m)
+    surveys: list[MarkerSurvey] = []
+    for index, spec in enumerate(references.plates):
+        if spec.surface == "north_wall":
+            anchor = (spec.along_m, north_face, spec.height_m)
+            wall_normal_xy = (0.0, -1.0)
+        elif spec.surface == "east_face":
+            anchor = (scenario.street_east_m, spec.along_m, spec.height_m)
+            wall_normal_xy = (-1.0, 0.0)
+        else:
+            raise ValueError(f"unknown reference surface {spec.surface!r}")
+        _, corners, normal = plate_survey(
+            anchor, wall_normal_xy, -math.radians(spec.cant_deg), spec.size_m
+        )
+        surveys.append(
+            MarkerSurvey(
+                marker_id=references.id_base + index,
+                station_m=anchor[0],
+                side=spec.surface,
+                corners_xyz_m=corners,
+                normal_xyz=normal,
+                role=REFERENCE_ROLE,
+            )
+        )
+    return tuple(surveys)
+
+
+def all_surveys(scenario: Scenario, profile: CorridorProfile) -> tuple[MarkerSurvey, ...]:
+    """Return every surveyed plate, gates first, with unique marker ids."""
+
+    surveys = marker_surveys(scenario, profile) + reference_surveys(scenario, profile)
+    identifiers = [survey.marker_id for survey in surveys]
+    if len(set(identifiers)) != len(identifiers):
+        raise ValueError("marker ids must be unique across gate and reference plates")
+    return surveys
 
 
 def a_start_xyz(scenario: Scenario, profile: CorridorProfile) -> Vec3:
