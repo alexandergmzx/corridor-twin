@@ -76,10 +76,29 @@ ros_log="$evidence_dir/ros-side.log"
 isaac_log="$evidence_dir/isaac-side.log"
 drive_out="$evidence_dir/commanded-pose-schedule.json"
 
+# Job control puts each background job in its own process group whose id is the
+# job's pid, which is what makes the cleanup below able to reach every process
+# it started. `ros2 launch` spawns the observer, the display and RViz as its own
+# children, so signalling only the launcher leaves all of them running: a later
+# demo run then finds stale nodes publishing on the same topics and a pile of
+# RViz windows. That was observed, not theorised.
+set -m
 children=()
 cleanup() {
+  local pid remaining attempt
   for pid in "${children[@]:-}"; do
-    kill "$pid" 2>/dev/null || true
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  done
+  for attempt in 1 2 3 4 5 6 7 8; do
+    remaining=0
+    for pid in "${children[@]:-}"; do
+      if kill -0 -- "-$pid" 2>/dev/null; then remaining=1; fi
+    done
+    [[ "$remaining" == "0" ]] && break
+    sleep 0.5
+  done
+  for pid in "${children[@]:-}"; do
+    kill -KILL -- "-$pid" 2>/dev/null || true
   done
   wait 2>/dev/null || true
 }
@@ -129,7 +148,10 @@ if [[ "$record" == "true" ]]; then
   echo "recording to $evidence_dir/rosbag"
 fi
 
-# Let the consumers finish discovery before the publisher starts.
+# The children are in their own process groups now; quieten job notifications.
+set +m
+
+# Let the consumers finish DDS discovery before the publisher starts.
 sleep 8
 
 # --- Isaac side: bundled Jazzy, Python 3.11 ----------------------------------

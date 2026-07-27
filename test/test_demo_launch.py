@@ -44,6 +44,26 @@ def test_isaac_process_is_started_without_system_ros_on_its_path() -> None:
     assert "source /opt/ros/jazzy/setup.bash" not in isaac_invocation
 
 
+def test_cleanup_signals_process_groups_not_just_the_launcher() -> None:
+    """Observed defect: two rehearsal runs each left three processes alive.
+
+    `ros2 launch` spawns the observer, the display and RViz as its own
+    children. Signalling only the launcher leaves every one of them running, so
+    a later run finds stale nodes publishing on the same topics and a pile of
+    RViz windows. Job control puts each background job in its own process group
+    so the trap can take the whole group down.
+    """
+
+    text = DEMO.read_text(encoding="utf-8")
+    assert re.search(r"^set -m$", text, flags=re.MULTILINE), (
+        "job control is what gives each background job its own process group"
+    )
+    # The negative pid is the process group; a bare `kill "$pid"` is the bug.
+    assert 'kill -TERM -- "-$pid"' in text
+    assert 'kill -KILL -- "-$pid"' in text
+    assert "trap cleanup EXIT INT TERM" in text
+
+
 def test_ros_side_starts_before_the_publisher() -> None:
     """docs/ACTIVATION.md validates consumer-first ordering; keep it."""
 
