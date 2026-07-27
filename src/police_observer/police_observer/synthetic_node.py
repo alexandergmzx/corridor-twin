@@ -93,7 +93,11 @@ class SyntheticPublisherNode(Node):
         if self.finished:
             return
         elapsed = self.frame_index * self.period_s
-        station = self.start_station_m + self.speed_mps * elapsed
+        # speed_mps is the distance actually travelled per second. Station is
+        # world X, and under a one-sided taper the path runs at an angle to X,
+        # so the station advances by only its X component.
+        axis_fraction = self.camera.approach_heading[0]
+        station = self.start_station_m + self.speed_mps * axis_fraction * elapsed
         if station > self.end_station_m:
             self.finished = True
             self.get_logger().info("synthetic sequence complete")
