@@ -232,6 +232,7 @@ exactly one violation episode without anyone touching a throttle.
 | `--headless` | no Isaac viewport; RViz still shows the camera feed and readout |
 | `--no-rviz` | observer and display only, for a terminal-only check |
 | `--record` | `ros2 bag record` the camera, estimate, violation and clock topics |
+| `VIEW=corner` | Isaac viewport perspective; `rviz` (default) matches the RViz angle, `corner` frames the junction, `chase` follows A. GUI only; it moves Kit's own viewport camera and adds no render product |
 | `SPEED_MPS=1.8` | sustained speeding: one episode that opens on the approach |
 | `SPEED_MPS=0.6` | fully compliant run, no violation |
 | `CORRIDOR_PROFILE=wide_corner_m6_n4_5` | a different authored `(m,n)`; **no violation at 1.0 m/s**, see below |

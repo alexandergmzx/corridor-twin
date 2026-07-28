@@ -12,6 +12,7 @@ from pathlib import Path
 
 from isaac_gpu import gpu_memory_snapshot
 from renderer_contract import RenderState, is_path_tracing, render_state_violations
+from viewpoints import CHASE_VIEW, VIEW_NAMES, chase_pose, format_vec3, parse_vec3, resolve
 
 _ENV_MARKER = "CORRIDOR_ISAAC_ROS_ENV"
 
@@ -76,6 +77,17 @@ ADAPTER_CONTRACT = {
 
 ROBOT_PRIM = "/World/Actors/A"
 RENDER_PRODUCT_WARMUP_UPDATES = 12
+
+# Kit's own viewport camera. Moving it is a transform write on a prim the GUI
+# already owns: it creates no prim, no sensor and no render product, so the
+# one-camera budget enforced in _validate_stage_and_graph is untouched.
+VIEWPORT_CAMERA_PRIM = "/OmniverseKit_Persp"
+
+# Chase updates every Nth app update rather than every one. Each call writes USD
+# attributes and syncs the viewport, and the delivered camera rate already sags
+# under host contention; at 60 Hz simulation this is 15 Hz of camera motion for
+# a quarter of the cost.
+CHASE_UPDATE_INTERVAL = 4
 
 # Settings keys that hold the renderer state actually in force. The installed
 # SimulationApp._set_render_settings(default=...) writes "/rtx-defaults" when
@@ -178,6 +190,27 @@ def arguments() -> argparse.Namespace:
         help="Write the commanded pose schedule. Simulator truth: evaluator input only.",
     )
     parser.add_argument("--gui", action="store_true")
+    parser.add_argument(
+        "--view",
+        choices=VIEW_NAMES,
+        default="rviz",
+        help=(
+            "Viewport perspective. Ignored without --gui. 'rviz' matches the "
+            "angle the RViz config shows; 'chase' follows A along the route."
+        ),
+    )
+    parser.add_argument(
+        "--view-eye",
+        type=parse_vec3,
+        metavar="X,Y,Z",
+        help="Explicit viewport camera position in world metres; overrides --view.",
+    )
+    parser.add_argument(
+        "--view-target",
+        type=parse_vec3,
+        metavar="X,Y,Z",
+        help="Explicit viewport look-at point in world metres; overrides --view.",
+    )
     parser.add_argument("--report-gpu-memory", action="store_true")
     return parser.parse_args()
 
@@ -290,6 +323,9 @@ def _run_drive(
 
     clock = _isaacsim_core_nodes.acquire_interface()
     epoch_s = float(clock.get_sim_time())
+    # Without a viewport there is nothing to chase, and the per-update cost
+    # would be paid for a camera nobody is looking through.
+    chase_viewport = args.gui and args.view == CHASE_VIEW
     samples: list[dict[str, object]] = []
     completed = 0
     route_s_m = 0.0
@@ -300,6 +336,9 @@ def _run_drive(
         route_s_m = min(speed_mps * (sim_time_s - epoch_s), route_length_m)
         pose = trajectory.pose_at(route_s_m)
         _set_actor_pose(stage, pose)
+        if chase_viewport and index % CHASE_UPDATE_INTERVAL == 0:
+            eye, target = chase_pose(pose.x_m, pose.y_m, pose.yaw_rad)
+            _set_viewport_camera(eye, target)
         app.update()
         completed = index + 1
         samples.append(
@@ -538,6 +577,33 @@ def _configure_camera_model() -> None:
     )
 
 
+def _set_viewport_camera(eye, target) -> bool:
+    """Point Kit's viewport camera at the scene. Returns whether it took effect.
+
+    Verified against the installed
+    ``isaacsim/exts/isaacsim.core.utils/isaacsim/core/utils/viewports.py``, not
+    reconstructed: ``set_camera_view`` imports ``omni.kit.viewport.utility``
+    lazily and returns after a warning when no viewport exists, which is the
+    headless case. The deprecated ``omni.isaac.core.utils`` copy in the same
+    tree is deliberately not used.
+
+    This never touches the sensor. It writes ``/OmniverseKit_Persp``; the ROS
+    camera remains ADAPTER_CONTRACT["camera_prim"].
+    """
+
+    from isaacsim.core.utils.prims import is_prim_path_valid
+    from isaacsim.core.utils.viewports import set_camera_view
+
+    if not is_prim_path_valid(VIEWPORT_CAMERA_PRIM):
+        return False
+    set_camera_view(
+        eye=eye,
+        target=target,
+        camera_prim_path=VIEWPORT_CAMERA_PRIM,
+    )
+    return True
+
+
 def _create_graph() -> None:
     import omni.graph.core as og
     import usdrt.Sdf
@@ -649,6 +715,10 @@ def main() -> int:
         raise ValueError("--drive-speed-mps must be positive")
     if args.drive_out is not None and args.drive_speed_mps is None:
         raise ValueError("--drive-out requires --drive-speed-mps")
+    # Reject a bad viewpoint before paying for a GPU app start, not after.
+    static_view = resolve(args.view, args.view_eye, args.view_target)
+    if args.view == CHASE_VIEW and args.drive_speed_mps is None:
+        raise ValueError("--view chase requires --drive-speed-mps; there is nothing to follow")
     # Fail on a missing manifest before paying for a GPU app start.
     if args.static_probe_out is not None or args.drive_speed_mps is not None:
         _manifest_path(args, stage_path)
@@ -697,6 +767,29 @@ def main() -> int:
         _configure_camera_model()
         _create_graph()
         _validate_stage_and_graph()
+        # The viewpoint is GUI-only decoration. Reporting which one a run used
+        # keeps a recorded run self-describing, and reporting that it was not
+        # applied stops a headless log implying a viewport nobody saw.
+        if not args.gui:
+            print("ISAAC_ROS_CAMERA_VIEW", "view=none", "reason=headless", flush=True)
+        elif static_view is not None:
+            eye, target = static_view
+            applied = _set_viewport_camera(eye, target)
+            print(
+                "ISAAC_ROS_CAMERA_VIEW",
+                f"view={args.view}",
+                f"eye={format_vec3(eye)}",
+                f"target={format_vec3(target)}",
+                f"applied={applied}",
+                flush=True,
+            )
+        else:
+            print(
+                "ISAAC_ROS_CAMERA_VIEW",
+                f"view={args.view}",
+                f"update_interval={CHASE_UPDATE_INTERVAL}",
+                flush=True,
+            )
         print(
             "ISAAC_ROS_CAMERA_GRAPH_READY",
             f"image={ADAPTER_CONTRACT['image_topic']}",
