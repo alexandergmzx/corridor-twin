@@ -8,7 +8,7 @@
 | Published base | `f992470` on `origin/main` |
 | Range to audit | `origin/main..origin/audit/reconcile-docs-and-decisions` — enumerate it, do not trust a count written here |
 | `main` | Untouched at `f992470` until this review passes |
-| Portable gate | `bash tools/check_workspace.sh`. Last clean run 2026-07-27: ruff pass, 124 repository tests plus 1 skipped without the colcon-generated interfaces, 3 packages built, 96 ROS package tests |
+| Portable gate | `bash tools/check_workspace.sh` — run it and read the counts off your own run. Expect ruff to pass, 3 packages to build, and one repository test to skip without the colcon-generated interfaces. Counts are deliberately not written here; they went stale three times |
 
 > **Read [`REVIEW-LOG.md`](REVIEW-LOG.md) before raising a finding.** Two audit
 > rounds have already run. Three findings were resolved differently from what
