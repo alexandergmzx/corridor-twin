@@ -37,6 +37,7 @@ import json
 import platform
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -229,15 +230,21 @@ def _run_one(
 
 
 def run_report(
-    output_dir: Path,
+    scratch_dir: Path,
     schedule: Schedule | None = None,
     profiles: tuple[str, ...] = PROFILE_NAMES,
     check_visibility: bool = True,
 ) -> dict[str, Any]:
-    """Build a scene, drive the declared schedule, and return the summary."""
+    """Build a scene, drive the declared schedule, and return the summary.
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stage_path, manifest_path = build_scene(None, output_dir / "corridor.usda", 6.0, 3.0)
+    ``scratch_dir`` receives the generated stage, manifest and marker PNGs. It
+    is deliberately *not* where the summary goes: pointing ``--out`` at
+    ``docs/evidence/`` used to drop build output into the curated tree, which
+    the comment in ``main`` claimed could not happen.
+    """
+
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    stage_path, manifest_path = build_scene(None, scratch_dir / "corridor.usda", 6.0, 3.0)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     schedule = schedule or Schedule(
         rate_hz=float(manifest["camera"]["rate_hz"]),
@@ -384,7 +391,12 @@ def main(argv: list[str] | None = None) -> int:
     # by a tool, so a silent overwrite of a published artifact is not possible.
     if output.exists() and not args.force:
         raise FileExistsError(f"{output} exists; pass --force to replace it")
-    report = run_report(output.parent, check_visibility=not args.skip_visibility)
+    # The scene the reporter builds is an implementation detail of the
+    # measurement, not part of the evidence, so it goes to a temporary
+    # directory rather than next to the artifact.
+    with tempfile.TemporaryDirectory(prefix="synthetic-observer-") as scratch:
+        report = run_report(Path(scratch), check_visibility=not args.skip_visibility)
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     summary = report["summary"]

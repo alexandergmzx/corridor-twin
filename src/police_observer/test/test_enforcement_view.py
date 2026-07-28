@@ -99,6 +99,25 @@ def test_robot_is_drawn_at_the_measured_station_not_at_truth(node) -> None:
     assert far.x - near.x == pytest.approx(6.0, abs=0.15)
 
 
+def test_a_station_off_the_approach_does_not_kill_the_display(node) -> None:
+    """This runs in a subscription callback, so an exception ends the display.
+
+    A SpeedMeasurement always carries a surveyed gate station today, so the
+    lookup cannot fail -- but nothing enforces that, and one refactor that
+    published a raw observation station would take RViz down mid-run rather
+    than lose one marker.
+    """
+
+    node._on_estimate(_estimate(station_m=10.0, speed_mps=1.0, limit_mps=0.8))
+    assert "robot" in _published(node)
+
+    node._on_estimate(_estimate(station_m=40.0, speed_mps=1.0, limit_mps=0.8))
+    namespaces = _published(node)
+    assert "robot" not in namespaces, "the marker is dropped, not the display"
+    # Everything else still renders, including the readout.
+    assert {"corridor", "occluders", "route", "readout"} <= set(namespaces)
+
+
 def test_readout_reports_speed_limit_width_and_profile(node) -> None:
     node._on_estimate(_estimate(station_m=10.0, speed_mps=1.02, limit_mps=0.8))
     text = _published(node)["readout"][0].text

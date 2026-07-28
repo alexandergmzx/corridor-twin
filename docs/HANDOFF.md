@@ -7,7 +7,7 @@
 | Branch | `main` |
 | Published base | `f992470` on `origin/main`; everything below is pushed |
 | Last behavior commit to audit | `772d027` |
-| Portable gate at this handoff | 120 repository tests plus 1 skipped without the colcon-generated interfaces, 86 ROS package tests |
+| Portable gate at this handoff | 123 repository tests plus 1 skipped without the colcon-generated interfaces, 96 ROS package tests |
 | Current gate | Demonstration works end to end; static requalification still outstanding |
 | Next implementation slice | Close R17, then the paired static requalification |
 
@@ -99,6 +99,25 @@ single-marker pose sits at 3.4 sigma, and is rejected upstream on rank anyway.
    0.8 m/s zone, so neither can produce a violation. That is the intended
    policy story, not a defect — but it means a live variant switch shows a
    green readout and needs the explanation prepared.
+
+6. **The synthetic report cannot detect a wrong `path_axis_fraction`.** The
+   reporter commands `x = v·t·path_axis_fraction` and the estimator recovers
+   `speed = Δx/Δt/path_axis_fraction`, reading the same field from the same
+   manifest. An error in it cancels exactly, so the primary accuracy instrument
+   is blind to the one conversion the tapered corridor made necessary. The live
+   Isaac run *does* exercise it, being driven by route arc length, so this is a
+   hole in the synthetic control rather than an unbacked claim. Closing it means
+   driving the report from `trajectory.pose_at(s)`, which shifts the published
+   figures and needs a fresh artifact.
+
+7. **The debounce can in principle be satisfied by one observation pair.** When
+   a single inter-observation step spans two gates, both crossing times are
+   interpolated from the same two observations, so the two "consecutive"
+   measurements are perfectly correlated and `consecutive_estimates: 2` confirms
+   from one noisy pair. It needs more than 2 m between accepted observations —
+   roughly 30 dropped frames at 1.0 m/s — so it is unreachable today. Dropped
+   -frame testing is what would find it, and that is already the
+   live-qualification slice's job.
 
 ## Status since handoff 1.1.0
 
@@ -265,9 +284,9 @@ The last clean run on 2026-07-27 produced:
 | Layer | Expected result |
 |---|---:|
 | Ruff | Pass |
-| Repository pytest | 120 passed, 1 skipped |
+| Repository pytest | 123 passed, 1 skipped |
 | Colcon build | 3 packages built |
-| ROS package tests | 86 tests, 0 errors, 0 failures, 0 skipped |
+| ROS package tests | 96 tests, 0 errors, 0 failures, 0 skipped |
 
 The ament test run currently prints deprecation warnings about implicit `None`
 returns; they are not failures, but they should not be silently relabelled as a

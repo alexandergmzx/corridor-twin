@@ -241,7 +241,20 @@ class EnforcementViewNode(Node):
         estimate = self.latest_estimate
         if estimate is None or not estimate.valid:
             return None
-        pose = self.trajectory.pose_at(self.trajectory.approach_s_at_x(estimate.station_m))
+        # approach_s_at_x raises outside the approach leg. Today a
+        # SpeedMeasurement always carries a surveyed gate station, so this
+        # cannot fire -- but this runs inside a subscription callback, and one
+        # refactor that published a raw observation station would take the whole
+        # display down. Drop the marker and say so instead.
+        try:
+            route_s_m = self.trajectory.approach_s_at_x(estimate.station_m)
+        except ValueError:
+            self.get_logger().warning(
+                f"station {estimate.station_m:.3f} m is off the approach; "
+                "not drawing the robot marker for this estimate"
+            )
+            return None
+        pose = self.trajectory.pose_at(route_s_m)
         marker = self._marker("robot", 0, Marker.SPHERE)
         marker.scale.x = marker.scale.y = marker.scale.z = 0.5
         marker.pose.position = _point(pose.x_m, pose.y_m, 0.35)

@@ -96,6 +96,49 @@ def test_speed_error_is_primary_and_station_error_secondary(report: dict) -> Non
         assert sample["correspondence_rank"] == 3
 
 
+def test_build_output_never_lands_beside_the_artifact(tmp_path: Path, monkeypatch) -> None:
+    """The scene the reporter builds is not evidence and must not join it.
+
+    ``main`` used to hand ``run_report`` the artifact's own directory, so
+    pointing ``--out`` at ``docs/evidence/`` dropped a stage, a manifest and the
+    marker PNGs into the curated tree -- while the comment beside it claimed a
+    tool could not write there.
+    """
+
+    import synthetic_observer_report as reporter
+
+    handed: list[Path] = []
+
+    def fake_run_report(scratch_dir: Path, **kwargs):
+        handed.append(Path(scratch_dir))
+        Path(scratch_dir).mkdir(parents=True, exist_ok=True)
+        # Stand in for the stage, manifest and marker PNGs a real build writes.
+        (Path(scratch_dir) / "corridor.usda").write_text("stage", encoding="utf-8")
+        return {
+            "summary": {
+                "max_gate_speed_error_mps": 0.0,
+                "max_station_error_m": 0.0,
+                "every_measurable_gate_measured": True,
+                "measurable_gates_m": [4.0],
+                "minimum_correspondence_rank": 3,
+                "all_accepted_unoccluded": True,
+            },
+            "profiles": {
+                "nominal_m6_n3": {
+                    "max_gate_speed_error_mps": 0.0,
+                    "max_station_error_m": 0.0,
+                }
+            },
+        }
+
+    monkeypatch.setattr(reporter, "run_report", fake_run_report)
+    output = tmp_path / "evidence" / "summary.json"
+    assert reporter.main(["--out", str(output)]) == 0
+
+    assert handed and handed[0].resolve() != output.parent.resolve()
+    assert sorted(path.name for path in output.parent.iterdir()) == ["summary.json"]
+
+
 def test_the_same_schedule_reproduces_the_same_numbers(
     tmp_path: Path, report: dict
 ) -> None:
