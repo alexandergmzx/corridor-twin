@@ -13,6 +13,7 @@ the waste this file exists to prevent.
 |---|---|---|
 | 1 | Documentation and decisions | `5a3a083`, `43db0fc`, `ab09aff` |
 | 2 | Code | `b5194bf`, `55eb69e`, `dbcf57e` |
+| 3 | Closing the deferred findings | `a101b28`, `82b490d` |
 
 ---
 
@@ -94,12 +95,12 @@ look alive and produce nothing.
 | H2 | High | `docs/README.md` contradicted its own capability matrix | Fixed `43db0fc`. Milestone lines and growth map corrected |
 | H3 | High | `HANDOFF.md` claims table understated the project | Fixed `43db0fc`. Three rows were "Not implemented"/"False" for shipped, evidenced capability |
 | M1 | Med | Truth guard weaker on the estimate path | **Disputed, see above.** Resolved `ab09aff` by a different mechanism |
-| M2 | Med | Runtime subscription audit deferred to a slice that happened | Partly open. Structural enumeration landed `ab09aff`; a runtime `ros2 node info` capture is still not recorded and remains the strongest missing form |
+| M2 | Med | Runtime subscription audit deferred to a slice that happened | **Closed.** Structural enumeration in `ab09aff`; a live `ros2 node info` capture is now recorded in [`evidence/live-demo/runtime-node-info.txt`](evidence/live-demo/runtime-node-info.txt) |
 | M3 | Med | Measured VRAM never reached `ACTIVATION.md` | Fixed `43db0fc`. 3,411 MiB headless and 3,547 MiB GUI added |
 | M4 | Med | Evidence index omitted the `live-demo` topic | Fixed `43db0fc`, plus a test so an unlisted topic fails the gate |
 | M5 | Med | Policy change had no ADR | Fixed `5a3a083`. ADR 0015 and ADR 0016 |
 | M6 | Med | The headline violation has no redundancy | **Accepted, documented, not fixed.** Owner chose documentation over a second policy move. See "Known open" |
-| M7 | Med | R17 parked in a stash is not durable review state | Partly addressed. The finding and its error message are in the handoff; the ten-line validator remains in `git stash@{0}` |
+| M7 | Med | R17 parked in a stash is not durable review state | **Closed.** R17 itself is fixed in `a101b28`; the validator is committed and the stash is gone |
 | L1 | Low | Test counts wrong in three places | Fixed `43db0fc`. Counts then went stale twice more, which is why the handoff now cites the command instead |
 | L2 | Low | `DESIGN.md` carried four superseded claims | Fixed `43db0fc` |
 | L3 | Low | README documented three unmeasured demo options | Fixed `43db0fc`. Verified by computation: at 1.0 m/s only `nominal_m6_n3` can violate |
@@ -113,7 +114,7 @@ look alive and produce nothing.
 | C1 | High | Coverage indicator structurally always false | **Resolved differently, see above.** `55eb69e` |
 | C2 | High | Speed policy unvalidated and order-dependent | Fixed `b5194bf`. Rules normalized by sorting; empty sets, duplicate thresholds and non-positive values rejected on both sides |
 | C3 | High | A policy gap kills the observer mid-run | **Resolved differently, see above.** `b5194bf` |
-| C4 | Low | Synthetic report cannot detect a wrong `path_axis_fraction` | **Open, documented.** The report commands with the same field the estimator divides by, so the error cancels exactly. The live run does exercise it |
+| C4 | Low | Synthetic report cannot detect a wrong `path_axis_fraction` | **Closed by `82b490d`.** The schedule now advances along route arc length and reads world X off the authored trajectory, so the conversion no longer cancels |
 | C5 | Low | Debounce satisfiable by one observation pair | **Open, documented.** Needs >2 m between accepted observations, roughly 30 dropped frames at 1.0 m/s. Unreachable today |
 | C6 | Low | Evidence tool could write build output into `docs/` | Fixed `dbcf57e`. The build gets a temporary scratch directory |
 | C7 | Low | Inconsistent schema tolerance for `role` | Fixed `55eb69e`. Reporter now uses `.get("role", "gate")`, matching `MarkerMap` |
@@ -168,9 +169,51 @@ Each is recorded deliberately, with its reason.
 |---|---|
 | No canonical static qualification | The live run does not replace a paired dwell capture with its own mirror control. Next implementation slice |
 | Pose-to-render latency uncharacterised | Never measured; no offset compensates for it. One camera period is 0.066 m at 1.0 m/s |
-| R17 — marker 84 half behind the corner mass on `nominal_m6_n3` | Costs one of five reference plates, not corner coverage; the live run measured all four gates. Validator parked in `git stash@{0}` |
 | R11 — runtime corridor-profile reload | The observer reads `corridor_profile` once at construction |
 | M6 — the violation has no redundancy | Two gates in the strict zone, `consecutive_estimates: 2`. Owner accepted as documented risk; margin is 0.935 m/s against a 0.80 limit |
 | Live coverage is one profile at one speed | `nominal_m6_n3` at 1.0 m/s. The other profiles cannot violate at that speed by design |
-| C4, C5, L4 | See the tables above |
-| M2 — runtime subscription capture | Structural enumeration exists; a live `ros2 node info` record does not |
+| C5, L4 | See the tables above |
+
+
+---
+
+## Round 3 — closing what round 1 and round 2 deferred
+
+Two findings were deferred on the grounds that fixing them was risky or costly.
+Re-measuring showed both grounds had dissolved.
+
+### R17 — the half-occluded reference plate
+
+Deferred because every occlusion-free placement measured at the time lost gate
+8.0 at 0.6 m/s. **That was not a placement problem.** It was the continuity
+guard treating noise-level backward station steps as pose jumps, at a speed
+where the per-frame advance (0.0397 m) sits below the station noise (0.0414 m).
+`e0bea0c` fixed the guard; re-measured against it, *every* occlusion-free
+placement holds all four gates on all three profiles at all three speeds.
+
+The plate moved to `along_m 0.75` at 0.60 m, which is **strictly better** than
+the occluded original on every metric:
+
+| | occluded original | relocated |
+|---|---:|---:|
+| Occluded accepted frames | 187 | **0** |
+| Worst station error | 0.0845 m | **0.0817 m** |
+| Worst gate speed error | 0.0559 m/s | **0.0530 m/s** |
+
+The live demonstration was re-run on the corrected geometry and reproduces the
+same narrative: compliant at gates 4 and 6, over at 8 and 10, exactly one
+violation, 0.195 m/s exceedance, maximum speed error 0.0331 m/s.
+
+**A consequence worth reviewing:** the new invariant bounds the supported
+`(m, n)` envelope from above — `m/2 - n < 0.349`. `m = 8.0` with `n = 3.0` is
+now refused, where it previously built. That build was only ever succeeding by
+rendering a half-buried marker, but it is a real reduction in the range the
+generator accepts, and it deserves a second opinion.
+
+### C4 — the report's blind spot
+
+The lesson generalises past this instance: a control that derives its command
+from the same field the system under test divides by cannot measure that field.
+The schedule now advances along route arc length, which is also how the live
+Isaac run drives, so the synthetic control and the live run finally share a
+definition of "travelled a metre".

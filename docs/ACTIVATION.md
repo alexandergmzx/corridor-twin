@@ -170,6 +170,7 @@ together. Headroom is measured against the project's 14,336 MiB soft ceiling.
 | Static rendered-fiducial gate | 1 | Headless | 3,024 MiB | 11,312 MiB |
 | Live demonstration, A driving the route | 1 | Headless | 3,411 MiB | 12,892 MiB |
 | Live demonstration, A driving the route | 1 | Visible | 3,547 MiB | 12,756 MiB |
+| Live demonstration after the R17 plate correction | 1 | Headless | 3,486 MiB | 12,817 MiB |
 | Project soft ceiling | — | — | 14,336 MiB | 0 MiB |
 
 ## Activation gate results

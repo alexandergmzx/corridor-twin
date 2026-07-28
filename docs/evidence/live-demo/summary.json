@@ -1,18 +1,19 @@
 {
   "kind": "live_isaac_camera_only_enforcement_run",
   "command": "bash tools/run_demo.sh --headless --record",
-  "commit": "5b2bc6cffaf9b7467a35faf4fa0e92088e0e4d3e",
+  "commit": "82b490d4de71b961fcf0b6a853a7e4d03e108e1b",
   "profile": "nominal_m6_n3",
   "path_speed_mps": 1.0,
+  "geometry_note": "east-face reference relocated to along_m 0.75, size 0.60 m (R17); no accepted marker is occluded",
   "camera": {
     "encoding": "rgb8",
     "width": 640,
     "height": 360,
-    "images": 339,
-    "stamp_span_s": 23.8,
-    "rate_hz_mean": 14.2017,
+    "images": 317,
+    "stamp_span_s": 23.467,
+    "rate_hz_mean": 13.4659,
     "rate_hz_max": 15.0,
-    "rate_hz_min": 5.0,
+    "rate_hz_min": 3.75,
     "fx": 417.0321044921875,
     "fy": 417.0321044921875,
     "cx": 320.0,
@@ -30,7 +31,7 @@
     {
       "station_m": 4.0,
       "speed_mps": 1.0007,
-      "speed_stddev_mps": 0.014,
+      "speed_stddev_mps": 0.0148,
       "speed_error_mps": 0.0007,
       "corridor_width_m": 5.0,
       "speed_limit_mps": 1.2,
@@ -38,27 +39,27 @@
     },
     {
       "station_m": 6.0,
-      "speed_mps": 1.0015,
-      "speed_stddev_mps": 0.0142,
-      "speed_error_mps": 0.0015,
+      "speed_mps": 1.0011,
+      "speed_stddev_mps": 0.0158,
+      "speed_error_mps": 0.0011,
       "corridor_width_m": 4.5,
       "speed_limit_mps": 1.2,
       "over_limit": false
     },
     {
       "station_m": 8.0,
-      "speed_mps": 0.9629,
-      "speed_stddev_mps": 0.0139,
-      "speed_error_mps": 0.0371,
+      "speed_mps": 0.9669,
+      "speed_stddev_mps": 0.0132,
+      "speed_error_mps": 0.0331,
       "corridor_width_m": 4.0,
       "speed_limit_mps": 0.8,
       "over_limit": true
     },
     {
       "station_m": 10.0,
-      "speed_mps": 1.0192,
-      "speed_stddev_mps": 0.0126,
-      "speed_error_mps": 0.0192,
+      "speed_mps": 1.0187,
+      "speed_stddev_mps": 0.012,
+      "speed_error_mps": 0.0187,
       "corridor_width_m": 3.5,
       "speed_limit_mps": 0.8,
       "over_limit": true
@@ -68,7 +69,7 @@
     {
       "event_id": 1,
       "station_m": 10.0,
-      "exceedance_mps": 0.194,
+      "exceedance_mps": 0.1947,
       "speed_limit_mps": 0.8
     }
   ],
@@ -79,8 +80,8 @@
       8.0,
       10.0
     ],
-    "max_speed_error_mps": 0.0371,
+    "max_speed_error_mps": 0.0331,
     "violation_count": 1,
-    "every_enforcement_gate_after_the_first_measured": true
+    "every_measurable_gate_measured": true
   }
 }

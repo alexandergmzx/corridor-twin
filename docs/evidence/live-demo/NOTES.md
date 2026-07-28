@@ -18,12 +18,13 @@ system-Jazzy consumers come up first, then Isaac starts in a shell with
 
 | Field | Value |
 |---|---|
-| Commit | `5b2bc6c` plus the launch-argument fix recorded below |
+| Commit | `82b490d` (re-run after the R17 geometry correction) |
 | Date | 2026-07-27 |
 | Isaac Sim | 5.1.0, bundled Jazzy bridge |
 | GPU | NVIDIA GeForce RTX 5070 Ti, 16303 MiB, driver 580.173.02 |
 | Host | Linux Mint (still reported unsupported by the checker; Ubuntu 24.04 remains the fallback) |
 | Stage / profile | `out/corridor.usda`, `nominal_m6_n3` (m = 6.0 m, n = 3.0 m) |
+| Geometry | East-face reference relocated to `along_m 0.75`, 0.60 m (R17). No accepted marker is occluded in this run |
 | Path speed | constant 1.0 m/s |
 | Render mode | `RaytracedLighting`, **read back** from `/rtx/rendermode` and `/rtx-defaults/rendermode` |
 | Anti-aliasing | enum 3 on both trees |
@@ -47,8 +48,8 @@ a 0.07 % deviation. Station comes from the simulation clock, never wall time.
 | Property | Value |
 |---|---|
 | Encoding / size | `rgb8`, 640x360 |
-| Images recorded | 339 over a 23.800 s stamp span |
-| Delivered rate | mean 14.20 Hz, max 15.00 Hz, min 5.00 Hz |
+| Images recorded | 317 over a 23.533 s stamp span |
+| Delivered rate | mean 13.47 Hz, max 15.00 Hz, min 5.00 Hz |
 | Intrinsics | fx = fy = 417.032, cx = 320.0, cy = 180.0 |
 | Distortion | `plumb_bob`, all coefficients zero |
 
@@ -67,15 +68,15 @@ above.
 
 | Gate | Measured speed | sigma | Local width | Limit | State |
 |---:|---:|---:|---:|---:|---|
-| 4.0 m | 1.001 m/s | 0.014 | 5.00 m | 1.20 m/s | compliant |
-| 6.0 m | 1.002 m/s | 0.014 | 4.50 m | 1.20 m/s | compliant |
-| 8.0 m | 0.963 m/s | 0.014 | 4.00 m | 0.80 m/s | over |
-| 10.0 m | 1.019 m/s | 0.013 | 3.50 m | 0.80 m/s | over |
+| 4.0 m | 1.001 m/s | 0.015 | 5.00 m | 1.20 m/s | compliant |
+| 6.0 m | 1.001 m/s | 0.016 | 4.50 m | 1.20 m/s | compliant |
+| 8.0 m | 0.967 m/s | 0.013 | 4.00 m | 0.80 m/s | over |
+| 10.0 m | 1.019 m/s | 0.012 | 3.50 m | 0.80 m/s | over |
 
-- **Maximum speed error 0.0371 m/s** at a 1.0 m/s truth speed.
+- **Maximum speed error 0.0331 m/s** at a 1.0 m/s truth speed.
 - **Every enforcement gate after the first produced a measurement.** Gate 2.0 is
   the first crossing and cannot carry a speed, which needs two.
-- **Exactly one violation**: event 1 at station 10.0 m, exceedance 0.194 m/s
+- **Exactly one violation**: event 1 at station 10.0 m, exceedance 0.195 m/s
   against the 0.80 m/s corner limit.
 
 That is the demonstration in one run: an unchanged 1.0 m/s is legal on the wide
@@ -86,11 +87,11 @@ two-estimate confirmation fire at the corner at all.
 ### Resources
 
 ```
-ISAAC_ROS_CAMERA_GPU name=NVIDIA GeForce RTX 5070 Ti used_mib=3411 total_mib=16303
+ISAAC_ROS_CAMERA_GPU name=NVIDIA GeForce RTX 5070 Ti used_mib=3486 total_mib=16303
 ISAAC_ROS_CAMERA_PASS updates=1433 profile=nominal_m6_n3 static_probe=False drive=True render_products=1
 ```
 
-3411 MiB of 16303 MiB, with one render product and one camera.
+3486 MiB of 16303 MiB, with one render product and one camera.
 
 ## Frames
 
@@ -100,6 +101,29 @@ ISAAC_ROS_CAMERA_PASS updates=1433 profile=nominal_m6_n3 static_probe=False driv
 | [`corner-references.png`](corner-references.png) | t = 9.8 s, inside the strict zone. The corridor gates have left the frustum and the height-staggered references on the north-wall extension and the east face carry the pose. This is the coverage the reference plates were added for, working in a real render |
 
 [`summary.json`](summary.json) carries the full per-message record.
+
+## Runtime subscription audit
+
+Source and AST tests prove what the observer *can* subscribe to. This is what it
+actually did subscribe to, captured live while it was consuming Isaac pixels:
+
+```bash
+ros2 node info /police_observer
+```
+
+[`runtime-node-info.txt`](runtime-node-info.txt) records the result. The
+observer's subscriber list is exactly:
+
+```
+/clock:                          rosgraph_msgs/msg/Clock
+/robot/front_camera/camera_info: sensor_msgs/msg/CameraInfo
+/robot/front_camera/image_raw:   sensor_msgs/msg/Image
+```
+
+No pose, no odometry, no TF, no configured speed, no truth topic. `/clock` is
+subscribed by rclpy's own `TimeSource` under `use_sim_time`, which carries
+simulation time and says nothing about where A is. The display node is captured
+in the same file and reads only the two topics the observer publishes.
 
 ## What this run does and does not establish
 
@@ -136,8 +160,8 @@ therefore be measured **and** over-limit, or this run produces no violation at
 all — a silent absence rather than a wrong answer.
 
 What makes that acceptable today is that the margin is comfortable rather than
-marginal: gate 8 measured 0.963 m/s against a 0.80 m/s limit, and the
-conservative 2σ lower bound is 0.935 m/s. The risk is a *missed* measurement,
+marginal: gate 8 measured 0.967 m/s against a 0.80 m/s limit, and the
+conservative 2σ lower bound is 0.941 m/s. The risk is a *missed* measurement,
 not a borderline one, and `e0bea0c` reduced exactly that failure mode by
 stopping noise-level backward station steps from discarding gate history.
 
@@ -160,8 +184,13 @@ ISAAC_ROS_CAMERA_GPU name=NVIDIA GeForce RTX 5070 Ti used_mib=3547 total_mib=163
 ISAAC_ROS_CAMERA_PASS updates=600 profile=nominal_m6_n3 static_probe=False drive=True render_products=1
 ```
 
-The viewport costs 136 MiB over headless, 3547 against 3411, and the renderer
-state, render-product count and drive loop are unchanged. `reached_end=False`
+> **Measured before the R17 geometry correction**, against a headless run that
+> used 3,411 MiB. The plate relocation moved headless to 3,486 MiB; the viewport
+> run was not repeated, so treat 3,547 MiB as the pre-correction figure and the
+> 136 MiB viewport delta as the transferable result.
+
+The viewport cost 136 MiB over the headless run of the same build, and the
+renderer state, render-product count and drive loop are unchanged. `reached_end=False`
 is the `UPDATES=600` cap used to keep this check short, not a failure: 600
 updates is 9.983 s of simulation time, so A covered the corridor approach and
 stopped short of the corner. The default `UPDATES=3000` is 50 s of simulation

@@ -1,0 +1,53 @@
+# Runtime subscription audit (M2)
+# Captured live, while the observer was consuming Isaac pixels.
+# Command: ros2 node info /police_observer
+
+/police_observer
+  Subscribers:
+    /clock: rosgraph_msgs/msg/Clock
+    /robot/front_camera/camera_info: sensor_msgs/msg/CameraInfo
+    /robot/front_camera/image_raw: sensor_msgs/msg/Image
+  Publishers:
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /police/speed_estimate: corridor_interfaces/msg/SpeedEstimate
+    /police/speed_violation: corridor_interfaces/msg/SpeedViolation
+    /rosout: rcl_interfaces/msg/Log
+  Service Servers:
+    /police_observer/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /police_observer/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /police_observer/get_parameters: rcl_interfaces/srv/GetParameters
+    /police_observer/get_type_description: type_description_interfaces/srv/GetTypeDescription
+    /police_observer/list_parameters: rcl_interfaces/srv/ListParameters
+    /police_observer/set_parameters: rcl_interfaces/srv/SetParameters
+    /police_observer/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+  Service Clients:
+
+  Action Servers:
+
+  Action Clients:
+
+
+# ros2 node info /enforcement_view
+/enforcement_view
+  Subscribers:
+    /clock: rosgraph_msgs/msg/Clock
+    /police/speed_estimate: corridor_interfaces/msg/SpeedEstimate
+    /police/speed_violation: corridor_interfaces/msg/SpeedViolation
+  Publishers:
+    /parameter_events: rcl_interfaces/msg/ParameterEvent
+    /police/enforcement_view: visualization_msgs/msg/MarkerArray
+    /rosout: rcl_interfaces/msg/Log
+  Service Servers:
+    /enforcement_view/describe_parameters: rcl_interfaces/srv/DescribeParameters
+    /enforcement_view/get_parameter_types: rcl_interfaces/srv/GetParameterTypes
+    /enforcement_view/get_parameters: rcl_interfaces/srv/GetParameters
+    /enforcement_view/get_type_description: type_description_interfaces/srv/GetTypeDescription
+    /enforcement_view/list_parameters: rcl_interfaces/srv/ListParameters
+    /enforcement_view/set_parameters: rcl_interfaces/srv/SetParameters
+    /enforcement_view/set_parameters_atomically: rcl_interfaces/srv/SetParametersAtomically
+  Service Clients:
+
+  Action Servers:
+
+  Action Clients:
+
