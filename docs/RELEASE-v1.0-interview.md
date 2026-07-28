@@ -1,13 +1,13 @@
 # Release plan: `v1.0-interview`
 
-A plan, not a release. Nothing here has been published. All eight decisions are
+A plan, not a release. Nothing here has been published. All nine decisions are
 taken and recorded in section 1; what remains is execution.
 
 | Field | Value |
 |---|---|
-| Plan version | 2.0.0 |
+| Plan version | 2.1.0 |
 | Prepared | 2026-07-28 |
-| Tree planned against | `1fedc5c` on `audit/reconcile-docs-and-decisions`, clean, pushed |
+| Tree planned against | `0c4e89c` on `audit/reconcile-docs-and-decisions`, clean, two commits unpushed |
 | Release target | **the branch**, tagged `v1.0-interview`. `main` stays at `f992470` |
 | Repository | [`alexandergmzx/corridor-twin`](https://github.com/alexandergmzx/corridor-twin) — public, Apache-2.0 |
 
@@ -121,6 +121,7 @@ on the record rather than reconstructed later.
 | D6 | **No `requirements-scene.txt`; `requirements.txt` unchanged** | The pip-only claim narrows to `scene.occlusion` only, which is genuinely true. `scene.build` is never presented as pip-installable |
 | D7 | **Do not add this document to the link-resolution test** | Its links were verified once by hand and nothing will catch them rotting. Re-check before tagging |
 | D8 | **The static requalification stays in "not claimed"** | Corrected below. The artifacts on disk are the invalidated run, not a replacement |
+| D9 | **A short looping GIF as the README hero; the full MP4 stays in the release.** In `docs/evidence/live-demo/`, branch README only | Motion above the fold on the repo page, which an MP4 in the tree cannot give. Detailed below, because the sizing is what keeps it from being a mistake |
 
 ### D4 — why no rosbag, in detail
 
@@ -173,6 +174,60 @@ The static *qualification* is a different measurement and has not been retaken:
 Correct code is not a measurement. Distinguishing the two is the discipline this
 repository already applied to itself once, and the release notes keep it.
 
+### D9 — the GIF, and why it is short
+
+A GIF is the **only** thing that autoplays inline on the repository front page.
+GitHub renders an MP4 committed to the tree as a file link, not a player, so if
+the demonstration is to move above the fold, GIF is the mechanism. That is the
+whole case for it, and it is a good one.
+
+The case against making it the *whole* video is arithmetic. GIF is 256 colours
+with no interframe motion compensation. The frame here is RTX gradients plus an
+RViz text readout — precisely the content that palettizes worst, and the readout
+is what carries the meaning. A 60–90 s capture lands 20–50 MB, bands the numbers
+a viewer is supposed to read, and **enters git history permanently**: the tracked
+repository is 1.30 MiB across 110 files today, so every future clone would pay
+that forever. The conventions in `CLAUDE.md` say to curate; an unreadable 40 MB
+loop is decoration with a storage bill.
+
+So the two formats take different jobs:
+
+| Asset | Job | Budget |
+|---|---|---|
+| GIF, 8–12 s, looping, no text needed to read it | README hero — the corner violation firing | **≤ 3 MB** |
+| MP4, 60–120 s | The full run, in the release per D3 | ≤ 10 MB |
+
+Pick the moment where the readout flips to a violation. It reads at a glance
+without the viewer parsing digits, which is what a hero image has to do.
+
+`ffmpeg` 6.1.1 is installed with the `gif`, `apng` and `libwebp_anim` encoders;
+`gifski` is not, so use the two-pass palette filter, which is close in quality:
+
+```bash
+ffmpeg -ss <start> -t 10 -i capture.mkv -an -vf \
+  "fps=12,scale=720:-2:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3" \
+  out/evidence/live-demo/violation-loop.gif
+```
+
+**Also encode animated WebP and keep whichever is smaller.** It is typically 3–5×
+smaller than GIF at full colour, and GitHub markdown renders it:
+
+```bash
+ffmpeg -ss <start> -t 10 -i capture.mkv -an \
+  -vf "fps=12,scale=720:-2:flags=lanczos" \
+  -c:v libwebp_anim -lossless 0 -q:v 60 -loop 0 \
+  out/evidence/live-demo/violation-loop.webp
+```
+
+One caveat I could not check from here: whether GitHub's markdown pipeline
+animates WebP in *this* context. Verify with a throwaway preview before
+committing to it, and fall back to GIF if it renders as a still.
+
+Promote the winner from `out/evidence/` into `docs/evidence/live-demo/` in the
+same commit that records it, add it to that topic's `Frames` table in `NOTES.md`
+with the source run and timestamps, and reference it from the branch `README.md`
+only. `main` is untouched, per D1.
+
 ---
 
 ## 2. Artifact inventory
@@ -191,7 +246,8 @@ Weight the video accordingly.
 |---|---|---|---|---|
 | Release notes body | Section 5 | Release page | — | **Produce** |
 | Demo video, inline + asset | Screen capture during the canonical run | Release body and assets | ≤10 MB target | **Produce** |
-| `README.md` + `docs/` rendered at the tag | Written | Repo at tag | 1.24 MiB tracked, total | Exists |
+| **README hero loop** (GIF or WebP) | Cut from the same capture | `docs/evidence/live-demo/`, shown in the branch `README.md` | **≤3 MB** | **Produce** |
+| `README.md` + `docs/` rendered at the tag | Written | Repo at tag | 1.30 MiB tracked, total | Exists |
 | 18 ADRs | Written | `docs/adr/` | 284 KiB | Exists |
 | `live-demo/*.png` — approach and corner frames | Isaac run | `docs/evidence/` | 268 KiB | Exists |
 | `live-demo/{NOTES.md,summary.json}` | Live run + curation | `docs/evidence/` | 32 KiB | Exists; `summary.json` commit field needs re-emitting |
@@ -240,17 +296,31 @@ shipped `corridor.usda` can re-run the proof that A cannot see P. **Do not prese
 
 ### Actions with several payoffs
 
-**One GUI run at default `UPDATES` pays off four ways.** Schedule around it rather
+**One GUI run at default `UPDATES` pays off five ways.** Schedule around it rather
 than discovering it:
 
 1. Video source footage.
-2. Re-emits `summary.json` with honest provenance, closing the defect above.
-3. Rehearses the demonstration end to end — this is how the `corridor_profile:=`
+2. **The GIF is cut from the same capture**, so the hero loop and the video agree
+   by construction rather than by care.
+3. Re-emits `summary.json` with honest provenance, closing the defect above.
+4. Rehearses the demonstration end to end — this is how the `corridor_profile:=`
    launch bug was found.
-4. Replaces the caveated pre-correction GUI VRAM figure with a measured one.
+5. Replaces the caveated pre-correction GUI VRAM figure with a measured one.
 
 `--record` is no longer needed for the bag, but leave it on: it costs nothing and
 keeps the recording available if the bag is asked for.
+
+**Choose the viewpoint before the capture, not after.** `0c4e89c` added `VIEW=`,
+and the choice is now load-bearing in two directions. `rviz` is the default and
+the perspective the evidence figures assume — it is one call at startup and costs
+nothing per frame. `chase` writes the viewport every fourth update, so a run
+recorded under it is **not the same measurement** and its delivered-rate figures
+would have to be retaken. A test pins the default for that reason.
+
+The practical consequence: record the canonical run on `rviz`. If `chase` or
+`corner` frames the violation better for the *hero loop*, shoot that as a second,
+throwaway run whose numbers nobody cites — a GIF is not evidence and does not need
+to come from the evidence run, as long as the notes say which run it came from.
 
 **`scene.build` + `scene.occlusion` on the frozen tree** — one CPU command pair,
 three payoffs: produces the pip-tier assets, regenerates the certificate the
@@ -269,14 +339,18 @@ documents by hand.
 |---|---|---|---|
 | ~~S0~~ | ~~Decisions~~ **Done — section 1** | — | — |
 | ~~S1~~ | ~~Land the ADR 0018 geometry and reconcile citations~~ **Done — `1fedc5c`** | — | — |
-| **S2** | Canonical run: `tools/run_demo.sh --record` with screen capture running. Re-emit `summary.json` provenance | You | — |
-| **S3** | Curate evidence; add the CI badge; `check_workspace.sh` green; re-verify this document's links | Both | S2 |
-| **S4** | pip-tier assets: `scene.build`, `scene.occlusion` ×3 profiles, zip | Claude | — parallel |
-| **S5** | Video encode; check it fits the inline attachment; draft the release body | Both | S2 |
-| **S6** | `git tag v1.0-interview`, push the tag, `gh release create --target audit/reconcile-docs-and-decisions`, upload assets | You | S3, S4, S5 |
-| **S7** | Verify from outside: logged-out browser, every link resolves **at the tag**, video plays inline, one asset downloads | You | S6 |
+| **S2** | Canonical run on `VIEW=rviz`: `tools/run_demo.sh --record` with screen capture running. Re-emit `summary.json` provenance | You | — |
+| **S3** | Cut the hero loop; encode GIF **and** WebP; keep the smaller; verify it animates in a GitHub preview; promote into `docs/evidence/live-demo/` and add it to that topic's `NOTES.md` and the branch `README.md` | Both | S2 |
+| **S4** | Curate the rest of the evidence; add the CI badge; `check_workspace.sh` green; re-verify this document's links | Both | S2 |
+| **S5** | pip-tier assets: `scene.build`, `scene.occlusion` ×3 profiles, zip | Claude | — parallel |
+| **S6** | Video encode; check it fits the inline attachment; draft the release body | Both | S2 |
+| **S7** | `git tag v1.0-interview`, push the branch and tag, `gh release create --target audit/reconcile-docs-and-decisions`, upload assets | You | S3–S6 |
+| **S8** | Verify from outside: logged-out browser, every link resolves **at the tag**, the hero loop animates, video plays inline, one asset downloads | You | S7 |
 
-**S7 is not optional.** A release with a broken link is worse than no release, and
+Note S7 pushes the **branch** as well as the tag: two commits are unpushed today,
+and a tag pointing at an object the remote does not have will be rejected.
+
+**S8 is not optional.** A release with a broken link is worse than no release, and
 you cannot see your own repository the way a logged-out visitor does. Because of
 D1 this matters more than usual: the release is the only correct view of the
 project, so a link that falls through to `main` shows a reader the stale map.
@@ -300,6 +374,9 @@ Traffic police stationed at that corner **cannot see the robot** — an opaque w
 is between them — but receive the robot's single front camera over ROS 2 and
 measure its speed from surveyed wall fiducials alone. When the corridor narrows,
 the local limit tightens, and one unchanged speed becomes an offence.
+
+*(The branch `README.md` opens with the hero loop; the release body opens with the
+full video. Same run, different lengths.)*
 
 **Watch the video first.** Two minutes, no install.
 
@@ -450,12 +527,16 @@ conversion.
 | # | Block | Depends on | Critical path |
 |---|---|---|---|
 | ~~E0~~ | ~~Land ADR 0018 geometry; reconcile citations~~ **Done — `1fedc5c`** | — | — |
-| E1 | Canonical run with screen capture; re-emit `summary.json` provenance; curate evidence; CI badge; `check_workspace.sh` green | — | **Yes** |
+| E1 | Canonical run on `VIEW=rviz` with screen capture; re-emit `summary.json` provenance; curate evidence; CI badge; `check_workspace.sh` green | — | **Yes** |
 | E2 | pip-tier assets and zip; `check_workspace.sh` log | — parallel | No |
-| E3 | Video encode and inline-size check; release body; tag; `gh release create`; verify logged-out | E1, E2 | **Yes** |
+| E3 | Cut and encode the hero loop, both formats, keep the smaller; video encode and inline-size check; release body; push branch and tag; `gh release create`; verify logged-out | E1, E2 | **Yes** |
 
 **Total: 2 evenings, with a third in reserve for a failed capture.**
 **Critical path: E1 → E3.**
+
+The GIF adds perhaps twenty minutes to E3 — one `ffmpeg` invocation per format
+plus a preview check — provided the moment is chosen during E1's capture rather
+than hunted for afterwards. Note the timestamp of the violation while you record.
 
 Budget two attempts for E1. Its failure mode is the silent absence above — not a
 crash. You will only notice by reading the log, and noticing late costs the
