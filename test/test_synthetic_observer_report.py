@@ -96,6 +96,86 @@ def test_speed_error_is_primary_and_station_error_secondary(report: dict) -> Non
         assert sample["correspondence_rank"] == 3
 
 
+def test_a_wrong_path_axis_fraction_is_detectable(tmp_path: Path) -> None:
+    """The report used to command with the same field the estimator divides by.
+
+    `x = v*t*path_axis_fraction` against `speed = dx/dt/path_axis_fraction`
+    cancels exactly, so an error in the one conversion the tapered corridor made
+    necessary was invisible to the primary accuracy instrument. Driving by route
+    arc length instead breaks the cancellation, and this is what proves it: a
+    corrupted fraction must move the reported speed error.
+    """
+
+    import ast
+    import json
+
+    import synthetic_observer_report as reporter
+    from police_observer.estimator import (
+        ArucoStationEstimator,
+        MarkerMap,
+        ObserverPipeline,
+    )
+    from police_observer.synthetic import SyntheticCamera
+    from scene.build import build_scene
+
+    # 1. The drive loop must no longer multiply by the field the estimator
+    #    divides by. That multiplication was the cancellation.
+    source = Path(reporter.__file__).read_text(encoding="utf-8")
+    drive = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_one"
+    )
+    body = "\n".join(ast.dump(statement) for statement in drive.body[1:])
+    assert "attr='path_axis_fraction'" not in body, (
+        "the commanded station must come from the trajectory, not from the conversion factor"
+    )
+
+    # 2. And the estimator's output must genuinely depend on that field, so the
+    #    report can now see an error in it.
+    _, manifest_path = build_scene(None, tmp_path / "corridor.usda", 6.0, 3.0)
+    honest = MarkerMap.from_manifest(manifest_path, "nominal_m6_n3")
+
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    block = raw["profiles"]["nominal_m6_n3"]["delivery_trajectory"]
+    block["approach_heading"] = [block["approach_heading"][0] * 0.90, block["approach_heading"][1]]
+    corrupted_path = tmp_path / "corrupted.manifest.json"
+    corrupted_path.write_text(json.dumps(raw), encoding="utf-8")
+    corrupted = MarkerMap.from_manifest(corrupted_path, "nominal_m6_n3")
+    assert corrupted.path_axis_fraction == pytest.approx(honest.path_axis_fraction * 0.90)
+
+    camera = SyntheticCamera(manifest_path, "nominal_m6_n3")
+    estimator = ArucoStationEstimator(honest, camera.dictionary_name)
+    pipelines = {"honest": ObserverPipeline(honest), "corrupted": ObserverPipeline(corrupted)}
+    speeds: dict[str, list[float]] = {name: [] for name in pipelines}
+
+    frame = 0
+    while True:
+        elapsed = frame / 15.0
+        station_x_m = honest.path_axis_fraction * 1.0 * elapsed
+        if station_x_m > 10.8:
+            break
+        frame += 1
+        observation = estimator.estimate(
+            camera.render(station_x_m), camera.calibration, timestamp_s=1.0 + elapsed
+        )
+        if observation is None:
+            continue
+        for name, pipeline in pipelines.items():
+            for measurement, _ in pipeline.update(observation):
+                speeds[name].append(measurement.speed_mps)
+
+    assert speeds["honest"] and len(speeds["honest"]) == len(speeds["corrupted"])
+    honest_error = max(abs(value - 1.0) for value in speeds["honest"])
+    corrupted_error = max(abs(value - 1.0) for value in speeds["corrupted"])
+    # A 10% wrong conversion inflates every recovered speed by 1/0.9, which is
+    # an order of magnitude outside the honest run's error. The report can now
+    # see this; before the fix it cancelled to exactly zero.
+    assert honest_error < 0.05
+    assert corrupted_error > 0.10
+    assert corrupted_error > honest_error * 3
+
+
 def test_build_output_never_lands_beside_the_artifact(tmp_path: Path, monkeypatch) -> None:
     """The scene the reporter builds is not evidence and must not join it.
 

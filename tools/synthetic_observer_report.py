@@ -123,11 +123,16 @@ def _run_one(
         marker["id"]: np.asarray(marker["corners_xyz_m"], dtype=np.float64)
         for marker in manifest["profiles"][profile_name]["markers"]
     }
+    # The trajectory is needed unconditionally, not only for the raycast audit:
+    # the schedule below advances along route arc length and reads world X back
+    # off the authored path. Commanding `x = v*t*path_axis_fraction` instead
+    # would multiply by the same field the estimator divides by, so an error in
+    # it cancelled exactly and this report -- the primary accuracy instrument --
+    # was blind to the one conversion the tapered corridor made necessary.
+    scenario = load_scenario()
+    trajectory = delivery_trajectory(scenario, scenario.profile(profile_name))
     triangles: list[Any] = []
-    trajectory = None
     if check_visibility:
-        scenario = load_scenario()
-        trajectory = delivery_trajectory(scenario, scenario.profile(profile_name))
         stage = Usd.Stage.Open(str(stage_path))
         # The audit has to see the meshes this profile actually composes, so
         # select its variant rather than whatever the build left selected.
@@ -137,6 +142,7 @@ def _run_one(
         triangles = [t for prim in opaque_mesh_prims(stage) for t in _mesh_triangles(prim)]
 
     start_x, end_x = schedule.window_x_m
+    start_s_m = trajectory.approach_s_at_x(start_x)
     samples: list[dict[str, Any]] = []
     measurements: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
@@ -144,7 +150,10 @@ def _run_one(
     frame = 0
     while True:
         elapsed = frame / schedule.rate_hz
-        commanded_x_m = start_x + truth_speed_mps * elapsed * marker_map.path_axis_fraction
+        # Distance actually travelled along the route, which is what the speed
+        # policy is written about; world X follows from the authored path.
+        route_s_m = start_s_m + truth_speed_mps * elapsed
+        commanded_x_m = trajectory.pose_at(route_s_m).x_m
         if commanded_x_m > end_x:
             break
         frames += 1
@@ -158,8 +167,8 @@ def _run_one(
         accepted = list(observation.marker_ids)
         combined = np.concatenate([surveyed[marker_id] for marker_id in accepted])
         unoccluded: bool | None = None
-        if check_visibility and trajectory is not None:
-            camera_pose = trajectory.camera_pose_at(trajectory.approach_s_at_x(commanded_x_m))
+        if check_visibility:
+            camera_pose = trajectory.camera_pose_at(route_s_m)
             origin = (camera_pose.x_m, camera_pose.y_m, camera_pose.z_m)
             unoccluded = True
             for marker_id in accepted:
@@ -176,6 +185,7 @@ def _run_one(
 
         samples.append(
             {
+                "commanded_route_s_m": round(route_s_m, 6),
                 "commanded_x_m": round(commanded_x_m, 6),
                 "estimated_x_m": round(observation.station_m, 6),
                 "station_error_m": round(abs(observation.station_m - commanded_x_m), 6),
