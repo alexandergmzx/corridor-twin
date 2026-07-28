@@ -22,6 +22,7 @@ supersedes the old record.
 | [0015](0015-reference-fiducials-for-corner-coverage.md) | Accepted | Restore corner enforcement coverage with reference fiducials |
 | [0016](0016-corner-enforcement-policy-boundary.md) | Accepted | Move the strict speed zone to 4.0 m clear width |
 | [0017](0017-relocate-p-to-diagram-east-corner.md) | Accepted | Relocate P to the junction's east corner, behind the east wall |
+| [0018](0018-model-the-east-wall-stub.md) | Accepted | Model the east-wall stub, recess B behind it, extend the route |
 
 ## Decision map
 
