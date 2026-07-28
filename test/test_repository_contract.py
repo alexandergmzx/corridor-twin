@@ -342,6 +342,17 @@ POLICY_CASES = (
     ("zero limit", [{"maximum_width_m": 4.0, "limit_mps": 0.0}], False),
     ("negative width", [{"maximum_width_m": -1.0, "limit_mps": 0.8}], False),
     ("missing field", [{"maximum_width_m": 4.0}], False),
+    # Non-finite values are the case the sign tests miss on their own: `nan <=
+    # 0` and `inf <= 0` are both False. Before these cases the build side
+    # accepted all four while the observer side rejected them, so a policy
+    # written with YAML's `.inf` built a scene and a manifest and then stopped
+    # the observer from constructing -- the split the agreement test exists to
+    # catch. The manifest was not even strictly valid JSON: `json.dump` writes
+    # a bare `Infinity` token.
+    ("nan threshold", [{"maximum_width_m": float("nan"), "limit_mps": 1.5}], False),
+    ("inf threshold", [{"maximum_width_m": float("inf"), "limit_mps": 1.5}], False),
+    ("nan limit", [{"maximum_width_m": 4.0, "limit_mps": float("nan")}], False),
+    ("inf limit", [{"maximum_width_m": 4.0, "limit_mps": float("inf")}], False),
     (
         "valid but scrambled",
         [

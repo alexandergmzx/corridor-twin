@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -263,6 +264,15 @@ def _validate_speed_policy(scenario: Scenario) -> None:
             raise ValueError(
                 f"speed policy rule {index} needs numeric maximum_width_m and limit_mps"
             ) from error
+        # Finiteness is checked before sign, and separately from it. `nan <= 0`
+        # and `inf <= 0` are both False, so a sign test alone accepts them here
+        # while `normalized_speed_rules` rejects them on the observer side --
+        # the scene builds, the manifest is written, and the observer then
+        # refuses to construct. YAML spells both directly as `.nan` and `.inf`.
+        if not math.isfinite(maximum_width):
+            raise ValueError(f"speed policy rule {index} has a non-finite maximum_width_m")
+        if not math.isfinite(limit):
+            raise ValueError(f"speed policy rule {index} has a non-finite limit_mps")
         if maximum_width <= 0.0:
             raise ValueError(f"speed policy rule {index} has a non-positive maximum_width_m")
         if limit <= 0.0:

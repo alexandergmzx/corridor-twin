@@ -84,9 +84,16 @@ def normalized_speed_rules(rules: object) -> tuple[tuple[float, float], ...]:
             raise ValueError(
                 f"speed policy rule {index} needs numeric maximum_width_m and limit_mps"
             ) from error
-        if not math.isfinite(maximum_width) or maximum_width <= 0.0:
+        # Reported separately from the sign check so the message names the
+        # actual fault: `inf` is positive, and calling it "non-positive" sends
+        # a reader looking for the wrong thing in their config.
+        if not math.isfinite(maximum_width):
+            raise ValueError(f"speed policy rule {index} has a non-finite maximum_width_m")
+        if not math.isfinite(limit):
+            raise ValueError(f"speed policy rule {index} has a non-finite limit_mps")
+        if maximum_width <= 0.0:
             raise ValueError(f"speed policy rule {index} has a non-positive maximum_width_m")
-        if not math.isfinite(limit) or limit <= 0.0:
+        if limit <= 0.0:
             raise ValueError(f"speed policy rule {index} has a non-positive limit_mps")
         parsed.append((maximum_width, limit))
 
