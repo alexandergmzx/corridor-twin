@@ -284,9 +284,16 @@ def run_report(
         {
             float(marker["station_m"])
             for marker in manifest["profiles"][profiles[0]]["markers"]
-            if marker["role"] == "gate"
+            if marker.get("role", "gate") == "gate"
         }
     )
+    # A speed needs two gate crossings, so the *first* gate arms the estimator
+    # and can never carry a measurement of its own. Comparing the measured set
+    # against every authored gate therefore reported False on every run of every
+    # profile while coverage was in fact complete -- and, worse, could not move
+    # if a gate were genuinely lost. Coverage is judged against the gates that
+    # can carry a speed.
+    measurable_gates = enforcement_gates[1:]
     overall_speed = [
         block["max_gate_speed_error_mps"]
         for block in per_profile.values()
@@ -319,8 +326,9 @@ def run_report(
             "max_gate_speed_error_mps": max(overall_speed) if overall_speed else None,
             "max_station_error_m": max(overall_station) if overall_station else None,
             "enforcement_gates_m": enforcement_gates,
-            "every_enforcement_gate_measured": all(
-                block["gates_measured_m"] == enforcement_gates for block in per_profile.values()
+            "measurable_gates_m": measurable_gates,
+            "every_measurable_gate_measured": all(
+                block["gates_measured_m"] == measurable_gates for block in per_profile.values()
             ),
             "minimum_correspondence_rank": min(
                 block["minimum_correspondence_rank"]
@@ -383,7 +391,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"wrote {output}")
     print(f"  max gate-derived speed error : {summary['max_gate_speed_error_mps']:.4f} m/s")
     print(f"  max per-frame station error  : {summary['max_station_error_m']:.4f} m  (secondary)")
-    print(f"  every enforcement gate measured: {summary['every_enforcement_gate_measured']}")
+    print(
+        f"  every measurable gate measured: {summary['every_measurable_gate_measured']}"
+        f"  {summary['measurable_gates_m']}"
+    )
     print(f"  minimum correspondence rank  : {summary['minimum_correspondence_rank']}")
     print(f"  all accepted markers unoccluded: {summary['all_accepted_unoccluded']}")
     for name, block in report["profiles"].items():

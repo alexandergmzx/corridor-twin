@@ -51,6 +51,36 @@ def test_report_declares_its_sampling_schedule(report: dict) -> None:
         assert provenance[key], f"provenance is missing {key}"
 
 
+def test_coverage_flag_moves_in_both_directions(report: dict, tmp_path: Path) -> None:
+    """The old flag was structurally false and therefore a dead detector.
+
+    It compared the measured set against *every* authored gate, including the
+    first — which arms the estimator and can never carry a speed of its own. So
+    it read False on every run of every profile while coverage was in fact
+    complete, and losing gate 10.0 could not have changed it.
+
+    Proving it works means showing it takes both values for the right reasons:
+    false on a window that stops short of the later gates, true on the full
+    covered window.
+    """
+
+    summary = report["summary"]
+    assert summary["measurable_gates_m"] == summary["enforcement_gates_m"][1:]
+
+    # The module fixture stops at x = 5.0, so only gate 4.0 is reachable.
+    assert summary["every_measurable_gate_measured"] is False
+    assert report["profiles"]["nominal_m6_n3"]["gates_measured_m"] == [4.0]
+
+    complete = run_report(
+        tmp_path / "complete",
+        schedule=Schedule(rate_hz=15.0, speeds_mps=(1.0,), window_x_m=(0.0, 10.8)),
+        profiles=("nominal_m6_n3",),
+        check_visibility=False,
+    )
+    assert complete["summary"]["every_measurable_gate_measured"] is True
+    assert complete["profiles"]["nominal_m6_n3"]["gates_measured_m"] == [4.0, 6.0, 8.0, 10.0]
+
+
 def test_speed_error_is_primary_and_station_error_secondary(report: dict) -> None:
     block = report["profiles"]["nominal_m6_n3"]
     assert block["max_gate_speed_error_mps"] is not None
