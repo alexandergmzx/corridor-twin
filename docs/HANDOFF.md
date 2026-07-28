@@ -49,7 +49,10 @@ git log --reverse --format='%h %s' origin/main..origin/audit/reconcile-docs-and-
 | `b5194bf` | Policy correctness | Normalization and validation on both sides of the manifest. The highest-severity behavioural change in the range |
 | `55eb69e` | Coverage reporting | A field that could only ever read false becomes a detector that moves |
 | `dbcf57e` | Supporting tools | Three small independent defects, each with a direct regression |
-| `4567d78` | This handoff | The review record, the rewritten handoff, and a test so its header cannot go stale a third time |
+| `4567d78`, `295e145` | Review record | The disposition log, the rewritten handoff, and a test so its header cannot go stale a third time |
+| `a101b28` | Geometry | Closes R17. Also **narrows the supported `(m, n)` envelope**, which is the change in this range most worth a second opinion |
+| `82b490d` | Instrument correctness | Closes C4. The accuracy report no longer commands with the field the estimator divides by |
+| `cdb6f79` | Evidence | The live run re-recorded on the corrected geometry, plus the runtime subscription capture that closes M2 |
 
 For context, the twelve commits from `a416e47..f992470` already on `main` are
 the demonstration itself — motion, the RViz enforcement view, the one-command
@@ -111,6 +114,15 @@ Against implementation, not prose:
 8. **The staleness test.** `test_handoff_header_matches_the_actual_tree` exists
    because this header went stale twice. Does it actually fail when the header
    drifts?
+9. **The narrowed `(m, n)` envelope.** `a101b28` makes `m = 8.0, n = 3.0` a
+   build error, where it previously succeeded. The argument is that the old
+   build only worked by rendering a half-buried marker, so the capability was
+   illusory. Is that right, and is `m/2 - n < 0.349` the correct bound rather
+   than an artifact of one plate's position?
+10. **Evidence against geometry.** `cdb6f79` re-recorded the live run because
+    `a101b28` changed the scene. Does every figure in the notes match
+    `summary.json`, and does anything still cite the pre-correction run without
+    saying so?
 
 ### 4. Report before continuing
 
@@ -135,6 +147,10 @@ different measurement.
 
 Listed once, with reasons, in [`REVIEW-LOG.md`](REVIEW-LOG.md#known-open--please-do-not-re-raise-as-new).
 Summarised: no canonical static qualification; uncharacterised pose-to-render
-latency; R17 (marker 84 half behind the corner mass on the default profile);
-R11 (no runtime profile reload); the violation's lack of redundancy; live
-coverage limited to one profile at one speed; and C4, C5, L4, M2.
+latency; R11 (no runtime profile reload); the violation's lack of redundancy;
+live coverage limited to one profile at one speed; and C5 and L4.
+
+R17, C4 and M2 were deferred in earlier rounds and are now **closed** —
+see round 3 in the review log. Two of the three were deferred on grounds that
+re-measurement dissolved, which is itself worth knowing before deferring
+anything else.
