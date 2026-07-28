@@ -58,13 +58,13 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Next street, junction, corner mass | Working | Convex collider prims per variant; B and P placed from the wall faces | Drive A through the junction |
 | Continuous delivery trajectory | Working | Position and yaw continuous at both joins; every arc sample in drivable space | Follow it in Isaac |
 | Static physics geometry | Working | Ground/building collider schema tests and Isaac smoke | Exercise motion and collision behavior |
-| Camera-only station/speed estimator | **Working on live Isaac pixels** | All four gates measured in a live run; max speed error 0.0371 m/s at 1.0 m/s truth; one violation at the corner. [Evidence](evidence/live-demo/NOTES.md) | Repeat across the other `(m,n)` profiles |
+| Camera-only station/speed estimator | **Working on live Isaac pixels** | All four gates measured in a live run; max speed error 0.0331 m/s at 1.0 m/s truth; one violation at the corner. [Evidence](evidence/live-demo/NOTES.md) | Repeat across the other `(m,n)` profiles |
 | P occlusion | Working | Conservative arc enclosure over P's full volume, curved-source false-pass regression, 204 composed-mesh rays, and a visible control | Re-run after any geometry/path change |
 | GPU and real-time scene | Conditionally qualified | Hardware gates, headless/visible stage smokes, measured VRAM | Retain Ubuntu fallback because Mint is unsupported |
 | Isaac ROS camera contract | Pixels qualified; **renderer claim invalidated** | 640×360 RGB at 15 Hz; paired calibration; five static dwells pass; mirrored actual capture fails. The run's renderer mode was requested, never read back | Fresh paired requalification with measured renderer state |
 | Corner enforcement coverage | **Confirmed on rendered Isaac pixels** | Height-staggered reference plates carry the pose through the strict zone in a real render; gates 8.0 and 10.0 both measured, so the corner rule is confirmable. [Frame](evidence/live-demo/corner-references.png) | Repeat after any geometry change |
 | Robot delivery motion | **Working** | A completes the 23.851 m route in 23.867 s of simulation time, driven from `/clock`; `reached_end=True` | Measure the pose-to-render latency, which is still uncharacterised |
-| Live end-to-end violation | **Working** | One command runs Isaac → camera → observer → RViz; exactly one violation at station 10.0 m, exceedance 0.194 m/s, 3411 MiB VRAM, one render product | Rehearse the GUI path and the recorded fallback on the presentation machine |
+| Live end-to-end violation | **Working** | One command runs Isaac → camera → observer → RViz; exactly one violation at station 10.0 m, exceedance 0.195 m/s, 3486 MiB VRAM, one render product | Rehearse the GUI path and the recorded fallback on the presentation machine |
 
 ## Evidence boundary
 
@@ -106,7 +106,7 @@ truth is available only to evaluation code.
 | Resolution and rate | 640×360 at 15 Hz | Increase only after live estimator accuracy is measured |
 | Renderer | Real-time `RaytracedLighting` | No interactive path tracing |
 | Sensors | RGB only | No depth, LiDAR, radar, or segmentation in the interview scope |
-| Current one-product GPU memory | 3,411 MiB headless and 3,547 MiB with the viewport, in the live demonstration | Remain below the 14,336 MiB soft ceiling |
+| Current one-product GPU memory | 3,486 MiB headless in the live demonstration on the corrected geometry; the viewport measured +136 MiB before that correction and was not repeated | Remain below the 14,336 MiB soft ceiling |
 | Clock sources | Exactly 1 per time mode | Never run competing `/clock` publishers |
 
 ## Keeping this map current

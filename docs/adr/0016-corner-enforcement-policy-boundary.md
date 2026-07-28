@@ -54,17 +54,25 @@ quantities are not interchangeable.
 
 ## Consequences
 
+> **Correction, 2026-07-27.** The measured figures below cited the live run
+> recorded before the R17 plate relocation in `a101b28`. `cdb6f79` re-recorded
+> that run on the corrected geometry but did not carry the new numbers here.
+> Exceedance 0.194 → 0.195 m/s, gate 8 0.963 → 0.967 m/s, 2σ lower bound
+> 0.935 → 0.941 m/s. The decision, its boundary and its rationale are
+> unchanged; only the evidence citation moved. Following ADR 0014's precedent,
+> the correction is marked rather than applied silently.
+
 - A corner-confined violation is confirmable. Measured live at a constant
   1.0 m/s: compliant at gates 4.0 and 6.0 under the 1.2 m/s tier, over-limit at
-  gates 8.0 and 10.0, exactly one violation with 0.194 m/s exceedance. See the
+  gates 8.0 and 10.0, exactly one violation with 0.195 m/s exceedance. See the
   [live evidence](../evidence/live-demo/NOTES.md).
 - The conservative debounce is unchanged. Widening the zone was chosen
   specifically so the confirmation rule did not have to be weakened.
 - **Two gates is the minimum that satisfies the rule, so there is no spare.**
   Both gate 8.0 and gate 10.0 must be measured and over-limit or the run
   produces no violation at all — a silent absence, not a wrong answer. The
-  margin when they are measured is comfortable (gate 8 read 0.963 m/s against
-  0.80 m/s, 2σ lower bound 0.935 m/s), so the exposure is a missed measurement
+  margin when they are measured is comfortable (gate 8 read 0.967 m/s against
+  0.80 m/s, 2σ lower bound 0.941 m/s), so the exposure is a missed measurement
   rather than a borderline one. Accepted as a documented risk; the mitigation
   is rehearsal, not a second policy move.
 - The compliant stretch of the demonstration shortens. Gates 4.0 and 6.0 remain

@@ -48,8 +48,8 @@ a 0.07 % deviation. Station comes from the simulation clock, never wall time.
 | Property | Value |
 |---|---|
 | Encoding / size | `rgb8`, 640x360 |
-| Images recorded | 317 over a 23.533 s stamp span |
-| Delivered rate | mean 13.47 Hz, max 15.00 Hz, min 5.00 Hz |
+| Images recorded | 317 over a 23.467 s stamp span |
+| Delivered rate | mean 13.47 Hz, max 15.00 Hz, min 3.75 Hz |
 | Intrinsics | fx = fy = 417.032, cx = 320.0, cy = 180.0 |
 | Distortion | `plumb_bob`, all coefficients zero |
 

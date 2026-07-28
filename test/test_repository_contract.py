@@ -1,4 +1,5 @@
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -75,6 +76,55 @@ def test_versioned_evidence_topics_have_provenance() -> None:
         if path.is_dir() and not (path / "NOTES.md").is_file()
     ]
     assert missing == []
+
+
+def test_live_run_headline_figures_match_the_recorded_summary() -> None:
+    """Documents that quote the live run must quote the run that is recorded.
+
+    `cdb6f79` re-recorded the demonstration on the geometry `a101b28` corrected,
+    updating `summary.json` and the notes. Seven citations in five other
+    documents kept the superseded numbers, and the notes disagreed with their
+    own summary on two camera figures. A reader comparing README against the
+    evidence would have found two different runs described as the same one.
+
+    Only the headline figures are pinned -- the ones that appear in prose
+    outside the evidence directory. Rounding to the precision each document
+    uses is deliberate: this checks that the documents track the artifact, not
+    that everyone quotes the same number of decimal places.
+    """
+
+    summary = json.loads(
+        (ROOT / "docs/evidence/live-demo/summary.json").read_text(encoding="utf-8")
+    )
+    worst_error = max(entry["speed_error_mps"] for entry in summary["estimates"])
+    exceedance = summary["violations"][0]["exceedance_mps"]
+
+    superseded = {
+        f"{0.0371:.4f}": f"{worst_error:.4f}",
+        f"{0.194:.3f}": f"{exceedance:.3f}",
+        "3411": "3486",
+        "3,411": "3,486",
+    }
+    citing = [
+        ROOT / "README.md",
+        ROOT / "CLAUDE.md",
+        ROOT / "docs/README.md",
+        ROOT / "docs/DESIGN.md",
+        ROOT / "docs/adr/0016-corner-enforcement-policy-boundary.md",
+    ]
+    stale: list[str] = []
+    for document in citing:
+        content = document.read_text(encoding="utf-8")
+        # An ADR records its corrections in place rather than being rewritten,
+        # so a superseded figure named inside a marked correction note is the
+        # convention working. Only unannotated citations are stale.
+        body = content.split("**Correction,", maxsplit=1)[0]
+        for old_value, current in superseded.items():
+            if old_value in body and old_value != current:
+                stale.append(
+                    f"{document.relative_to(ROOT)} still cites {old_value} (now {current})"
+                )
+    assert stale == [], f"{stale}; re-recorded evidence must reach every document that cites it"
 
 
 def test_evidence_index_lists_every_recorded_topic() -> None:
@@ -159,6 +209,28 @@ def test_handoff_header_matches_the_actual_tree() -> None:
         pytest.skip("detached HEAD; branch name is not meaningful here")
     assert current_branch == branch_match.group(1), (
         f"the handoff names branch {branch_match.group(1)!r} but this is {current_branch!r}"
+    )
+
+
+def test_the_handoff_does_not_hard_code_gate_counts() -> None:
+    """Test counts in the handoff header went stale three times running.
+
+    The first two are recorded as L1. The third survived the round that was
+    fixing L1: the header still read "124 repository tests ... 96 ROS package
+    tests" against an actual 127 and 98, because the staleness test above
+    checks the base commit and the branch name and nothing else on that row.
+
+    A reviewer whose gate run disagrees with the header cannot tell whether
+    they broke something or the header drifted again, which is exactly the
+    friction the log says citing the command was meant to remove. So the
+    numbers are not written down: this fails if they come back.
+    """
+
+    header = (ROOT / "docs/HANDOFF.md").read_text(encoding="utf-8").split("## ", maxsplit=1)[0]
+    counted = re.findall(r"(\d+)\s+(?:repository|ROS package)\s+tests", header)
+    assert counted == [], (
+        f"the handoff header hard-codes test counts {counted}; cite "
+        "`bash tools/check_workspace.sh` and let the reviewer read their own run"
     )
 
 
