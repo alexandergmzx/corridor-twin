@@ -58,6 +58,45 @@ class Violation:
     confirmation_duration_s: float
 
 
+def normalized_speed_rules(rules: object) -> tuple[tuple[float, float], ...]:
+    """Return policy rules as ascending, validated (maximum_width_m, limit_mps).
+
+    ``limit_at`` returns the first rule whose threshold covers the width, which
+    is only correct on a sorted list. Nothing enforced that: the policy travels
+    from YAML through the manifest as an opaque dictionary, so reversing the
+    rules -- a semantically identical set -- silently made every gate 1.5 m/s
+    and deleted the corner rule from the demonstration.
+
+    A piecewise-by-threshold policy has no meaningful order, so the fix is to
+    normalize rather than to reject. What *is* rejected is a set that cannot
+    describe a policy at all: no rules, a repeated threshold (which would make
+    the winning rule depend on input order again), or a non-positive limit.
+    """
+
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("speed policy must define at least one rule")
+    parsed: list[tuple[float, float]] = []
+    for index, rule in enumerate(rules):
+        try:
+            maximum_width = float(rule["maximum_width_m"])
+            limit = float(rule["limit_mps"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                f"speed policy rule {index} needs numeric maximum_width_m and limit_mps"
+            ) from error
+        if not math.isfinite(maximum_width) or maximum_width <= 0.0:
+            raise ValueError(f"speed policy rule {index} has a non-positive maximum_width_m")
+        if not math.isfinite(limit) or limit <= 0.0:
+            raise ValueError(f"speed policy rule {index} has a non-positive limit_mps")
+        parsed.append((maximum_width, limit))
+
+    thresholds = [maximum_width for maximum_width, _ in parsed]
+    duplicates = sorted({value for value in thresholds if thresholds.count(value) > 1})
+    if duplicates:
+        raise ValueError(f"speed policy repeats maximum_width_m {duplicates}")
+    return tuple(sorted(parsed))
+
+
 @dataclass(frozen=True)
 class MarkerMap:
     """Survey and policy read from the generated manifest."""
@@ -106,10 +145,8 @@ class MarkerMap:
             )
         )
         policy = raw["speed_policy"]
-        rules = tuple(
-            (float(rule["maximum_width_m"]), float(rule["limit_mps"])) for rule in policy["rules"]
-        )
-        return cls(
+        rules = normalized_speed_rules(policy.get("rules"))
+        marker_map = cls(
             profile_name=selected,
             marker_corners=marker_corners,
             gate_stations_m=stations,
@@ -123,6 +160,29 @@ class MarkerMap:
                 profile.get("delivery_trajectory", {}).get("approach_heading", (1.0, 0.0))[0]
             ),
         )
+        marker_map.assert_policy_covers_the_corridor()
+        return marker_map
+
+    def assert_policy_covers_the_corridor(self) -> None:
+        """Fail now if any reachable width has no rule, rather than mid-run.
+
+        ``limit_at`` is called from ``_on_frame``, a subscription callback. A
+        policy missing its catch-all built cleanly and then killed the observer
+        partway through a demonstration, which is the worst possible time and
+        place to discover a configuration error. Checking every width the
+        corridor actually presents turns that into a node that refuses to start
+        and says why.
+        """
+
+        widths = {self.entry_width_m, self.corner_width_m}
+        widths.update(self.width_at(station) for station in self.gate_stations_m)
+        widest_rule = self.speed_rules[-1][0] if self.speed_rules else 0.0
+        uncovered = sorted(width for width in widths if width > widest_rule)
+        if uncovered:
+            raise ValueError(
+                f"speed policy does not cover corridor widths {uncovered} on profile "
+                f"{self.profile_name!r}; the widest rule stops at {widest_rule} m"
+            )
 
     def width_at(self, station_m: float) -> float:
         fraction = min(max(station_m / self.corridor_length_m, 0.0), 1.0)

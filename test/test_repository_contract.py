@@ -259,3 +259,63 @@ def test_phase_one_python_has_no_isaac_dependencies() -> None:
                 ):
                     violations.append(str(path.relative_to(ROOT)))
     assert violations == []
+
+
+# Cases the build-side and observer-side policy validators must agree on.
+# corridor_scene cannot import police_observer -- the dependency runs the other
+# way -- so the invariant is implemented twice. This is what stops the two
+# copies drifting apart.
+POLICY_CASES = (
+    ("empty", [], False),
+    ("duplicate threshold", [{"maximum_width_m": 4.0, "limit_mps": 0.8}] * 2, False),
+    ("zero limit", [{"maximum_width_m": 4.0, "limit_mps": 0.0}], False),
+    ("negative width", [{"maximum_width_m": -1.0, "limit_mps": 0.8}], False),
+    ("missing field", [{"maximum_width_m": 4.0}], False),
+    (
+        "valid but scrambled",
+        [
+            {"maximum_width_m": 1000.0, "limit_mps": 1.5},
+            {"maximum_width_m": 4.0, "limit_mps": 0.8},
+            {"maximum_width_m": 5.0, "limit_mps": 1.2},
+        ],
+        True,
+    ),
+)
+
+
+def test_speed_policy_validation_agrees_across_packages() -> None:
+    """One invariant, two implementations, and a test that keeps them equal."""
+
+    import sys
+
+    for package in ("src/police_observer", "src/corridor_scene"):
+        candidate = str(ROOT / package)
+        if candidate not in sys.path:
+            sys.path.insert(0, candidate)
+
+    from dataclasses import replace
+
+    from police_observer.estimator import normalized_speed_rules
+    from scene.model import _validate_speed_policy, load_scenario
+
+    scenario = load_scenario()
+    disagreements = []
+    for name, rules, expected_ok in POLICY_CASES:
+        candidate = replace(scenario, speed_policy={**scenario.speed_policy, "rules": rules})
+
+        try:
+            _validate_speed_policy(candidate)
+            build_ok = True
+        except ValueError:
+            build_ok = False
+        try:
+            normalized_speed_rules(rules)
+            observer_ok = True
+        except ValueError:
+            observer_ok = False
+
+        if not (build_ok == observer_ok == expected_ok):
+            disagreements.append(
+                f"{name}: build={build_ok} observer={observer_ok} expected={expected_ok}"
+            )
+    assert disagreements == []

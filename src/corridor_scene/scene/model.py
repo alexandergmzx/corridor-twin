@@ -247,6 +247,49 @@ def load_scenario(path: Path | None = None) -> Scenario:
     return scenario
 
 
+def _validate_speed_policy(scenario: Scenario) -> None:
+    """Reject a policy that cannot describe a limit for this corridor."""
+
+    rules = scenario.speed_policy.get("rules")
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("speed policy must define at least one rule")
+
+    thresholds: list[float] = []
+    for index, rule in enumerate(rules):
+        try:
+            maximum_width = float(rule["maximum_width_m"])
+            limit = float(rule["limit_mps"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                f"speed policy rule {index} needs numeric maximum_width_m and limit_mps"
+            ) from error
+        if maximum_width <= 0.0:
+            raise ValueError(f"speed policy rule {index} has a non-positive maximum_width_m")
+        if limit <= 0.0:
+            raise ValueError(f"speed policy rule {index} has a non-positive limit_mps")
+        thresholds.append(maximum_width)
+
+    duplicates = sorted({value for value in thresholds if thresholds.count(value) > 1})
+    if duplicates:
+        raise ValueError(f"speed policy repeats maximum_width_m {duplicates}")
+
+    # Every width any authored profile can present must have a rule. The entry
+    # width is the widest point of a tapering corridor, so it bounds the rest.
+    widest_rule = max(thresholds)
+    uncovered = sorted(
+        {
+            profile.entry_width_m
+            for profile in scenario.profiles
+            if profile.entry_width_m > widest_rule
+        }
+    )
+    if uncovered:
+        raise ValueError(
+            f"speed policy does not cover corridor widths {uncovered}; "
+            f"the widest rule stops at {widest_rule} m"
+        )
+
+
 def validate_scenario(scenario: Scenario) -> None:
     """Reject geometry that cannot satisfy the project contract.
 
@@ -259,6 +302,19 @@ def validate_scenario(scenario: Scenario) -> None:
             f"unsupported taper mode {scenario.taper_mode!r}; "
             "the supplied diagram shows a straight north face"
         )
+
+    # The speed policy is the most hand-edited value in this configuration and
+    # it used to be the least protected: it travelled from here to the manifest
+    # to the observer as an opaque dictionary, so a reordered rule list silently
+    # deleted the corner rule and a missing catch-all killed the observer from
+    # inside a subscription callback. Reject both before a manifest exists.
+    #
+    # `police_observer.estimator.normalized_speed_rules` enforces the same
+    # invariant on whatever the observer reads, because a manifest can be edited
+    # after it is built. corridor_scene cannot import that -- the dependency
+    # runs the other way -- so `test_speed_policy_validation_agrees_across_packages`
+    # pins the two against the same cases.
+    _validate_speed_policy(scenario)
     if scenario.corridor_length_m <= 0.0:
         raise ValueError("corridor length must be positive")
     if scenario.wall_thickness_m <= 0.0:
