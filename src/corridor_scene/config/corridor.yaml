@@ -87,7 +87,14 @@ fiducials:
       - {surface: north_wall, along_m: 15.0, height_m: 2.0, size_m: 0.60, cant_deg: 35.0}
       - {surface: north_wall, along_m: 17.0, height_m: 3.1, size_m: 0.60, cant_deg: 35.0}
       - {surface: east_face,  along_m: 1.8,  height_m: 2.6, size_m: 1.00, cant_deg: 0.0}
-      - {surface: east_face,  along_m: 0.0,  height_m: 1.0, size_m: 1.00, cant_deg: 0.0}
+      # The lower east plate must also clear the corner mass, whose north edge
+      # sits at m/2 - n: exactly y = 0.0 on the default profile. Centred there,
+      # half of it was behind the corner building -- invisible to a
+      # projection-only synthetic camera, and half-clipped in a real render.
+      # Moved to 0.75 and shrunk to 0.60 m, which measured strictly better than
+      # the occluded original on every metric: zero occluded frames, and worst
+      # station and speed error both lower across all three profiles.
+      - {surface: east_face,  along_m: 0.75, height_m: 1.0, size_m: 0.60, cant_deg: 0.0}
 
 police:
   # P stands at the corner on the non-drivable side of the corner wall. The

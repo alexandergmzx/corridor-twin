@@ -78,15 +78,36 @@ split exists so a reference plate cannot silently become a phantom gate at
   The east face spans `y` only up to the north wall at `m/2`, so it shortens
   with a narrower entry width; the plate backing, `9/7` the code size, is what
   overhangs first.
-- The declared support floor is `m >= 5.0`. The configured plates admit any
-  entry width down to `m = 4.886`.
-- **Open:** on `nominal_m6_n3` the corner mass's north edge sits at exactly
-  `y = 0.0`, which is `m/2 - n`, and marker 84's backing spans `y ∈ (-0.643,
-  +0.643)`. Half that plate is behind the corner building. The projection-only
-  synthetic camera renders it whole, so the defect is invisible there; a
-  composed-stage raycast flags 59 of 164 accepted frames on the approach. The
-  live run measured all four gates regardless, so the cost is one of five
-  reference plates rather than corner coverage. Tracked as R17.
+- Reference placement bounds the supported `(m, n)` envelope from both sides,
+  and both bounds are checked per resolved profile:
+
+  | Bound | Rule | Why |
+  |---|---|---|
+  | Entry width floor | `m >= 4.886`, declared as `m >= 5.0` | The east face spans `y` only up to `m/2`, so a narrow corridor shortens it until the upper plate overhangs |
+  | Corner mass clearance | `m/2 - n < 0.349` | The corner mass reaches north to `m/2 - n`; past that it walls off the part of the east face the lower plate is mounted on |
+
+  At `n = 3.0` the second bound puts the entry width under 6.70 m. `m = 8.0`
+  with `n = 3.0` is therefore refused: that geometry leaves no visible east
+  face for a reference to sit on.
+
+- The lower east-face plate must clear the corner mass, not merely sit on the
+  wall. It was originally centred at `along_m: 0.0`, and on the default profile
+  the corner mass's north edge is at exactly `y = 0.0` — so half the plate was
+  behind the corner building. `SyntheticCamera` projects without raycasting and
+  rendered it whole, which is why synthetic runs looked clean while a
+  composed-stage raycast flagged 59 of 164 accepted frames on the approach.
+
+  Moved to `along_m: 0.75` at 0.60 m, which measured **strictly better** than
+  the occluded original on every metric: zero occluded frames, and lower worst
+  station error (0.0817 m against 0.0845) and worst gate-derived speed error
+  (0.0530 m/s against 0.0559) across all three profiles.
+
+  Note for anyone re-measuring this: an earlier attempt to relocate the plate
+  appeared to cost gate 8.0 at 0.6 m/s. That was not a placement problem. It was
+  the continuity guard treating noise-level backward station steps as pose
+  jumps, since at 0.6 m/s the per-frame advance is below the station noise.
+  With that corrected, every occlusion-free placement holds all four gates on
+  all three profiles.
 
 ## Alternatives rejected
 

@@ -485,6 +485,23 @@ def validate_layout(scenario: Scenario, profile: CorridorProfile) -> None:
                 f"[{reach_low:.4f}, {reach_high:.4f}] and leaves the {span}, which spans "
                 f"[{low:.4f}, {high:.4f}]"
             )
+        if spec.surface != "east_face":
+            continue
+        # Being *on* the east face is not enough: it also has to be visible
+        # through the corridor mouth. The corner mass reaches north to the south
+        # face at x = L, so anything south of that line is behind it from every
+        # position inside the corridor -- both faces are straight, so the mouth
+        # is the only binding plane. This is profile-dependent in the sharpest
+        # way available, because the edge sits at m/2 - n: on the default
+        # profile it is exactly y = 0.0. A plate centred there renders complete
+        # in a projection-only camera while a real view of it is cut in half.
+        _, corner_south_face = corridor_faces(profile, length, length)
+        if reach_low < corner_south_face + MARKER_WALL_CLEARANCE_M:
+            raise ValueError(
+                f"profile {profile.name}: reference marker {survey.marker_id} reaches south to "
+                f"y={reach_low:.4f} and is behind the corner mass, whose north edge is at "
+                f"y={corner_south_face:.4f}"
+            )
 
     # B must stand in the authored next street.
     bx, by, _ = person_b_xyz(scenario)

@@ -182,7 +182,7 @@ def test_requested_dimensions_become_selected_variant(tmp_path: Path) -> None:
     assert manifest["selected_profile"] == variants.GetVariantSelection()
 
 
-@pytest.mark.parametrize(("m", "n"), [(6.0, 3.0), (5.5, 3.2), (5.0, 3.0), (8.0, 3.0)])
+@pytest.mark.parametrize(("m", "n"), [(6.0, 3.0), (5.5, 3.2), (5.0, 3.0), (8.0, 4.5)])
 def test_reference_backings_stay_inside_their_host_face(tmp_path: Path, m: float, n: float) -> None:
     """A requested profile must not mount a plate off the end of its wall.
 
@@ -191,8 +191,10 @@ def test_reference_backings_stay_inside_their_host_face(tmp_path: Path, m: float
     widest *configured* profile before ``build`` had even appended the
     requested one. At m = 5.5 that admitted marker 83's backing at y = 2.8429
     against an east face ending at y = 2.75 — 0.09 m inside the adjoining
-    building. m = 5.0 is the declared support floor and 8.0 is wider than any
-    configured profile, so both ends of the range are exercised here.
+    building. m = 5.0 is the declared support floor and m = 8.0 is wider than
+    any configured profile, so both ends of the range are exercised here. That
+    wide case pairs with n = 4.5: with a narrow corner the corner mass reaches
+    north over the east face, which the separate envelope test below covers.
     """
 
     stage_path, manifest_path = build_scene(None, tmp_path / f"m{m}.usda", m, n)
@@ -230,6 +232,68 @@ def test_a_profile_too_narrow_for_its_reference_plates_is_rejected(tmp_path: Pat
 
     with pytest.raises(ValueError, match="leaves the east face"):
         build_scene(None, tmp_path / "narrow.usda", 4.0, 3.0)
+
+
+def test_east_face_plates_must_clear_the_corner_mass(tmp_path: Path) -> None:
+    """Being on the east face is not enough; it must be visible from the corridor.
+
+    The corner mass reaches north to the south face at x = L, which is
+    ``m/2 - n`` -- exactly y = 0.0 on the default profile. Marker 84 was
+    centred there, so half of it sat behind the corner building. SyntheticCamera
+    projects without raycasting and rendered it whole, so the defect was
+    invisible in synthetic runs while a real render would show it cut in half.
+
+    Both corridor faces are straight, so the mouth at x = L is the only binding
+    plane and a single comparison decides it.
+    """
+
+    scenario = load_scenario()
+    profile = scenario.profile("nominal_m6_n3")
+    length = scenario.corridor_length_m
+    _, corner_south_face = corridor_faces(profile, length, length)
+    assert corner_south_face == pytest.approx(0.0), "the default profile is the sharpest case"
+
+    stage_path, manifest_path = build_scene(None, tmp_path / "corridor.usda", 6.0, 3.0)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    stage = Usd.Stage.Open(str(stage_path))
+    variants = _variants(stage)
+
+    for name, block in manifest["profiles"].items():
+        assert variants.SetVariantSelection(name)
+        this_profile = scenario.profile(name)
+        _, edge = corridor_faces(
+            this_profile, scenario.corridor_length_m, scenario.corridor_length_m
+        )
+        for marker in block["markers"]:
+            if marker["side"] != "east_face":
+                continue
+            backing = UsdGeom.Mesh(
+                stage.GetPrimAtPath(
+                    f"/World/Environment/Corridor/Fiducials/Marker_{marker['id']:03d}_Backing"
+                )
+            )
+            points = np.asarray(backing.GetPointsAttr().Get(), dtype=np.float64)
+            assert points[:, 1].min() > edge, (
+                f"{name}: marker {marker['id']} reaches y={points[:, 1].min():.4f}, "
+                f"behind the corner mass at y={edge:.4f}"
+            )
+
+
+def test_a_profile_whose_corner_mass_swallows_the_east_face_is_rejected(tmp_path: Path) -> None:
+    """The supported (m, n) envelope is bounded, and the bound is real geometry.
+
+    The corner mass reaches north to ``m/2 - n``, so a wide entry with a narrow
+    corner walls off the part of the east face the references are mounted on.
+    Configured plates admit ``m/2 - n < 0.349``; ``m = 8.0`` with ``n = 3.0``
+    puts that edge at y = 1.0 and is refused. Before this check the same build
+    succeeded and simply rendered a half-buried marker.
+    """
+
+    with pytest.raises(ValueError, match="behind the corner mass"):
+        build_scene(None, tmp_path / "swallowed.usda", 8.0, 3.0)
+
+    # Just inside the envelope still builds, so this is a bound and not a wall.
+    build_scene(None, tmp_path / "edge.usda", 6.5, 3.0)
 
 
 def test_output_is_readable_usda_and_has_marker_assets(generated: tuple[Path, Path]) -> None:
