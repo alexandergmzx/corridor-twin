@@ -341,14 +341,35 @@ def reference_surveys(scenario: Scenario, profile: CorridorProfile) -> tuple[Mar
     """
 
     references = scenario.fiducials.references
-    north_face, _ = corridor_faces(profile, 0.0, scenario.corridor_length_m)
+    length = scenario.corridor_length_m
+    north_face, _ = corridor_faces(profile, 0.0, length)
+    # The strip of east face visible through the corridor mouth runs from the
+    # corner mass's north edge up to the north wall, so it is `n` tall and its
+    # *position* shifts north with m/2 - n while its height does not depend on
+    # m at all. An absolute `along_m` therefore falls out of the band on a wide
+    # entry with a narrow corner even though the band is the same size, which
+    # made m = 8.0, n = 3.0 unbuildable for no geometric reason.
+    #
+    # Clamping to the band floor rather than re-anchoring to it is what keeps
+    # the configured profiles fixed: their floors all sit below the configured
+    # coordinate, two of them negative, so nothing already measured moves.
+    _, corner_south_face = corridor_faces(profile, length, length)
     surveys: list[MarkerSurvey] = []
     for index, spec in enumerate(references.plates):
         if spec.surface == "north_wall":
             anchor = (spec.along_m, north_face, spec.height_m)
             wall_normal_xy = (0.0, -1.0)
         elif spec.surface == "east_face":
-            anchor = (scenario.street_east_m, spec.along_m, spec.height_m)
+            # Two clearances, not one. `validate_layout` requires the backing to
+            # clear the corner mass by one; a clamp that lands exactly on that
+            # threshold leaves the outcome to floating-point rounding, which is
+            # not a thing to decide whether a scene builds.
+            band_floor = (
+                corner_south_face
+                + spec.size_m / 2.0 * MARKER_BACKING_SCALE
+                + 2.0 * MARKER_WALL_CLEARANCE_M
+            )
+            anchor = (scenario.street_east_m, max(spec.along_m, band_floor), spec.height_m)
             wall_normal_xy = (-1.0, 0.0)
         else:
             raise ValueError(f"unknown reference surface {spec.surface!r}")

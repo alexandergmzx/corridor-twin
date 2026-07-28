@@ -16,9 +16,7 @@ from scene.geometry import (
     MARKER_WALL_CLEARANCE_M,
     corridor_faces,
     is_clear,
-    plate_backing_corners,
     police_bounds,
-    reference_surveys,
 )
 from scene.model import CorridorProfile, load_scenario
 from scene.occlusion import _mesh_triangles, _segment_hits_triangle, opaque_mesh_prims, verify
@@ -281,56 +279,57 @@ def test_east_face_plates_must_clear_the_corner_mass(tmp_path: Path) -> None:
             )
 
 
-def test_a_profile_that_shifts_the_band_past_the_lower_plate_is_rejected(tmp_path: Path) -> None:
-    """The supported (m, n) envelope is bounded by the plates as configured.
+def test_east_face_plates_follow_the_visible_band(tmp_path: Path) -> None:
+    """A plate's absolute coordinate must not decide whether a profile builds.
 
-    The corner mass reaches north to ``m/2 - n``, so a wide entry with a narrow
-    corner shifts the usable strip of east face north, away from a plate whose
-    ``along_m`` is an absolute coordinate. Configured plates admit
-    ``m/2 - n < 0.349``; ``m = 8.0`` with ``n = 3.0`` puts that edge at y = 1.0
-    and is refused. Before this check the same build succeeded and simply
-    rendered a half-buried marker, which is the R17 defect.
+    The corner mass reaches north to ``m/2 - n``, so the usable strip of east
+    face *shifts* north with a wide entry and a narrow corner. Its height is
+    ``n`` regardless of ``m`` -- the band is the same size, just somewhere else
+    -- so a plate whose ``along_m`` is absolute falls out of a band that could
+    hold it perfectly well. That is what made ``m = 8.0, n = 3.0`` unbuildable,
+    and it was a property of one hard-coded number rather than of the geometry.
 
-    What the bound is *not* is a claim that such geometry has no visible east
-    face. The band runs from ``m/2 - n`` to ``m/2``, so its height is ``n``
-    regardless of ``m``: at ``m = 8.0, n = 3.0`` it is 2.985 m tall and the
-    upper plate at ``along_m: 1.8`` sits inside it happily. The assertion below
-    pins that, so anyone who widens the envelope by making plate positions
-    relative has a statement of what was actually blocking it. See the
-    correction note in ADR 0015.
+    Placement now clamps to the band floor. This test pins both halves of that:
+    the arithmetic that says the band is ``n`` tall, and the clamp acting only
+    when the floor rises above the configured coordinate.
     """
 
-    with pytest.raises(ValueError, match="behind the corner mass"):
-        build_scene(None, tmp_path / "swallowed.usda", 8.0, 3.0)
-
-    # Just inside the envelope still builds, so this is a bound and not a wall.
-    build_scene(None, tmp_path / "edge.usda", 6.5, 3.0)
-
-    # The refusal is about one plate's fixed coordinate, not about the face
-    # running out. Only the lower plate leaves the band at m = 8.0, n = 3.0.
-    profile = CorridorProfile(name="wide_entry", entry_width_m=8.0, corner_width_m=3.0)
     scenario = load_scenario()
     length = scenario.corridor_length_m
-    _, corner_edge = corridor_faces(profile, length, length)
-    band_floor = corner_edge + MARKER_WALL_CLEARANCE_M
-    band_ceiling = profile.entry_width_m / 2.0
-    assert band_ceiling - band_floor == pytest.approx(profile.corner_width_m - 0.015)
 
-    outside = []
-    for survey, spec in zip(
-        reference_surveys(scenario, profile),
-        scenario.fiducials.references.plates,
-        strict=True,
-    ):
-        if spec.surface != "east_face":
-            continue
-        backing = plate_backing_corners(survey.corners_xyz_m, survey.normal_xyz)
-        reach_low = min(point[1] for point in backing)
-        if reach_low < band_floor or max(point[1] for point in backing) > band_ceiling:
-            outside.append(spec.along_m)
-    assert outside == [0.75], (
-        f"only the lower plate should leave the band at m=8.0, n=3.0; got {outside}"
-    )
+    # The band is n tall wherever it sits, which is why the old refusal could
+    # not have been about running out of face.
+    for entry, corner in ((6.0, 3.0), (8.0, 3.0), (10.0, 3.0)):
+        profile = CorridorProfile(name="probe", entry_width_m=entry, corner_width_m=corner)
+        _, corner_edge = corridor_faces(profile, length, length)
+        assert profile.entry_width_m / 2.0 - corner_edge == pytest.approx(corner)
+
+    # m = 8.0, n = 3.0 was refused before the clamp and builds now.
+    stage_path, manifest_path = build_scene(None, tmp_path / "wide_entry.usda", 8.0, 3.0)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    block = manifest["profiles"]["requested_m8_n3"]
+    profile = CorridorProfile(name="requested_m8_n3", entry_width_m=8.0, corner_width_m=3.0)
+    _, corner_edge = corridor_faces(profile, length, length)
+
+    stage = Usd.Stage.Open(str(stage_path))
+    variants = _variants(stage)
+    assert variants.SetVariantSelection("requested_m8_n3")
+    east = [marker for marker in block["markers"] if marker["side"] == "east_face"]
+    assert east, "the wide profile must still carry its east-face references"
+    for marker in east:
+        backing = UsdGeom.Mesh(
+            stage.GetPrimAtPath(
+                f"/World/Environment/Corridor/Fiducials/Marker_{marker['id']:03d}_Backing"
+            )
+        )
+        points = np.asarray(backing.GetPointsAttr().Get(), dtype=np.float64)
+        assert points[:, 1].min() > corner_edge, "clamped plate is still behind the corner mass"
+        assert points[:, 1].max() < profile.entry_width_m / 2.0, "clamped plate ran off the top"
+
+    # The clamp is a floor, not a free pass: a band too short for the plate is
+    # still refused rather than squeezed in.
+    with pytest.raises(ValueError, match="leaves the east face"):
+        build_scene(None, tmp_path / "too_short.usda", 6.0, 1.0)
 
 
 def test_output_is_readable_usda_and_has_marker_assets(generated: tuple[Path, Path]) -> None:
@@ -719,3 +718,39 @@ def test_generated_manifests_declare_the_new_schema(generated: tuple[Path, Path]
     _, manifest_path = generated
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["schema_version"] == "0.3.0"
+
+
+# Captured from the build immediately before east-face placement began clamping
+# to the visible band. The clamp was only safe to make because it provably moves
+# no profile that has published accuracy figures; this is that proof, and it
+# fails loudly if a future placement change quietly invalidates a measured run.
+EAST_FACE_SURVEY_BEFORE_BAND_CLAMP = {
+    "83": (17.983, 2.3, 2.1),
+    "84": (17.983, 1.05, 0.7),
+}
+
+
+def test_the_band_clamp_moved_no_configured_profile(generated: tuple[Path, Path]) -> None:
+    """Every profile carrying a measured figure must be untouched by the clamp.
+
+    The three configured profiles all have entry width 6.0, so their band floors
+    sit below the configured coordinate -- two of them negative -- and the clamp
+    does not bind. That is what let the envelope widen without owing a
+    re-measurement of the live run or the synthetic report.
+    """
+
+    _, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    checked = 0
+    for name, block in manifest["profiles"].items():
+        for marker in block["markers"]:
+            if marker["side"] != "east_face":
+                continue
+            expected = EAST_FACE_SURVEY_BEFORE_BAND_CLAMP[str(marker["id"])]
+            first_corner = tuple(round(value, 6) for value in marker["corners_xyz_m"][0])
+            assert first_corner == pytest.approx(expected, abs=1e-6), (
+                f"{name}: marker {marker['id']} moved to {first_corner}; a configured "
+                "profile shifting invalidates its published accuracy figures"
+            )
+            checked += 1
+    assert checked == len(manifest["profiles"]) * len(EAST_FACE_SURVEY_BEFORE_BAND_CLAMP)
