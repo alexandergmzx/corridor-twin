@@ -153,10 +153,10 @@ unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 
 ## Current handoff: the demonstration runs; requalify the static gate next
 
-Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first. It records the commit range,
-the current 123-repository (plus one skipped without the colcon-generated
-interfaces) and 96-package test result, the open findings, and the limits that
-are not yet closed.
+Read [`docs/REVIEW-LOG.md`](docs/REVIEW-LOG.md) first. It records every finding
+raised so far and how each was dispositioned, including the ones deliberately
+left open. Read the gate counts off your own `bash tools/check_workspace.sh`
+run; written-down counts have gone stale three times.
 
 **The demonstration works end to end.** `bash tools/run_demo.sh` drives A along
 the authored route in Isaac Sim while the camera-only observer measures its
@@ -220,8 +220,9 @@ Two limits remain open and must not be claimed closed:
 
 ### Independent-review handoff
 
-`docs/HANDOFF.md` is the operative checklist: it names the branch, the range,
-and what to challenge in it.
+The open pull request is the operative checklist: it names the range and what to
+challenge in it. A branch under review carries its audit checklist in its own
+pull-request body, not in a tracked document that goes stale between rounds.
 
 Read [`docs/REVIEW-LOG.md`](docs/REVIEW-LOG.md) **before raising a finding.**
 Two audit rounds have already run. Three findings were resolved differently from

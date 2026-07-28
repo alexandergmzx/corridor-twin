@@ -6,8 +6,8 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.4.1 |
-| Last updated | 2026-07-27 |
+| Map version | 1.4.2 |
+| Last updated | 2026-07-28 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Current milestone | Live camera-only demonstration working end to end; static renderer claim still invalidated, so no canonical static qualification exists |
 | Next milestone | Paired static requalification, then pose-to-render latency |
@@ -18,7 +18,7 @@ increments without requiring a reader to reconstruct status from commit history.
 |---|---|---:|
 | The scenario as supplied | [Source task and diagram](ROBO_TASK.pdf) | 2 minutes |
 | What exists and what comes next | This page | 3 minutes |
-| What the incoming reviewer must verify | [Current handoff](HANDOFF.md) | 6 minutes |
+| What earlier reviews found, and how each was dispositioned | [Review log](REVIEW-LOG.md) | 6 minutes |
 | Why the system is divided this way | [System design](DESIGN.md) | 8 minutes |
 | Exactly what P may consume | [Sensor-feed contract](SENSOR-FEED.md) | 6 minutes |
 | Whether the workstation is demo-ready | [Activation record](ACTIVATION.md) | 5 minutes |

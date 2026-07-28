@@ -13,7 +13,6 @@ def test_required_documents_exist() -> None:
         "docs/DESIGN.md",
         "docs/DEVELOPMENT.md",
         "docs/SENSOR-FEED.md",
-        "docs/HANDOFF.md",
         "docs/REVIEW-LOG.md",
         "docs/evidence/README.md",
         "docs/adr/README.md",
@@ -53,7 +52,6 @@ def test_visual_documentation_local_links_resolve() -> None:
         ROOT / "docs/DEVELOPMENT.md",
         ROOT / "docs/evidence/README.md",
         ROOT / "docs/adr/README.md",
-        ROOT / "docs/HANDOFF.md",
         ROOT / "docs/REVIEW-LOG.md",
     ]
     missing: list[str] = []
@@ -148,95 +146,6 @@ def test_evidence_index_lists_every_recorded_topic() -> None:
         if path.is_dir() and f"{path.name}/NOTES.md" not in index
     ]
     assert unlisted == [], f"add these to docs/evidence/README.md: {unlisted}"
-
-
-def _git(*arguments: str) -> str | None:
-    """Run a git command, or return None when git metadata is unavailable."""
-
-    import subprocess
-
-    try:
-        completed = subprocess.run(
-            ["git", "-C", str(ROOT), *arguments],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except (subprocess.CalledProcessError, OSError):
-        return None
-    return completed.stdout.strip()
-
-
-def test_handoff_header_matches_the_actual_tree() -> None:
-    """The handoff header has gone stale twice, and both audits caught it.
-
-    Once it named a base that had moved on; once it claimed everything was
-    pushed while six commits sat unpushed on a branch. Prose that duplicates git
-    state drifts faster than anyone maintains it, so this checks it instead of
-    relying on care.
-
-    Skips rather than fails when git metadata is missing, so a shallow clone or
-    an exported tarball does not break the gate spuriously.
-    """
-
-    import pytest
-
-    handoff = (ROOT / "docs/HANDOFF.md").read_text(encoding="utf-8")
-
-    base_match = re.search(r"\| Published base \| `([0-9a-f]{7,40})`", handoff)
-    branch_match = re.search(r"\| Branch under review \| `([^`]+)`", handoff)
-    assert base_match, "the handoff must name its published base commit"
-    assert branch_match, "the handoff must name the branch under review"
-
-    if _git("rev-parse", "--git-dir") is None:
-        pytest.skip("no git metadata available")
-
-    base = base_match.group(1)
-    if _git("cat-file", "-e", f"{base}^{{commit}}") is None:
-        pytest.skip(f"commit {base} is not present in this clone")
-
-    # Ancestry alone is too weak: any older commit on main is an ancestor, so a
-    # base left behind by several cycles would still pass. "Published base"
-    # means the tip of origin/main, so compare against that.
-    published = _git("rev-parse", "origin/main")
-    if published is None:
-        pytest.skip("origin/main is not available in this clone")
-    named = _git("rev-parse", f"{base}^{{commit}}")
-    assert named == published, (
-        f"the handoff names published base {base}, but origin/main is at {published[:7]}"
-    )
-    assert _git("merge-base", "--is-ancestor", base, "HEAD") is not None, (
-        f"the handoff names published base {base}, which is not an ancestor of HEAD"
-    )
-
-    current_branch = _git("rev-parse", "--abbrev-ref", "HEAD")
-    if current_branch in (None, "HEAD"):  # detached checkout, as CI often uses
-        pytest.skip("detached HEAD; branch name is not meaningful here")
-    assert current_branch == branch_match.group(1), (
-        f"the handoff names branch {branch_match.group(1)!r} but this is {current_branch!r}"
-    )
-
-
-def test_the_handoff_does_not_hard_code_gate_counts() -> None:
-    """Test counts in the handoff header went stale three times running.
-
-    The first two are recorded as L1. The third survived the round that was
-    fixing L1: the header still read "124 repository tests ... 96 ROS package
-    tests" against an actual 127 and 98, because the staleness test above
-    checks the base commit and the branch name and nothing else on that row.
-
-    A reviewer whose gate run disagrees with the header cannot tell whether
-    they broke something or the header drifted again, which is exactly the
-    friction the log says citing the command was meant to remove. So the
-    numbers are not written down: this fails if they come back.
-    """
-
-    header = (ROOT / "docs/HANDOFF.md").read_text(encoding="utf-8").split("## ", maxsplit=1)[0]
-    counted = re.findall(r"(\d+)\s+(?:repository|ROS package)\s+tests", header)
-    assert counted == [], (
-        f"the handoff header hard-codes test counts {counted}; cite "
-        "`bash tools/check_workspace.sh` and let the reviewer read their own run"
-    )
 
 
 def test_interface_definitions_exist() -> None:
