@@ -220,8 +220,17 @@ Two limits remain open and must not be claimed closed:
 
 ### Independent-review handoff
 
-The current incoming reviewer is Claude. `docs/HANDOFF.md` is the operative
-checklist. Do not squash or rewrite history for this handoff. Report:
+`docs/HANDOFF.md` is the operative checklist: it names the branch, the range,
+and what to challenge in it.
+
+Read [`docs/REVIEW-LOG.md`](docs/REVIEW-LOG.md) **before raising a finding.**
+Two audit rounds have already run. Three findings were resolved differently from
+what the audit prescribed — in one case the prescribed fix would have broken the
+build — and several items are open deliberately, each with a recorded reason.
+Disagreeing with a disposition there is welcome; re-deriving one wastes the
+round.
+
+Do not squash or rewrite history for this handoff. Report:
 
 1. every new commit hash and subject, in order;
 2. files changed and any deviation from the milestone order above;
