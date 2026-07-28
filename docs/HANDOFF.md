@@ -6,7 +6,7 @@
 | Prepared | 2026-07-27 |
 | Branch under review | `audit/reconcile-docs-and-decisions` |
 | Published base | `f992470` on `origin/main` |
-| Range to audit | `origin/main..origin/audit/reconcile-docs-and-decisions`, six commits |
+| Range to audit | `origin/main..origin/audit/reconcile-docs-and-decisions` — enumerate it, do not trust a count written here |
 | `main` | Untouched at `f992470` until this review passes |
 | Portable gate | `bash tools/check_workspace.sh`. Last clean run 2026-07-27: ruff pass, 124 repository tests plus 1 skipped without the colcon-generated interfaces, 3 packages built, 96 ROS package tests |
 
@@ -49,6 +49,7 @@ git log --reverse --format='%h %s' origin/main..origin/audit/reconcile-docs-and-
 | `b5194bf` | Policy correctness | Normalization and validation on both sides of the manifest. The highest-severity behavioural change in the range |
 | `55eb69e` | Coverage reporting | A field that could only ever read false becomes a detector that moves |
 | `dbcf57e` | Supporting tools | Three small independent defects, each with a direct regression |
+| `4567d78` | This handoff | The review record, the rewritten handoff, and a test so its header cannot go stale a third time |
 
 For context, the twelve commits from `a416e47..f992470` already on `main` are
 the demonstration itself — motion, the RViz enforcement view, the one-command
