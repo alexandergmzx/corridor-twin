@@ -84,11 +84,31 @@ split exists so a reference plate cannot silently become a phantom gate at
   | Bound | Rule | Why |
   |---|---|---|
   | Entry width floor | `m >= 4.886`, declared as `m >= 5.0` | The east face spans `y` only up to `m/2`, so a narrow corridor shortens it until the upper plate overhangs |
-  | Corner mass clearance | `m/2 - n < 0.349` | The corner mass reaches north to `m/2 - n`; past that it walls off the part of the east face the lower plate is mounted on |
+  | Corner mass clearance | `m/2 - n < 0.349` | The corner mass reaches north to `m/2 - n`; past that it walls off the strip of east face the lower plate *as configured* is mounted on |
 
-  At `n = 3.0` the second bound puts the entry width under 6.70 m. `m = 8.0`
-  with `n = 3.0` is therefore refused: that geometry leaves no visible east
-  face for a reference to sit on.
+  At `n = 3.0` the second bound puts the entry width under 6.70 m, so `m = 8.0`
+  with `n = 3.0` is refused.
+
+  > **Correction, 2026-07-27.** This section first justified that refusal by
+  > saying the geometry "leaves no visible east face for a reference to sit
+  > on". That is not what the geometry says, and review measured it: the
+  > usable band runs from `m/2 - n` up to `m/2`, so its height is `n` and does
+  > not depend on `m` at all. At `m = 8.0, n = 3.0` the band is 2.985 m tall —
+  > the same height as on the default profile — and the *upper* east plate at
+  > `along_m: 1.8` sits inside it and validates. Only the lower plate fails,
+  > because `along_m: 0.75` is an absolute coordinate while the band's
+  > position shifts with `m/2 - n`.
+  >
+  > So `0.349` is a real bound on the configuration as authored, and the
+  > validator that enforces it is correct — a plate half inside a building is
+  > exactly the defect R17 was. But it is a property of one hard-coded plate
+  > coordinate, not of the scenario, and the capability loss is avoidable:
+  > expressing the reference plates relative to the resolved band rather than
+  > in absolute metres would restore `m = 8.0, n = 3.0` without weakening the
+  > check. That is deferred rather than done here, because moving a plate
+  > changes the measured accuracy figures and needs the re-measurement
+  > `a101b28` ran, not a documentation edit. The decision to add reference
+  > fiducials and to validate their placement is unchanged.
 
 - The lower east-face plate must clear the corner mass, not merely sit on the
   wall. It was originally centred at `along_m: 0.0`, and on the default profile

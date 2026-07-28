@@ -16,9 +16,11 @@ from scene.geometry import (
     MARKER_WALL_CLEARANCE_M,
     corridor_faces,
     is_clear,
+    plate_backing_corners,
     police_bounds,
+    reference_surveys,
 )
-from scene.model import load_scenario
+from scene.model import CorridorProfile, load_scenario
 from scene.occlusion import _mesh_triangles, _segment_hits_triangle, opaque_mesh_prims, verify
 from scene.trajectory import delivery_trajectory
 
@@ -279,14 +281,23 @@ def test_east_face_plates_must_clear_the_corner_mass(tmp_path: Path) -> None:
             )
 
 
-def test_a_profile_whose_corner_mass_swallows_the_east_face_is_rejected(tmp_path: Path) -> None:
-    """The supported (m, n) envelope is bounded, and the bound is real geometry.
+def test_a_profile_that_shifts_the_band_past_the_lower_plate_is_rejected(tmp_path: Path) -> None:
+    """The supported (m, n) envelope is bounded by the plates as configured.
 
     The corner mass reaches north to ``m/2 - n``, so a wide entry with a narrow
-    corner walls off the part of the east face the references are mounted on.
-    Configured plates admit ``m/2 - n < 0.349``; ``m = 8.0`` with ``n = 3.0``
-    puts that edge at y = 1.0 and is refused. Before this check the same build
-    succeeded and simply rendered a half-buried marker.
+    corner shifts the usable strip of east face north, away from a plate whose
+    ``along_m`` is an absolute coordinate. Configured plates admit
+    ``m/2 - n < 0.349``; ``m = 8.0`` with ``n = 3.0`` puts that edge at y = 1.0
+    and is refused. Before this check the same build succeeded and simply
+    rendered a half-buried marker, which is the R17 defect.
+
+    What the bound is *not* is a claim that such geometry has no visible east
+    face. The band runs from ``m/2 - n`` to ``m/2``, so its height is ``n``
+    regardless of ``m``: at ``m = 8.0, n = 3.0`` it is 2.985 m tall and the
+    upper plate at ``along_m: 1.8`` sits inside it happily. The assertion below
+    pins that, so anyone who widens the envelope by making plate positions
+    relative has a statement of what was actually blocking it. See the
+    correction note in ADR 0015.
     """
 
     with pytest.raises(ValueError, match="behind the corner mass"):
@@ -294,6 +305,32 @@ def test_a_profile_whose_corner_mass_swallows_the_east_face_is_rejected(tmp_path
 
     # Just inside the envelope still builds, so this is a bound and not a wall.
     build_scene(None, tmp_path / "edge.usda", 6.5, 3.0)
+
+    # The refusal is about one plate's fixed coordinate, not about the face
+    # running out. Only the lower plate leaves the band at m = 8.0, n = 3.0.
+    profile = CorridorProfile(name="wide_entry", entry_width_m=8.0, corner_width_m=3.0)
+    scenario = load_scenario()
+    length = scenario.corridor_length_m
+    _, corner_edge = corridor_faces(profile, length, length)
+    band_floor = corner_edge + MARKER_WALL_CLEARANCE_M
+    band_ceiling = profile.entry_width_m / 2.0
+    assert band_ceiling - band_floor == pytest.approx(profile.corner_width_m - 0.015)
+
+    outside = []
+    for survey, spec in zip(
+        reference_surveys(scenario, profile),
+        scenario.fiducials.references.plates,
+        strict=True,
+    ):
+        if spec.surface != "east_face":
+            continue
+        backing = plate_backing_corners(survey.corners_xyz_m, survey.normal_xyz)
+        reach_low = min(point[1] for point in backing)
+        if reach_low < band_floor or max(point[1] for point in backing) > band_ceiling:
+            outside.append(spec.along_m)
+    assert outside == [0.75], (
+        f"only the lower plate should leave the band at m=8.0, n=3.0; got {outside}"
+    )
 
 
 def test_output_is_readable_usda_and_has_marker_assets(generated: tuple[Path, Path]) -> None:
