@@ -14,6 +14,25 @@ from isaac_gpu import gpu_memory_snapshot
 from isaacsim import SimulationApp
 
 
+def _manifest_walls(stage_path: Path) -> set[str]:
+    """Return every wall the manifest declares for the selected profile.
+
+    The smoke test used to hardcode four building names in two places. When
+    ADR 0018 added the east-wall stub those lists did not fail -- they silently
+    stopped covering it, which is the failure mode a hardcoded enumeration
+    always has. Reading the manifest means a new wall is checked the moment it
+    is authored.
+    """
+
+    import json
+
+    manifest = json.loads(
+        stage_path.with_suffix(".manifest.json").read_text(encoding="utf-8")
+    )
+    profile = manifest["profiles"][manifest["selected_profile"]]
+    return set(profile["walls"])
+
+
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", type=Path)
@@ -72,13 +91,14 @@ def main() -> int:
             app.update()
         print("ISAAC_SMOKE_UPDATED", f"updates={args.updates}", flush=True)
 
+        # Derived from the manifest rather than listed here. Two hardcoded
+        # tuples used to enumerate four buildings; when ADR 0018 added the
+        # east-wall stub they did not fail, they silently stopped covering it.
+        wall_names = sorted(_manifest_walls(stage_path))
         required = (
             "/World/PhysicsScene",
             "/World/Environment/Ground",
-            "/World/Environment/Corridor/NorthBuilding",
-            "/World/Environment/Corridor/SouthBuilding",
-            "/World/Environment/Corridor/CornerBuilding",
-            "/World/Environment/Corridor/EastBuilding",
+            *[f"/World/Environment/Corridor/{name}" for name in wall_names],
             "/World/Actors/A/CameraMount/FrontCamera",
         )
         missing = [path for path in required if not stage.GetPrimAtPath(path)]
@@ -98,7 +118,7 @@ def main() -> int:
             f"context_cameras={','.join(camera_paths)}",
             flush=True,
         )
-        for name in ("NorthBuilding", "SouthBuilding", "CornerBuilding", "EastBuilding"):
+        for name in wall_names:
             prim = stage.GetPrimAtPath(f"/World/Environment/Corridor/{name}")
             if not prim.HasAPI(UsdPhysics.CollisionAPI):
                 raise RuntimeError(f"{name} lost its collision schema")

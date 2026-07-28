@@ -16,6 +16,7 @@ from typing import Any
 from .geometry import (
     a_start_xyz,
     all_surveys,
+    building_footprints,
     occluders,
     person_b_xyz,
     police_bounds,
@@ -41,6 +42,15 @@ def manifest_data(
             "a_start_xyz_m": a_start_xyz(scenario, profile),
             "police_bounds_min_xyz_m": police_min,
             "police_bounds_max_xyz_m": police_max,
+            # Every opaque wall, named, with its footprint. This is the scene.
+            # `occluders` below is a different thing -- the analytic proof's
+            # slab list -- and consumers that need to know what the street
+            # contains were reading that and seeing only the subset the proof
+            # references. See ADR 0018.
+            "walls": {
+                name: [[float(x), float(y)] for x, y in footprint]
+                for name, footprint in building_footprints(scenario, profile).items()
+            },
             "occluders": [asdict(slab) for slab in occluders(scenario, profile)],
             "delivery_trajectory": asdict(delivery_trajectory(scenario, profile)),
             "markers": [

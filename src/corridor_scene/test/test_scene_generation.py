@@ -14,6 +14,7 @@ from scene.geometry import (
     MARKER_BACKING_OFFSET_M,
     MARKER_BACKING_SCALE,
     MARKER_WALL_CLEARANCE_M,
+    building_footprints,
     corridor_faces,
     is_clear,
     police_bounds,
@@ -825,7 +826,7 @@ def test_generated_manifests_declare_the_new_schema(generated: tuple[Path, Path]
 
     _, manifest_path = generated
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == "0.4.0"
+    assert manifest["schema_version"] == "0.5.0"
 
 
 # Captured from the build immediately before east-face placement began clamping
@@ -896,3 +897,37 @@ def test_a_crosswise_witness_is_still_required(generated: tuple[Path, Path]) -> 
     )
     assert result.passed, "the superseded placement was valid; this is a solver check"
     assert {item.witness_axis for item in result.coverage} == {"x", "y"}
+
+
+def test_manifest_publishes_every_authored_wall(generated: tuple[Path, Path]) -> None:
+    """A wall that is not published is a wall no consumer can see.
+
+    The manifest used to carry only `occluders` -- the analytic proof's slab
+    list -- so anything reading it was structurally unable to know about a wall
+    the proof does not reference. That is why the east-wall stub was invisible
+    in RViz and unchecked by the Isaac smoke test while being solid in the stage
+    and audited by the mesh raycast. See ADR 0018.
+    """
+
+    stage_path, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    scenario = load_scenario()
+    stage = Usd.Stage.Open(str(stage_path))
+    variants = _variants(stage)
+
+    for name, block in manifest["profiles"].items():
+        assert variants.SetVariantSelection(name)
+        expected = set(building_footprints(scenario, scenario.profile(name)))
+        assert set(block["walls"]) == expected, f"{name}: manifest walls disagree with geometry"
+        assert set(block["walls"]) == set(BUILDINGS), f"{name}: BUILDINGS is out of date"
+
+        # Every occluder is one of those walls; they are the same surfaces.
+        occluding = {slab["prim_path"].rsplit("/", 1)[-1] for slab in block["occluders"]}
+        assert occluding <= set(block["walls"])
+
+        # And each published footprint matches the authored prim.
+        for wall, footprint in block["walls"].items():
+            mesh = UsdGeom.Mesh(stage.GetPrimAtPath(f"/World/Environment/Corridor/{wall}"))
+            assert mesh, f"{name}: {wall} is published but not authored"
+            authored = {(round(p[0], 6), round(p[1], 6)) for p in mesh.GetPointsAttr().Get()}
+            assert {(round(x, 6), round(y, 6)) for x, y in footprint} <= authored

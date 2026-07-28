@@ -156,11 +156,13 @@ def test_scene_is_drawn_before_any_estimate_arrives(node, manifest: Path) -> Non
     assert police.pose.position.x == pytest.approx((low[0] + high[0]) / 2.0)
     assert police.pose.position.y == pytest.approx((low[1] + high[1]) / 2.0)
 
-    # Both blocking surfaces the occlusion certificate reasons about are shown,
-    # so what the viewer sees hiding P is what the proof is about.
-    # Every blocking surface the certificate reasons about must be drawn, so
-    # what a viewer sees hiding P is what the proof is about. The count is read
-    # from the manifest rather than pinned: ADR 0017 added the east wall, and a
-    # literal here would have to be edited every time the occluder set changes.
-    assert len(namespaces["occluders"]) == len(block["occluders"])
-    assert len(block["occluders"]) >= 2
+    # Every wall in the scene must be drawn, not just the ones the occlusion
+    # proof reasons about. Drawing only the occluder list left the east-wall
+    # stub invisible while A drove around it (ADR 0018). The count comes from
+    # the manifest so a newly authored wall cannot go unrendered.
+    assert len(namespaces["occluders"]) == len(block["walls"])
+    assert set(block["walls"]) >= {name.rsplit("/", 1)[-1] for slab in block["occluders"]
+                                   for name in [slab["prim_path"]]}, (
+        "every occluder must also be a wall; they are the same surfaces"
+    )
+    assert "EastWallStub" in block["walls"], "the stub is a wall and must be published"

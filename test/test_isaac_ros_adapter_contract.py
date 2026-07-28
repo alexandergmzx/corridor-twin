@@ -271,3 +271,26 @@ def test_commanded_pose_schedule_is_labelled_evaluator_only() -> None:
     source = ADAPTER.read_text(encoding="utf-8")
     assert '"kind": "evaluator_only_commanded_pose_schedule"' in source
     assert "latency unmeasured" in source
+
+
+def test_smoke_test_derives_its_wall_list_from_the_manifest() -> None:
+    """A hardcoded enumeration stops covering new geometry without failing.
+
+    The smoke test listed four building names in two places. ADR 0018 added the
+    east-wall stub and neither list broke -- they simply stopped checking it,
+    which is the silent-coverage-loss a literal always risks. Reading the
+    manifest means a wall is checked the moment it is authored.
+    """
+
+    smoke = ROOT / "tools/isaac_5_1_smoke.py"
+    source = smoke.read_text(encoding="utf-8")
+    body = _function_body(smoke, "main")
+
+    assert "_manifest_walls" in body, "main must derive the wall list"
+    for hardcoded in ("NorthBuilding", "SouthBuilding", "CornerBuilding", "EastBuilding"):
+        assert hardcoded not in body, f"main still hardcodes {hardcoded}"
+
+    # And the helper reads the manifest rather than embedding its own list.
+    helper = _function_body(smoke, "_manifest_walls")
+    assert "walls" in helper
+    assert "manifest.json" in source
