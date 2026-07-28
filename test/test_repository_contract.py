@@ -228,11 +228,29 @@ def test_observer_consumes_no_actor_ground_truth() -> None:
 PERMITTED_SUBSCRIPTION_TYPES = frozenset({"Image", "CameraInfo"})
 
 
+# Helpers that subscribe on the node handed to them, without the calling module
+# ever writing `create_subscription`. `TransformListener` is the one that
+# matters: it is the ordinary way to consume TF, and TF is named directly in
+# CLAUDE.md's truth-isolation invariant. Enumerating call sites cannot see
+# inside them, so they are refused by name on the estimate path.
+IMPLICIT_SUBSCRIBER_CONSTRUCTORS = frozenset(
+    {"TransformListener", "Buffer", "TransformBroadcaster", "MessageFilter"}
+)
+
+
 def _constructed_subscriptions(path: Path) -> list[str]:
     """Return the message type of every subscription a module constructs.
 
-    Covers both forms this package uses: ``create_subscription(TYPE, ...)`` and
-    ``message_filters.Subscriber(node, TYPE, ...)`` (``node.py:78,84``).
+    Covers both forms this package uses -- ``create_subscription(TYPE, ...)``
+    and ``message_filters.Subscriber(node, TYPE, ...)`` (``node.py:78,84``) --
+    in positional *and* keyword spelling. Keyword form matters because
+    ``create_subscription(msg_type=Odometry, ...)`` is ordinary rclpy: reading
+    only ``node.args[0]`` returned nothing for it, so the type never reached
+    the permitted-set check and a truth subscription passed silently.
+
+    A call the walk cannot resolve to a name is reported as its dump rather
+    than skipped, so an unrecognised spelling fails the permitted-set check
+    instead of disappearing from it.
     """
 
     found: list[str] = []
@@ -241,15 +259,23 @@ def _constructed_subscriptions(path: Path) -> list[str]:
             continue
         function = node.func
         name = function.attr if isinstance(function, ast.Attribute) else getattr(function, "id", "")
-        if name == "create_subscription" and node.args:
-            argument = node.args[0]
-        elif name == "Subscriber" and len(node.args) >= 2:
-            argument = node.args[1]  # message_filters.Subscriber(node, TYPE, topic)
+        keywords = {word.arg: word.value for word in node.keywords}
+        if name == "create_subscription":
+            argument = node.args[0] if node.args else keywords.get("msg_type")
+        elif name == "Subscriber":
+            # message_filters.Subscriber(node, TYPE, topic)
+            argument = node.args[1] if len(node.args) >= 2 else keywords.get("msg_type")
+        elif name in IMPLICIT_SUBSCRIBER_CONSTRUCTORS:
+            found.append(name)
+            continue
         else:
             continue
-        found.append(
-            argument.id if isinstance(argument, ast.Name) else ast.dump(argument)
-        )
+        if argument is None:
+            # A subscription whose type could not be located is not evidence of
+            # safety. Name the call so the assertion reports it.
+            found.append(f"{name}(<unresolved message type>)")
+            continue
+        found.append(argument.id if isinstance(argument, ast.Name) else ast.dump(argument))
     return found
 
 
@@ -266,7 +292,9 @@ def test_estimate_path_subscribes_only_to_the_camera_contract() -> None:
 
     Enumerating constructed subscriptions distinguishes reading truth from
     publishing it, and fails on a truth subscription of any type at all --
-    including one nobody thought to name.
+    including one nobody thought to name, provided the walk can see it. See
+    ``test_the_subscription_walk_sees_every_route_this_package_could_use`` for
+    the spellings that must stay visible to it.
     """
 
     observer = ROOT / "src/police_observer/police_observer"
@@ -283,6 +311,46 @@ def test_estimate_path_subscribes_only_to_the_camera_contract() -> None:
     # Guard the guard: if the observer stopped subscribing to the camera
     # entirely, the loop above would pass vacuously.
     assert set(_constructed_subscriptions(observer / "node.py")) == PERMITTED_SUBSCRIPTION_TYPES
+
+
+# Each is a real way to start receiving a message in this package, paired with
+# the type an auditor must see reported. The claim being defended is that the
+# walk sees the *route*, not that anyone writes it this way today: three of
+# these returned an empty list before this test existed, so a truth
+# subscription spelled any of those ways passed the guard above in silence.
+SUBSCRIPTION_SPELLINGS = (
+    ("positional create_subscription", "self.create_subscription(Odometry, '/odom', cb, 10)"),
+    (
+        "keyword create_subscription",
+        "self.create_subscription(msg_type=Odometry, topic='/odom', callback=cb, qos_profile=10)",
+    ),
+    ("positional message_filters", "message_filters.Subscriber(self, Odometry, '/odom')"),
+    ("keyword message_filters", "message_filters.Subscriber(self, msg_type=Odometry)"),
+    ("tf2_ros listener", "TransformListener(self.buffer, self)"),
+)
+
+
+def test_the_subscription_walk_sees_every_route_this_package_could_use(
+    tmp_path: Path,
+) -> None:
+    """The enumeration is only as good as the spellings it can parse.
+
+    ``create_subscription(msg_type=...)`` is ordinary rclpy and
+    ``TransformListener(buffer, node)`` is the ordinary way to consume TF --
+    which CLAUDE.md names directly as forbidden truth. Both used to enumerate
+    to nothing, so the permitted-set check never ran on them and a truth
+    subscription passed. This pins each route as visible rather than trusting
+    that nobody will reach for it.
+    """
+
+    for label, source in SUBSCRIPTION_SPELLINGS:
+        module = tmp_path / f"{label.replace(' ', '_')}.py"
+        module.write_text(f"class N:\n    def build(self):\n        {source}\n", encoding="utf-8")
+        seen = _constructed_subscriptions(module)
+        assert seen, f"{label}: the walk enumerated nothing, so the guard cannot judge it"
+        assert not PERMITTED_SUBSCRIPTION_TYPES.issuperset(seen), (
+            f"{label}: enumerated {seen}, which the permitted set would accept"
+        )
 
 
 def test_display_may_draw_the_scene_but_never_locates_the_robot_from_truth() -> None:
