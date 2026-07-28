@@ -1,4 +1,4 @@
-schema_version: 0.3.0
+schema_version: 0.4.0
 status: topology_reconciled_metric_scale_demo_assumption
 
 provenance:
@@ -31,6 +31,26 @@ geometry:
     length_m: 10.0
     turn_radius_m: 2.0
     b_distance_m: 8.0
+    # B's lateral position across the street, measured from the drawing: the
+    # label centres 0.7989 of the way across the clear channel, which puts B in
+    # the stub's shadow against the east wall rather than out in the lane.
+    b_lateral_fraction: 0.7989
+    # The unlabelled block the drawing puts on the east wall beside B. It was
+    # measured and deliberately left out until ADR 0018; modelling it makes B
+    # stand in the pocket behind it, which is where the drawing puts B.
+    #
+    # Only the *ratios* transfer. The drawing's own scale gives a 43.4 m
+    # corridor and B at 20.3 m against the scene's 12.0 and 8.0, so the
+    # along-street position is a project choice (ADR 0010). The depth transfers
+    # as a fraction of the street rather than through the `m` arrow, because
+    # the two disagree and the fraction is what decides whether A can pass.
+    east_wall_stub:
+      # Measured: 166 px of the 358 px clear channel.
+      depth_fraction: 0.4637
+      # Measured: 63 px at the stub's own 2.635:1 aspect.
+      length_m: 1.06
+      # Project choice, preserving the drawn "B immediately south of it".
+      gap_north_of_b_m: 1.05
   profiles:
     nominal_m6_n3:
       entry_width_m: 6.0

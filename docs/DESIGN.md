@@ -136,7 +136,7 @@ and the scene deliberately does **not** follow:
 |---|---|---|
 | P's label sits in the open street channel | P stands behind the street's east wall | The drawing fixes P's *side*; the written requirement fixes the standoff. [ADR 0017](adr/0017-relocate-p-to-diagram-east-corner.md) |
 | `m : n` of roughly 3 : 1 | 2 : 1 on the nominal profile | A ratio is metric scale, which ADR 0010 already governs. See below |
-| An unlabelled block on the east wall beside B | Not modelled | Unlabelled and unmentioned; modelling it would invent a requirement |
+| An east-wall stub beside B | **Modelled** since [ADR 0018](adr/0018-model-the-east-wall-stub.md) | Depth transfers as 0.4637 of the street width; B stands in the pocket behind it, which is why the route has a delivery turn |
 
 The measured drawing, the annotated figure, and the reproduction script are in
 [`evidence/source-diagram/`](evidence/source-diagram/NOTES.md). The drawn
@@ -188,8 +188,12 @@ continuously. A polyline with one heading per segment can hide a visibility
 window that a real rotating camera sweeps through, so the visibility gate
 consumes this trajectory and bounds whole intervals of the turn.
 
-For the nominal profile: 12.851 m approach at 7.13°, a 2.0 m-radius arc
-sweeping 97.13°, then a 7.609 m departure — 23.851 m in total.
+For the nominal profile, five pieces: an 11.449 m approach at 7.13°, a 2.0 m
+-radius arc sweeping 97.13° into the street, a 5.436 m run down the lane the
+east-wall stub leaves clear, a left-handed 2.0 m-radius delivery arc sweeping
+90°, and a 1.184 m run east to B in the pocket behind the stub — 24.601 m in
+total. Yaw is therefore *not* monotonic over the route; see
+[ADR 0018](adr/0018-model-the-east-wall-stub.md).
 
 ## Corridor variants
 

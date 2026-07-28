@@ -73,6 +73,22 @@ class FiducialSpec:
 
 
 @dataclass(frozen=True)
+class EastWallStubSpec:
+    """The block the drawing puts on the street's east wall beside B.
+
+    ``depth_fraction`` is the share of the clear street width it occupies,
+    measured from the drawing. It is a fraction rather than a length because the
+    drawing's own scale and the scene's chosen street width disagree, and the
+    fraction is the part that decides whether A can still get past. See
+    ADR 0018.
+    """
+
+    depth_fraction: float
+    length_m: float
+    gap_north_of_b_m: float
+
+
+@dataclass(frozen=True)
 class NextStreetSpec:
     """The perpendicular street A turns onto to reach B."""
 
@@ -80,6 +96,8 @@ class NextStreetSpec:
     length_m: float
     turn_radius_m: float
     b_distance_m: float
+    b_lateral_fraction: float
+    east_wall_stub: EastWallStubSpec
 
 
 @dataclass(frozen=True)
@@ -218,11 +236,18 @@ def load_scenario(path: Path | None = None) -> Scenario:
         ),
     )
     street_raw = geometry["next_street"]
+    stub_raw = street_raw["east_wall_stub"]
     next_street = NextStreetSpec(
         clear_width_m=float(street_raw["clear_width_m"]),
         length_m=float(street_raw["length_m"]),
         turn_radius_m=float(street_raw["turn_radius_m"]),
         b_distance_m=float(street_raw["b_distance_m"]),
+        b_lateral_fraction=float(street_raw["b_lateral_fraction"]),
+        east_wall_stub=EastWallStubSpec(
+            depth_fraction=float(stub_raw["depth_fraction"]),
+            length_m=float(stub_raw["length_m"]),
+            gap_north_of_b_m=float(stub_raw["gap_north_of_b_m"]),
+        ),
     )
     police_raw = raw["police"]
     police = PoliceSpec(
@@ -381,6 +406,25 @@ def validate_scenario(scenario: Scenario) -> None:
     # the margin, or it would overlap the wall it is measured from.
     if police.north_offset_m < police.minimum_clearance_m + police.body_size_xyz_m[1] / 2.0:
         raise ValueError("P's north offset would put its body inside the north wall")
+
+    # The stub narrows the street A drives down, so it has to leave a lane A
+    # fits through. A lane thinner than the robot plus the trajectory margin
+    # would fail validate_trajectory later with a message about the *route*,
+    # which sends a reader looking in the wrong file.
+    street = scenario.next_street
+    stub = street.east_wall_stub
+    if not 0.0 < stub.depth_fraction < 1.0:
+        raise ValueError("the east-wall stub must occupy part of the street, not none or all")
+    if stub.length_m <= 0.0 or stub.gap_north_of_b_m <= 0.0:
+        raise ValueError("the east-wall stub needs a positive length and gap north of B")
+    lane_width = street.clear_width_m * (1.0 - stub.depth_fraction)
+    if lane_width <= 2.0 * street.turn_radius_m - street.clear_width_m:
+        raise ValueError(
+            f"the east-wall stub leaves a {lane_width:.3f} m lane, too narrow for the "
+            f"{street.turn_radius_m} m turn radius"
+        )
+    if not 0.0 < street.b_lateral_fraction < 1.0:
+        raise ValueError("B's lateral fraction must place it inside the street")
 
     # Occlusion needs buildings taller than both the observing camera and the
     # body being hidden behind them.

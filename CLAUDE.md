@@ -162,7 +162,7 @@ are not yet closed.
 the authored route in Isaac Sim while the camera-only observer measures its
 speed and RViz shows the result. Measured on the RTX 5070 Ti: all four
 enforcement gates recovered from camera pixels alone, maximum speed error
-0.0317 m/s at 1.0 m/s truth, exactly one violation at the corner, 3,546 MiB
+0.0369 m/s at 1.0 m/s truth, exactly one violation at the corner, 3,354 MiB
 headless. See [`docs/evidence/live-demo/NOTES.md`](docs/evidence/live-demo/NOTES.md).
 
 Two limits remain open and must not be claimed closed:
@@ -184,7 +184,7 @@ Two limits remain open and must not be claimed closed:
 | Done | Static ArUco rendering probe | Nominal profile passes five production-pixel dwells with an actual-capture mirror control. Its renderer claim is invalidated; its pixel and station results stand. |
 | Done | Renderer/camera contract correction | `5bc1c99` reads the render mode back, `0c4e9b8` gates encoding and aligns the principal point behind a 0.05 px criterion, `3d9a754` covers every rejecting branch portably. |
 | Done | Enforcement-gate coverage at the corner | Height-staggered reference plates on the north-wall extension and the east building face — perpendicular planes, so combined correspondences stay rank 3. Roles split so a reference never becomes a phantom gate. Confirmed on rendered Isaac pixels: [corner frame](docs/evidence/live-demo/corner-references.png). ADR 0015. |
-| Done | Deterministic robot motion | `8edc076`. `/World/Actors/A` moves continuously along the authored line-arc-line trajectory, position and yaw from route station, driven from simulation time. A completed the 23.851 m route in 23.867 s of sim time. |
+| Done | Deterministic robot motion | `8edc076`. `/World/Actors/A` moves continuously along the authored route, position and yaw from route station, driven from simulation time. Since ADR 0018 the route has five pieces and A completed its 24.601 m in 24.62 s of sim time. |
 | Done | Live camera-to-observer demonstration | `f10280f`. Only the camera contract reaches `police_observer`; simulator truth stays in a separately labelled evaluator schedule. 1.0 m/s produces a compliant approach and exactly one corner violation. |
 | Done | Interview visualization | `e52ca12`. `enforcement_view` publishes active `(m,n)`, measured speed and uncertainty, local width and limit, violation state, A's route, P's location and the blocking walls. RViz consumes existing topics; it is not a second sensor or render product. |
 | Done | One documented launch path | `5b2bc6c`, `772d027`, `f992470`. `tools/run_demo.sh` starts both ABIs in their own environments, records evidence, and shuts every node down on exit. |

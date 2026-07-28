@@ -129,7 +129,7 @@ def building_footprints(scenario: Scenario, profile: CorridorProfile) -> dict[st
     a symmetric taper. Under the one-sided taper those names no longer describe
     the geometry; the mapping is ``LeftBuilding -> NorthBuilding`` and
     ``RightBuilding -> SouthBuilding`` plus the new ``CornerBuilding`` and
-    ``EastBuilding``.
+    ``EastBuilding``. ``EastWallStub`` arrived with ADR 0018.
     """
 
     length = scenario.corridor_length_m
@@ -142,6 +142,7 @@ def building_footprints(scenario: Scenario, profile: CorridorProfile) -> dict[st
     east_inner = scenario.street_east_m
     east_outer = east_inner + depth
     street_south = scenario.street_south_m
+    stub_west, _, stub_south, stub_north = east_wall_stub_bounds(scenario)
 
     return {
         # Straight face, extended east so it also caps the next street.
@@ -171,6 +172,14 @@ def building_footprints(scenario: Scenario, profile: CorridorProfile) -> dict[st
             (east_inner, street_south),
             (east_outer, street_south),
             (east_outer, north),
+        ],
+        # The block the drawing puts on the east wall beside B. It makes the
+        # pocket B stands in, and it is why A's route has a delivery turn.
+        "EastWallStub": [
+            (stub_west, stub_south),
+            (east_inner, stub_south),
+            (east_inner, stub_north),
+            (stub_west, stub_north),
         ],
     }
 
@@ -429,10 +438,47 @@ def a_start_xyz(scenario: Scenario, profile: CorridorProfile) -> Vec3:
     return (0.0, corridor_centerline(profile, 0.0, scenario.corridor_length_m), 0.0)
 
 
-def person_b_xyz(scenario: Scenario) -> Vec3:
-    """Return B's position, standing on the next street's centreline."""
+def east_wall_stub_bounds(scenario: Scenario) -> tuple[float, float, float, float]:
+    """Return the stub's ``(x_min, x_max, y_min, y_max)`` footprint.
 
-    return (scenario.street_center_x_m, -scenario.next_street.b_distance_m, 0.0)
+    The drawing puts an unlabelled block on the street's east wall beside B.
+    Its depth transfers as a share of the clear street width; its position
+    along the street does not transfer at all, so it is pinned to B, which is
+    the one relationship the drawing does fix -- B stands immediately south of
+    it. See ADR 0018.
+    """
+
+    stub = scenario.next_street.east_wall_stub
+    depth = scenario.next_street.clear_width_m * stub.depth_fraction
+    south = -scenario.next_street.b_distance_m + stub.gap_north_of_b_m
+    return (scenario.street_east_m - depth, scenario.street_east_m, south, south + stub.length_m)
+
+
+def street_drive_center_x_m(scenario: Scenario) -> float:
+    """Return the centreline of the lane the stub leaves clear.
+
+    A drives the middle of what is actually drivable, not the street's
+    geometric middle. With the stub occupying the eastern share of the street,
+    those are different, and the geometric middle would put A into the wall.
+    """
+
+    stub_west, _, _, _ = east_wall_stub_bounds(scenario)
+    return (scenario.street_west_m + stub_west) / 2.0
+
+
+def person_b_xyz(scenario: Scenario) -> Vec3:
+    """Return B's position in the pocket behind the east-wall stub.
+
+    The drawing centres B's label 0.80 of the way across the street, which is
+    inside the stub's shadow rather than out in the lane, and one stub-length
+    south of it. B therefore stands against the east wall and A has to turn in
+    behind the stub to reach it -- which is why the route gained its delivery
+    turn. See ADR 0018.
+    """
+
+    street = scenario.next_street
+    lateral = scenario.street_west_m + street.clear_width_m * street.b_lateral_fraction
+    return (lateral, -street.b_distance_m, 0.0)
 
 
 def police_bounds(scenario: Scenario, profile: CorridorProfile) -> tuple[Vec3, Vec3]:
@@ -479,7 +525,11 @@ def is_clear(scenario: Scenario, profile: CorridorProfile, x_m: float, y_m: floa
         _, south = corridor_faces(profile, x_m, length)
         return south < y_m < north
     if length < x_m <= scenario.street_east_m:
-        return scenario.street_south_m < y_m < north
+        if not (scenario.street_south_m < y_m < north):
+            return False
+        # The stub is solid, so the street is not clear through it.
+        stub_west, stub_east, stub_south, stub_north = east_wall_stub_bounds(scenario)
+        return not (stub_west <= x_m <= stub_east and stub_south <= y_m <= stub_north)
     return False
 
 
@@ -567,7 +617,24 @@ def validate_layout(scenario: Scenario, profile: CorridorProfile) -> None:
                 f"y={corner_south_face:.4f}"
             )
 
-    # B must stand in the authored next street.
+    # B must stand in the authored next street, and specifically in the pocket
+    # the stub makes rather than inside the stub itself.
     bx, by, _ = person_b_xyz(scenario)
     if not is_clear(scenario, profile, bx, by):
         raise ValueError(f"profile {profile.name}: B does not stand in the next street")
+    stub_west, stub_east, stub_south, stub_north = east_wall_stub_bounds(scenario)
+    if stub_south <= by <= stub_north and bx >= stub_west:
+        raise ValueError(
+            f"profile {profile.name}: B at ({bx:.3f}, {by:.3f}) is inside the east-wall stub"
+        )
+    if by > stub_south:
+        raise ValueError(
+            f"profile {profile.name}: B at y={by:.3f} is north of the stub's south face at "
+            f"y={stub_south:.3f}; the drawing puts B in the pocket south of it"
+        )
+    # The stub must leave a lane, and that lane must reach past B's line so the
+    # delivery turn has somewhere to happen.
+    if stub_west <= scenario.street_west_m:
+        raise ValueError(
+            f"profile {profile.name}: the east-wall stub spans the whole street, leaving no lane"
+        )

@@ -29,7 +29,13 @@ from scene.occlusion import (
 )
 from scene.trajectory import delivery_trajectory, trajectory_from_manifest
 
-BUILDINGS = ("NorthBuilding", "SouthBuilding", "CornerBuilding", "EastBuilding")
+BUILDINGS = (
+    "NorthBuilding",
+    "SouthBuilding",
+    "CornerBuilding",
+    "EastBuilding",
+    "EastWallStub",
+)
 
 
 @pytest.fixture()
@@ -819,7 +825,7 @@ def test_generated_manifests_declare_the_new_schema(generated: tuple[Path, Path]
 
     _, manifest_path = generated
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == "0.3.0"
+    assert manifest["schema_version"] == "0.4.0"
 
 
 # Captured from the build immediately before east-face placement began clamping

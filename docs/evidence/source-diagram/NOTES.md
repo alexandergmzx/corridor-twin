@@ -73,7 +73,7 @@ positions are inner faces — the surfaces that bound the drivable channel.
 | Next street, clear channel | `x` 1428 → 1786, **358 px** wide |
 | `P` label box | `x` 1651–1758, `y` 1037–1125 |
 | `B` label box | `x` 1661–1767 |
-| Unlabelled block on the east wall | `x` ~1620–1786, `y` 1567–1630 |
+| East-wall stub beside B | `x` ~1620–1786, `y` 1567–1630 |
 
 ## What the drawing fixes, confirmed
 
@@ -126,7 +126,7 @@ Two caveats bound how far these numbers may be pushed:
 |---|---|---|
 | P's label sits in the open street channel | P's body stands behind the street's east wall | [ADR 0017](../../adr/0017-relocate-p-to-diagram-east-corner.md): the drawing fixes the **side**, the written requirement fixes the standoff |
 | Proportions above | Configured `(m, n)` and lengths | ADR 0010, `metric_scale: demo_assumption` |
-| An unlabelled block on the east wall beside B | Not modelled | Unlabelled and unmentioned in the prose; a doorway, step, or bench. Modelling it would invent a requirement |
+| ~~An unlabelled block on the east wall beside B~~ | **Now modelled** | [ADR 0018](../../adr/0018-model-the-east-wall-stub.md). Superseded: it is drawn in the same wall style as every other wall, so the scene and its own source evidence disagreed about what the street contains. Its depth transfers as 0.4637 of the street; B sits in the pocket behind it at 0.7989 across the channel, which is why the route gained a delivery turn |
 
 ## What the source does not contain
 

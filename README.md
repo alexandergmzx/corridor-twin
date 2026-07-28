@@ -41,11 +41,11 @@ The gate did expose and correct buried, undersampled marker plates.
 **Live camera-only enforcement demonstration working — 2026-07-27.** One
 command drives A along the authored route in Isaac Sim while the police
 observer recovers speed from that camera alone. At a constant 1.0 m/s the run
-measured all four enforcement gates with a maximum speed error of 0.0317 m/s,
+measured all four enforcement gates with a maximum speed error of 0.0369 m/s,
 stayed compliant on the wide approach, and raised **exactly one** violation once
-the corridor narrowed and the limit tightened — 0.189 m/s over the 0.80 m/s
-corner rule, at station 10.0 m. A completed the 23.851 m route in 23.867 s of
-simulation time using 3546 MiB of the RTX 5070 Ti and one render product, with
+the corridor narrowed and the limit tightened — 0.191 m/s over the 0.80 m/s
+corner rule, at station 10.0 m. A completed the 24.601 m route in 24.617 s of
+simulation time using 3354 MiB of the RTX 5070 Ti and one render product, with
 the renderer mode read back rather than requested. See the
 [measured evidence](docs/evidence/live-demo/NOTES.md).
 

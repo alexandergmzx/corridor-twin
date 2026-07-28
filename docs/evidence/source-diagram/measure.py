@@ -120,11 +120,15 @@ def measure(page: Drawing) -> dict[str, Any]:
     channel = (west_wall[1], east_wall[0])
     throat_gap = clear_gap(west_wall[1])
 
-    # Label boxes and the unlabelled block attached to the east wall.
+    # Label boxes and the block attached to the east wall. Once unlabelled and
+    # unmodelled; modelled since ADR 0018, which is why it now has a name.
     p_row = page.row(1100)
     p_box_x = [p_row[-3][0], p_row[-2][1]]
     p_box_y = page.column(1700, straight_inner_y + 8, 1200)
     b_row = page.row(1700)
+    # Scan below the stub so its run is not mistaken for the label's top edge,
+    # then take first-run start to last-run end exactly as the P box does.
+    b_box_y = page.column(1714, 1660, 1800)
     stub = page.column(1700, 1450, 1660)[0]
 
     m_gap = m_arrow["clear_gap_px"]
@@ -153,17 +157,34 @@ def measure(page: Drawing) -> dict[str, Any]:
             "x_px": [int(v) for v in p_box_x],
             "y_px": [int(p_box_y[0][0]), int(p_box_y[-1][1])],
         },
-        "b_label_box": {"x_px": [int(b_row[0][0]), int(b_row[-2][1])]},
-        "unlabelled_stub": {
+        "b_label_box": {
+            "x_px": [int(b_row[0][0]), int(b_row[-2][1])],
+            "y_px": [int(b_box_y[0][0]), int(b_box_y[-1][1])],
+            "provenance": "pdf_topology",
+        },
+        "east_wall_stub": {
             "x_px": [1620, int(east_wall[0])],
             "y_px": [int(stub[0]), int(stub[1])],
+            "provenance": "pdf_topology",
         },
         "ratios_dimensionless": {
             "m_over_n_at_arrows": round(m_gap / n_arrow["clear_gap_px"], 2),
             "m_over_n_at_throat": round(m_gap / throat_gap, 2),
             "street_width_over_m": round((channel[1] - channel[0]) / m_gap, 2),
             "corridor_length_over_m": round((straight_extent[1] - straight_extent[0]) / m_gap, 2),
-            "b_distance_over_m": round((1714 - straight_inner_y) / m_gap, 2),
+            "b_distance_over_m": round(
+                ((b_box_y[0][0] + b_box_y[-1][1]) / 2.0 - straight_inner_y) / m_gap, 2
+            ),
+            # Where B sits across the street, which is what puts it in the
+            # stub's pocket rather than out in the lane A drives.
+            "b_lateral_fraction_of_channel": round(
+                ((b_row[0][0] + b_row[-2][1]) / 2.0 - channel[0]) / (channel[1] - channel[0]), 4
+            ),
+            # The share of the street the stub blocks. This is the number that
+            # transfers to the scene; the drawing's own scale does not.
+            "stub_depth_fraction_of_channel": round(
+                (east_wall[0] - 1620) / (channel[1] - channel[0]), 4
+            ),
         },
     }
 
@@ -241,9 +262,9 @@ def annotate(page: Drawing, found: dict[str, Any], out: Path) -> None:
         "P label: east side, level with the corridor", True)
     b_box = found["b_label_box"]["x_px"]
     box(b_box[0], 1680, b_box[1], 1745, RED, "B label: same east side as P", True)
-    stub = found["unlabelled_stub"]
+    stub = found["east_wall_stub"]
     box(stub["x_px"][0], stub["y_px"][0], stub["x_px"][1], stub["y_px"][1], BLUE,
-        "unlabelled stub, not modelled", False)
+        "east-wall stub, modelled since ADR 0018", False)
 
     half = (figure.width // 2, figure.height // 2)
     figure.resize(half, Image.LANCZOS).save(out / "measured-drawing.png")
