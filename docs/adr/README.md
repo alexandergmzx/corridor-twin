@@ -21,6 +21,7 @@ supersedes the old record.
 | [0014](0014-violation-episode-semantics.md) | Accepted | Emit one violation per continuous speeding episode |
 | [0015](0015-reference-fiducials-for-corner-coverage.md) | Accepted | Restore corner enforcement coverage with reference fiducials |
 | [0016](0016-corner-enforcement-policy-boundary.md) | Accepted | Move the strict speed zone to 4.0 m clear width |
+| [0017](0017-relocate-p-to-diagram-east-corner.md) | Accepted | Relocate P to the junction's east corner, behind the east wall |
 
 ## Decision map
 
@@ -83,3 +84,10 @@ ADR 0007 requires the owner to approve, and it is only implementable because
 0015 made two gates measurable inside the strict zone. ADR 0007's decision, that
 violations are confirmed conservatively over consecutive measurements, is
 unchanged and was deliberately not weakened to make the corner rule fire.
+
+ADR 0017 **supersedes one rejected alternative** in ADR 0011 rather than the
+decision itself. ADR 0011 rejected placing P at the drawing's literal label
+position because A would see it; that reasoning stands. 0017 takes the third
+option 0011 did not consider — the diagram's *side*, with the body behind the
+east wall — which satisfies the same visibility gate that rejection was
+protecting.
