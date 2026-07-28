@@ -18,7 +18,7 @@ system-Jazzy consumers come up first, then Isaac starts in a shell with
 
 | Field | Value |
 |---|---|
-| Commit | `82b490d` (re-run after the R17 geometry correction) |
+| Commit | `3cadbd3` (second run; geometry unchanged by the band clamp in `7a5980a`) |
 | Date | 2026-07-27 |
 | Isaac Sim | 5.1.0, bundled Jazzy bridge |
 | GPU | NVIDIA GeForce RTX 5070 Ti, 16303 MiB, driver 580.173.02 |
@@ -48,17 +48,24 @@ a 0.07 % deviation. Station comes from the simulation clock, never wall time.
 | Property | Value |
 |---|---|
 | Encoding / size | `rgb8`, 640x360 |
-| Images recorded | 317 over a 23.467 s stamp span |
-| Delivered rate | mean 13.47 Hz, max 15.00 Hz, min 3.75 Hz |
+| Images recorded | 328 over a 23.467 s stamp span |
+| Delivered rate | mean 13.93 Hz, max 15.00 Hz, min 5.00 Hz |
 | Intrinsics | fx = fy = 417.032, cx = 320.0, cy = 180.0 |
 | Distortion | `plumb_bob`, all coefficients zero |
 
-The mean sits below the 15 Hz contract because a few frames stretched during
-recording; the maximum reaches exactly 15.00 Hz. This is a delivery-rate
-observation under a concurrent `ros2 bag record`, not a renderer result, and it
-does not affect the speed measurement: the observer differentiates message
-stamps, so a late frame moves when a gate crossing is interpolated, not how far
-apart the gates are.
+The mean sits below the 15 Hz contract because some frames stretch during
+recording; the maximum reaches exactly 15.00 Hz in both runs.
+
+**Across two runs of the same command** the minimum was 3.75 Hz and 5.00 Hz, so
+**3.75 Hz is the worst observed** rather than a characterised bound — two
+samples is not a distribution. Both are `ros2 bag record` artifacts rather than
+renderer results: the recorder competes for the same host while the graph runs.
+
+Neither reaches the speed measurement. The observer differentiates message
+stamps, so a stretched frame changes *when* a gate crossing is interpolated,
+not how far apart the surveyed gates are. The two runs bear that out — their
+worst delivered rates differ by a third while their maximum speed errors, 0.0331
+and 0.0317 m/s, differ by 0.0014.
 
 ### Camera-derived enforcement
 
@@ -68,15 +75,15 @@ above.
 
 | Gate | Measured speed | sigma | Local width | Limit | State |
 |---:|---:|---:|---:|---:|---|
-| 4.0 m | 1.001 m/s | 0.015 | 5.00 m | 1.20 m/s | compliant |
-| 6.0 m | 1.001 m/s | 0.016 | 4.50 m | 1.20 m/s | compliant |
-| 8.0 m | 0.967 m/s | 0.013 | 4.00 m | 0.80 m/s | over |
-| 10.0 m | 1.019 m/s | 0.012 | 3.50 m | 0.80 m/s | over |
+| 4.0 m | 0.999 m/s | 0.016 | 5.00 m | 1.20 m/s | compliant |
+| 6.0 m | 1.003 m/s | 0.016 | 4.50 m | 1.20 m/s | compliant |
+| 8.0 m | 0.968 m/s | 0.013 | 4.00 m | 0.80 m/s | over |
+| 10.0 m | 1.012 m/s | 0.011 | 3.50 m | 0.80 m/s | over |
 
-- **Maximum speed error 0.0331 m/s** at a 1.0 m/s truth speed.
+- **Maximum speed error 0.0317 m/s** at a 1.0 m/s truth speed.
 - **Every enforcement gate after the first produced a measurement.** Gate 2.0 is
   the first crossing and cannot carry a speed, which needs two.
-- **Exactly one violation**: event 1 at station 10.0 m, exceedance 0.195 m/s
+- **Exactly one violation**: event 1 at station 10.0 m, exceedance 0.189 m/s
   against the 0.80 m/s corner limit.
 
 That is the demonstration in one run: an unchanged 1.0 m/s is legal on the wide
@@ -87,11 +94,11 @@ two-estimate confirmation fire at the corner at all.
 ### Resources
 
 ```
-ISAAC_ROS_CAMERA_GPU name=NVIDIA GeForce RTX 5070 Ti used_mib=3486 total_mib=16303
+ISAAC_ROS_CAMERA_GPU name=NVIDIA GeForce RTX 5070 Ti used_mib=3546 total_mib=16303
 ISAAC_ROS_CAMERA_PASS updates=1433 profile=nominal_m6_n3 static_probe=False drive=True render_products=1
 ```
 
-3486 MiB of 16303 MiB, with one render product and one camera.
+3546 MiB of 16303 MiB, with one render product and one camera.
 
 ## Frames
 
@@ -160,8 +167,8 @@ therefore be measured **and** over-limit, or this run produces no violation at
 all — a silent absence rather than a wrong answer.
 
 What makes that acceptable today is that the margin is comfortable rather than
-marginal: gate 8 measured 0.967 m/s against a 0.80 m/s limit, and the
-conservative 2σ lower bound is 0.941 m/s. The risk is a *missed* measurement,
+marginal: gate 8 measured 0.968 m/s against a 0.80 m/s limit, and the
+conservative 2σ lower bound is 0.942 m/s. The risk is a *missed* measurement,
 not a borderline one, and `e0bea0c` reduced exactly that failure mode by
 stopping noise-level backward station steps from discarding gate history.
 

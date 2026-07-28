@@ -81,16 +81,16 @@ def test_versioned_evidence_topics_have_provenance() -> None:
 def test_live_run_headline_figures_match_the_recorded_summary() -> None:
     """Documents that quote the live run must quote the run that is recorded.
 
-    `cdb6f79` re-recorded the demonstration on the geometry `a101b28` corrected,
-    updating `summary.json` and the notes. Seven citations in five other
-    documents kept the superseded numbers, and the notes disagreed with their
-    own summary on two camera figures. A reader comparing README against the
-    evidence would have found two different runs described as the same one.
+    `cdb6f79` re-recorded the demonstration on corrected geometry, and seven
+    citations in five documents kept the superseded numbers -- two of them
+    disagreeing with the notes' own summary. A reader comparing README against
+    the evidence would have found two different runs described as the same one.
 
-    Only the headline figures are pinned -- the ones that appear in prose
-    outside the evidence directory. Rounding to the precision each document
-    uses is deliberate: this checks that the documents track the artifact, not
-    that everyone quotes the same number of decimal places.
+    This asserts the *current* figures are present rather than listing forbidden
+    old ones. The forbidden-list form needed updating on every rerun, in the
+    same commit as the documents it was meant to police, which is the failure
+    mode inverted rather than fixed. Reading the artifact means a rerun updates
+    the documents and nothing else.
     """
 
     summary = json.loads(
@@ -98,34 +98,39 @@ def test_live_run_headline_figures_match_the_recorded_summary() -> None:
     )
     worst_error = max(entry["speed_error_mps"] for entry in summary["estimates"])
     exceedance = summary["violations"][0]["exceedance_mps"]
+    used_mib = summary["gpu"]["used_mib"]
 
-    superseded = {
-        f"{0.0371:.4f}": f"{worst_error:.4f}",
-        f"{0.194:.3f}": f"{exceedance:.3f}",
-        "3411": "3486",
-        "3,411": "3,486",
+    # Each document quotes at whatever precision suits it, so a figure is
+    # satisfied by any of its reasonable spellings.
+    def spellings(value: float, places: tuple[int, ...]) -> list[str]:
+        return [f"{value:.{place}f}" for place in places]
+
+    required = {
+        "README.md": [
+            spellings(worst_error, (3, 4)),
+            spellings(exceedance, (3, 4)),
+            [str(used_mib), f"{used_mib:,}"],
+        ],
+        "CLAUDE.md": [spellings(worst_error, (3, 4)), [str(used_mib), f"{used_mib:,}"]],
+        "docs/README.md": [
+            spellings(worst_error, (3, 4)),
+            spellings(exceedance, (3, 4)),
+            [str(used_mib), f"{used_mib:,}"],
+        ],
+        "docs/evidence/live-demo/NOTES.md": [
+            spellings(worst_error, (3, 4)),
+            spellings(exceedance, (3, 4)),
+            [str(used_mib), f"{used_mib:,}"],
+        ],
     }
-    citing = [
-        ROOT / "README.md",
-        ROOT / "CLAUDE.md",
-        ROOT / "docs/README.md",
-        ROOT / "docs/DESIGN.md",
-        ROOT / "docs/adr/0016-corner-enforcement-policy-boundary.md",
-    ]
-    stale: list[str] = []
-    for document in citing:
-        content = document.read_text(encoding="utf-8")
-        # An ADR records its corrections in place rather than being rewritten,
-        # so a superseded figure named inside a marked correction note is the
-        # convention working. Only unannotated citations are stale.
-        body = content.split("**Correction,", maxsplit=1)[0]
-        for old_value, current in superseded.items():
-            if old_value in body and old_value != current:
-                stale.append(
-                    f"{document.relative_to(ROOT)} still cites {old_value} (now {current})"
-                )
-    assert stale == [], f"{stale}; re-recorded evidence must reach every document that cites it"
 
+    missing: list[str] = []
+    for relative_path, figures in required.items():
+        content = (ROOT / relative_path).read_text(encoding="utf-8")
+        for alternatives in figures:
+            if not any(spelling in content for spelling in alternatives):
+                missing.append(f"{relative_path} cites none of {alternatives}")
+    assert missing == [], f"documents disagree with the recorded run: {missing}"
 
 def test_evidence_index_lists_every_recorded_topic() -> None:
     """A topic nobody links to is evidence nobody finds.

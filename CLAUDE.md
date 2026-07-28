@@ -162,7 +162,7 @@ are not yet closed.
 the authored route in Isaac Sim while the camera-only observer measures its
 speed and RViz shows the result. Measured on the RTX 5070 Ti: all four
 enforcement gates recovered from camera pixels alone, maximum speed error
-0.0331 m/s at 1.0 m/s truth, exactly one violation at the corner, 3,486 MiB
+0.0317 m/s at 1.0 m/s truth, exactly one violation at the corner, 3,546 MiB
 headless. See [`docs/evidence/live-demo/NOTES.md`](docs/evidence/live-demo/NOTES.md).
 
 Two limits remain open and must not be claimed closed:
