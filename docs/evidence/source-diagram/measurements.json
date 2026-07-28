@@ -1,0 +1,98 @@
+{
+  "render": {
+    "dpi": 300,
+    "size_px": [
+      2481,
+      3508
+    ]
+  },
+  "straight_upper_wall": {
+    "inner_face_y_px": 1017,
+    "x_extent_px": [
+      360,
+      1850
+    ]
+  },
+  "sloping_lower_wall": {
+    "inner_face_y_px_at_x": {
+      "500": 1217,
+      "800": 1170,
+      "1100": 1124
+    },
+    "fitted_slope_px_per_px": -0.155,
+    "max_residual_px": 0.33,
+    "shape": "single continuous line; no constant-width section"
+  },
+  "m_arrow": {
+    "x_px": [
+      449,
+      474
+    ],
+    "teal_span_px": 197,
+    "label": "m",
+    "center_x_px": 461.5,
+    "clear_gap_px": 205.8
+  },
+  "n_arrow": {
+    "x_px": [
+      1345,
+      1369
+    ],
+    "teal_span_px": 68,
+    "label": "n",
+    "center_x_px": 1357.0,
+    "clear_gap_px": 67.0
+  },
+  "throat": {
+    "x_px": 1428,
+    "clear_gap_px": 56.0
+  },
+  "next_street": {
+    "west_wall_x_px": [
+      1365,
+      1428
+    ],
+    "east_wall_x_px": [
+      1786,
+      1850
+    ],
+    "clear_channel_x_px": [
+      1428,
+      1786
+    ],
+    "clear_width_px": 358
+  },
+  "p_label_box": {
+    "x_px": [
+      1651,
+      1758
+    ],
+    "y_px": [
+      1037,
+      1125
+    ]
+  },
+  "b_label_box": {
+    "x_px": [
+      1661,
+      1767
+    ]
+  },
+  "unlabelled_stub": {
+    "x_px": [
+      1620,
+      1786
+    ],
+    "y_px": [
+      1567,
+      1630
+    ]
+  },
+  "ratios_dimensionless": {
+    "m_over_n_at_arrows": 3.07,
+    "m_over_n_at_throat": 3.68,
+    "street_width_over_m": 1.74,
+    "corridor_length_over_m": 7.24,
+    "b_distance_over_m": 3.39
+  }
+}

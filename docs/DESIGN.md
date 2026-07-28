@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.8.0 |
+| Design version | 0.8.1 |
 | Status | Corner enforcement coverage restored with reference fiducials; static renderer claim still invalidated pending requalification |
-| Last updated | 2026-07-27 |
+| Last updated | 2026-07-28 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Target ROS | ROS 2 Jazzy |
 | Target host | Linux Mint 22 demo host / Ubuntu 24.04 supported fallback |
@@ -96,14 +96,68 @@ text, and widths labelled only as the symbols `m` and `n`. Its topology is
 authoritative; its pixel lengths are not. See
 [ADR 0010](adr/0010-supplied-diagram-geometry.md).
 
+| Field | Value |
+|---|---|
+| File | `docs/ROBO_TASK.pdf`, 1 page, A4 595.32 x 841.92 pt |
+| sha256 | `7e00d431a39b0a7a73a48fb810444d370ce735aec21e79b3ac494a71615937a4` |
+
+`test_source_document.py` pins that digest. If the supplied task is ever
+revised, the pin fails rather than letting the claims below quietly detach from
+the file they describe.
+
+#### The source, in full
+
+> Lets simulate an imaginary scenario where a robot (A) is delivering a packet
+> autonomously to a person(B) located on the next street. There are traffic
+> police (P) who is looking for speed violation at the corner using the data from
+> the robot camera as the road is narrower there. The robot cannot see the
+> traffic police, but the police can read the data from the robot.
+
+Those four sentences and one unscaled figure are the entire specification.
+
+"The robot **cannot see** the traffic police" binds *A-camera visibility* — the
+gate `scene.occlusion` proves. The additional rule that A's software consumes
+nothing about P is repo-added and additive; it is not in the source and never
+substitutes for the gate. See [ADR 0011](adr/0011-visibility-semantics.md).
+
+#### Three categories, not two
+
 | From the source | A project choice |
 |---|---|
 | `m >= n`, narrowing toward the corner | Corridor length, 12.0 m |
-| One straight face, one tapering face | Next-street width 6.0 m, length 10.0 m |
-| A perpendicular next street with real walls | Turn radius 2.0 m |
-| B along that street, P at its corner | B at 8.0 m along the street |
+| One straight face, one tapering face, carrying one continuous slope | Next-street width 6.0 m, length 10.0 m |
+| A perpendicular next street with real walls, opening off the **tapering** face, so A turns right | Turn radius 2.0 m |
+| B along that street; P at its **east** corner | B at 8.0 m along the street |
 
-The config and the manifest publish this as
+The category the table above has never had room for is what the drawing shows
+and the scene deliberately does **not** follow:
+
+| Drawn | Authored | Why |
+|---|---|---|
+| P's label sits in the open street channel | P stands behind the street's east wall | The drawing fixes P's *side*; the written requirement fixes the standoff. [ADR 0017](adr/0017-relocate-p-to-diagram-east-corner.md) |
+| `m : n` of roughly 3 : 1 | 2 : 1 on the nominal profile | A ratio is metric scale, which ADR 0010 already governs. See below |
+| An unlabelled block on the east wall beside B | Not modelled | Unlabelled and unmentioned; modelling it would invent a requirement |
+
+The measured drawing, the annotated figure, and the reproduction script are in
+[`evidence/source-diagram/`](evidence/source-diagram/NOTES.md). The drawn
+proportions are recorded there as dimensionless observations and are **not**
+adopted: ADR 0010 explicitly rejected scaling the figure by pixel ratios, and
+`n = 3.0` is load-bearing for the 4.0 m strict zone, the reference-plate
+geometry, and every live result measured on it. That evidence quantifies the
+drawing; it does not contradict it.
+
+#### What the source does not contain
+
+No numeric value or unit of any kind appears anywhere in the task. In
+particular there is no scale bar, north arrow, or coordinate frame; no speed
+limit or threshold; no fiducials or any means of measurement; no sensor
+specification beyond the word "camera", and so no resolution, rate, message,
+topic, or middleware; no route or turn geometry; no wall height, thickness,
+material, or lighting; and no straight-then-taper split, the drawn slope being
+continuous. Every one of those is a project choice, recorded as such here and in
+the ADRs.
+
+The config and the manifest publish the distinction as
 `topology: reconciled_with_supplied_diagram` and
 `metric_scale: demo_assumption`.
 
@@ -618,6 +672,11 @@ Phase 1 packages. The version-specific tools are isolated in
 
 ## Version history
 
+- **0.8.1 — 2026-07-28:** Recorded what the supplied source actually states.
+  Quoted its four sentences verbatim, pinned the PDF by digest, measured the
+  drawing at 300 dpi, and separated what it fixes from what the scene
+  deliberately does not follow. Documentation and one pin test only; no
+  interface, geometry, or decision changed.
 - **0.6.0 — 2026-07-27:** Qualified the production Isaac/ROS pixels at five
   static approach dwells. Increased the surveyed code to 0.40 m, added physical
   white quiet-zone plates, and solved canted bracket standoff against the real
