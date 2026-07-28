@@ -1,14 +1,14 @@
 # Release plan: `v1.0-interview`
 
-A plan, not a release. Nothing here has been published. All nine decisions are
-taken and recorded in section 1; what remains is execution.
+A plan, not a release. Nothing here has been published. Every decision is taken
+and recorded in section 1, D10 superseding D1; what remains is execution.
 
 | Field | Value |
 |---|---|
-| Plan version | 2.1.0 |
+| Plan version | 2.2.0 |
 | Prepared | 2026-07-28 |
-| Tree planned against | `0c4e89c` on `audit/reconcile-docs-and-decisions`, clean, two commits unpushed |
-| Release target | **the branch**, tagged `v1.0-interview`. `main` stays at `f992470` |
+| Tree planned against | the tip of `audit/reconcile-docs-and-decisions`, clean and pushed, open as a pull request against `main` |
+| Release target | **`main`**, tagged `v1.0-interview` once the branch merges. See D10, which supersedes D1 |
 | Repository | [`alexandergmzx/corridor-twin`](https://github.com/alexandergmzx/corridor-twin) — public, Apache-2.0 |
 
 ## Why this exists
@@ -35,15 +35,16 @@ Checked against the tree, not assumed.
 
 | # | Hypothesis | Verdict |
 |---|---|---|
-| 1 | `main` is stale; the corrected state lives only on the branch | **Confirmed**, with a correction to *which* documents underclaim |
+| 1 | `main` is stale; the corrected state lives only on the branch | **Confirmed**, with a correction to *which* documents underclaim. **Closed by the D10 merge** |
 | 2 | The GUI path has never completed the route on corrected geometry | **Was true; now closed by `28e2b72`** |
 | 3 | The pip-only path needs `usd-core`, `numpy<2`, `PyYAML` | **Refuted for `scene.build`; confirmed and narrower for `scene.occlusion`** |
 | 4 | `ROBO_TASK.pdf` raises a licensing question | **Confirmed, and it is three questions, not one** |
 
 ### 1 — `main` is stale (confirmed; the diagnosis needed correcting)
 
-`origin/main` is `f992470`; the branch is 28 commits ahead and `main` is a strict
-ancestor.
+`origin/main` is `f992470` and is a strict ancestor of the branch. Enumerate the
+range with `git log --oneline origin/main..HEAD` rather than trusting a count
+written here; it has grown every round.
 
 The claim that "several entry points still say motion is blocked" is **not what
 the tree shows.** On `main`, the top-level `README.md` already says *"Live
@@ -54,7 +55,8 @@ open first. Its growth map still renders `P4 Robot motion … BLOCKED` in red, w
 
 So `main` does not merely underclaim; it **contradicts itself** — a README
 claiming a working demonstration, linking one click away to a map saying the
-motion it depends on is blocked. That is the condition D1 has to work around.
+motion it depends on is blocked. D1 worked around that condition; D10 removes it,
+because the merge carries the corrected map onto `main`.
 
 ### 2 — GUI completing the route (closed)
 
@@ -113,7 +115,7 @@ on the record rather than reconstructed later.
 
 | # | Decision | Consequence carried into this plan |
 |---|---|---|
-| D1 | **Release from the branch.** Tag `v1.0-interview` on `audit/reconcile-docs-and-decisions`; `main` untouched at `f992470` | No `HANDOFF.md` break, no merge, no fast-forward. But the repository's front page keeps contradicting itself, and GitHub shows "28 commits ahead of main". **Every link in the release body must be a tag permalink, never a `main` or branch-tip URL**, or the notes will resolve to stale content |
+| ~~D1~~ | ~~**Release from the branch.** Tag `v1.0-interview` on `audit/reconcile-docs-and-decisions`; `main` untouched at `f992470`~~ **Superseded by D10** | Its reasoning is kept below because D10 pays a cost D1 avoided |
 | D2 | **Keep `ROBO_TASK.pdf` as-is** | No code, test, digest or link changes. The `source-diagram` evidence topic and the ADR 0010 audit trail stay intact and fully checkable |
 | D3 | **Video: both.** Inline attachment in the release body *and* the same MP4 as a downloadable asset | Inline playback plus an archival copy, both inside the one frozen URL. No external host, so no second URL to rot and nothing for a corporate network to block |
 | D4 | **No rosbag.** My call, reasoned below | Removes the ROS-no-GPU artifact tier. The synthetic-demo launch already fills that tier better, and the recording stays in `out/evidence/` if anyone asks |
@@ -122,6 +124,7 @@ on the record rather than reconstructed later.
 | D7 | **Do not add this document to the link-resolution test** | Its links were verified once by hand and nothing will catch them rotting. Re-check before tagging |
 | D8 | **The static requalification stays in "not claimed"** | Corrected below. The artifacts on disk are the invalidated run, not a replacement |
 | D9 | **A short looping GIF as the README hero; the full MP4 stays in the release.** In `docs/evidence/live-demo/`, branch README only | Motion above the fold on the repo page, which an MP4 in the tree cannot give. Detailed below, because the sizing is what keeps it from being a mistake |
+| D10 | **Merge the branch into `main`, then release from `main`.** Supersedes D1 | The front page stops contradicting itself, so "branch README only" in D9 becomes simply "the README". Costs the `HANDOFF.md` retirement and one merge commit. Tag permalinks stay mandatory anyway |
 
 ### D4 — why no rosbag, in detail
 
@@ -225,8 +228,33 @@ committing to it, and fall back to GIF if it renders as a still.
 
 Promote the winner from `out/evidence/` into `docs/evidence/live-demo/` in the
 same commit that records it, add it to that topic's `Frames` table in `NOTES.md`
-with the source run and timestamps, and reference it from the branch `README.md`
-only. `main` is untouched, per D1.
+with the source run and timestamps, and reference it from `README.md`. Under D10
+that is the merged README, not a branch-only edit.
+
+### D10 — merge, superseding D1
+
+D1 avoided a merge to avoid breaking `HANDOFF.md`, whose contract test pins the
+document to `origin/main`'s tip and to the branch under review. That cost is real
+but small and one-time: the handoff is retired in the same pull request, and the
+audit checklist it carried moves into the pull-request body, which is where a
+range under review is actually read.
+
+What D1 could not fix is the reason it existed. Its own risk section concedes it:
+releasing from the branch "leaves the front page contradicting itself, and the
+release URL is the only correct view of the project." A reader who lands on the
+repository root — the ordinary way anyone arrives — is told the demonstration
+works and, one click into the map `CLAUDE.md` sends them to first, that the robot
+motion it depends on is `BLOCKED`. The mitigations D1 offered were a repository
+setting and careful linking; neither corrects the document.
+
+Merging corrects it at the source. The branch is 31 commits of reviewed work and
+`main` is a strict ancestor, so the merge resolves nothing and rewrites nothing.
+
+**What does not change.** The merge is a merge commit — not a squash, not a
+rebase. The 31 boundaries are argued individually in the review log and the
+repository forbids rewriting published history. Every link in the release body is
+still a tag permalink: `main` will keep moving after the tag, and a branch-tip URL
+would rot exactly as it would have before.
 
 ---
 
@@ -282,7 +310,7 @@ shipped `corridor.usda` can re-run the proof that A cannot see P. **Do not prese
 
 | Claude Code can do | Only you, at the machine | Already decided |
 |---|---|---|
-| Draft the release body from section 5 | The canonical Isaac run with screen capture | D1–D8, section 1 |
+| Draft the release body from section 5 | The canonical Isaac run with screen capture | D1–D10, section 1 |
 | Re-emit `summary.json` provenance from that run | Screen recording, cropping, confirming RViz text is legible | |
 | Run `scene.build` / `scene.occlusion` — CPU only — and stage the pip-tier zip | Video encode and the inline-upload size check | |
 | Run `bash tools/check_workspace.sh` and capture the log | `git tag`, `gh release create`, asset upload | |
@@ -344,16 +372,18 @@ documents by hand.
 | **S4** | Curate the rest of the evidence; add the CI badge; `check_workspace.sh` green; re-verify this document's links | Both | S2 |
 | **S5** | pip-tier assets: `scene.build`, `scene.occlusion` ×3 profiles, zip | Claude | — parallel |
 | **S6** | Video encode; check it fits the inline attachment; draft the release body | Both | S2 |
-| **S7** | `git tag v1.0-interview`, push the branch and tag, `gh release create --target audit/reconcile-docs-and-decisions`, upload assets | You | S3–S6 |
+| **S7** | Merge the pull request (merge commit), then `git tag v1.0-interview` on `main`, push the tag, `gh release create --target main`, upload assets | You | S3–S6 |
 | **S8** | Verify from outside: logged-out browser, every link resolves **at the tag**, the hero loop animates, video plays inline, one asset downloads | You | S7 |
 
-Note S7 pushes the **branch** as well as the tag: two commits are unpushed today,
-and a tag pointing at an object the remote does not have will be rejected.
+Note S7 tags **after** the merge, on `main`. Tag whatever `main` points at once
+the pull request lands, and confirm the tag resolves on the remote before writing
+a single permalink against it.
 
 **S8 is not optional.** A release with a broken link is worse than no release, and
-you cannot see your own repository the way a logged-out visitor does. Because of
-D1 this matters more than usual: the release is the only correct view of the
-project, so a link that falls through to `main` shows a reader the stale map.
+you cannot see your own repository the way a logged-out visitor does. Under D10 a
+link that falls through to `main` no longer lands on a stale map, which removes
+the sharpest edge but not the check: a permalink that resolves to a moving branch
+is still wrong, and only a logged-out browser tells you which one you wrote.
 
 ---
 
@@ -504,14 +534,13 @@ a conservative one. Mitigation is rehearsal: run it three times consecutively an
 record the pass rate. **That number does not exist today**, and it belongs in the
 notes as measured reliability once it does.
 
-**D1's cost, and the one mitigation that does not reopen it.** Releasing from the
-branch leaves the front page contradicting itself, and the release URL is the only
-correct view of the project. Anyone who navigates to the repository root instead
-of the release sees the stale map. Two things reduce this without merging: make
-every link in the release body a **tag permalink**, and — if you want the front
-page fixed at all — GitHub's default-branch setting can point at the audit branch,
-which is a repository setting, not a merge, and rewrites no history. Both are
-optional; neither reopens D1.
+**D1's cost, and how D10 pays it instead.** Releasing from the branch left the
+front page contradicting itself, with the release URL as the only correct view of
+the project — anyone navigating to the repository root saw the stale map. D1
+offered two mitigations that were not corrections: tag permalinks, and pointing
+GitHub's default-branch setting at the audit branch. D10 merges instead, so the
+root *is* the corrected view. **Tag permalinks remain mandatory regardless**:
+`main` keeps moving after the tag, so a `main` URL in the release body still rots.
 
 **Nothing checks this document's links.** Per D7 they were verified once by hand.
 Re-verify before tagging.
@@ -521,8 +550,9 @@ Re-verify before tagging.
 ## 7. Effort estimate
 
 Evening-sized blocks of roughly three hours. The decisions in section 1 removed
-two blocks — the merge and its `HANDOFF.md` reconciliation, and the bag
-conversion.
+the bag conversion. D10 puts the merge back, but not as a block: the branch is a
+strict descendant of `main`, and the `HANDOFF.md` retirement it requires is two
+commits already made in the pull request.
 
 | # | Block | Depends on | Critical path |
 |---|---|---|---|
@@ -546,8 +576,8 @@ evening.
 
 ## Constraints this plan honours
 
-- No push, rebase, squash or amend of existing history. D1 releases from the
-  branch, so `main` is not touched at all.
+- No rebase, squash or amend of existing history. D10 merges the branch into
+  `main` with a merge commit, which adds history and rewrites none.
 - Commits use the configured Alexander Gomez identity. No assistant attribution
   anywhere, including the release body.
 - Generated output stays under `out/evidence/`; `docs/evidence/` receives only
