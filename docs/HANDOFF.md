@@ -7,7 +7,7 @@
 | Branch | `main` |
 | Published base | `f992470` on `origin/main`; everything below is pushed |
 | Last behavior commit to audit | `772d027` |
-| Portable gate at this handoff | 119 repository tests plus 1 skipped without the colcon-generated interfaces, 86 ROS package tests |
+| Portable gate at this handoff | 120 repository tests plus 1 skipped without the colcon-generated interfaces, 86 ROS package tests |
 | Current gate | Demonstration works end to end; static requalification still outstanding |
 | Next implementation slice | Close R17, then the paired static requalification |
 
@@ -265,7 +265,7 @@ The last clean run on 2026-07-27 produced:
 | Layer | Expected result |
 |---|---:|
 | Ruff | Pass |
-| Repository pytest | 119 passed, 1 skipped |
+| Repository pytest | 120 passed, 1 skipped |
 | Colcon build | 3 packages built |
 | ROS package tests | 86 tests, 0 errors, 0 failures, 0 skipped |
 

@@ -154,7 +154,7 @@ unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 ## Current handoff: the demonstration runs; requalify the static gate next
 
 Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first. It records the commit range,
-the current 119-repository (plus one skipped without the colcon-generated
+the current 120-repository (plus one skipped without the colcon-generated
 interfaces) and 86-package test result, the open findings, and the limits that
 are not yet closed.
 

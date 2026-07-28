@@ -151,6 +151,69 @@ def test_observer_consumes_no_actor_ground_truth() -> None:
     assert violations == []
 
 
+# The only messages anything on the estimate path may subscribe to. The camera
+# contract is Image + CameraInfo; /clock is handled by rclpy's TimeSource, not
+# by a subscription any of these modules constructs.
+PERMITTED_SUBSCRIPTION_TYPES = frozenset({"Image", "CameraInfo"})
+
+
+def _constructed_subscriptions(path: Path) -> list[str]:
+    """Return the message type of every subscription a module constructs.
+
+    Covers both forms this package uses: ``create_subscription(TYPE, ...)`` and
+    ``message_filters.Subscriber(node, TYPE, ...)`` (``node.py:78,84``).
+    """
+
+    found: list[str] = []
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        name = function.attr if isinstance(function, ast.Attribute) else getattr(function, "id", "")
+        if name == "create_subscription" and node.args:
+            argument = node.args[0]
+        elif name == "Subscriber" and len(node.args) >= 2:
+            argument = node.args[1]  # message_filters.Subscriber(node, TYPE, topic)
+        else:
+            continue
+        found.append(
+            argument.id if isinstance(argument, ast.Name) else ast.dump(argument)
+        )
+    return found
+
+
+def test_estimate_path_subscribes_only_to_the_camera_contract() -> None:
+    """Enumerate what the estimate path actually subscribes to, not what it spells.
+
+    A token blocklist was the previous guard, and it had two holes. It named
+    only the tokens someone thought of, so `/tf` and `get_world_pose` passed
+    freely; and it covered only `node.py`, leaving the rest of the estimate path
+    unchecked. Widening the blocklist would also have been wrong: `synthetic
+    _node.py` legitimately contains "ground_truth" because it *publishes* the
+    evaluator topic `test/ground_truth/speed`, which is the isolation design
+    working, not a breach of it.
+
+    Enumerating constructed subscriptions distinguishes reading truth from
+    publishing it, and fails on a truth subscription of any type at all --
+    including one nobody thought to name.
+    """
+
+    observer = ROOT / "src/police_observer/police_observer"
+    violations: list[str] = []
+    for name in ESTIMATE_PATH_MODULES:
+        for message_type in _constructed_subscriptions(observer / name):
+            if message_type not in PERMITTED_SUBSCRIPTION_TYPES:
+                violations.append(f"{name} subscribes to {message_type}")
+    assert violations == [], (
+        f"{violations}; the estimate path may subscribe only to "
+        f"{sorted(PERMITTED_SUBSCRIPTION_TYPES)}"
+    )
+
+    # Guard the guard: if the observer stopped subscribing to the camera
+    # entirely, the loop above would pass vacuously.
+    assert set(_constructed_subscriptions(observer / "node.py")) == PERMITTED_SUBSCRIPTION_TYPES
+
+
 def test_display_may_draw_the_scene_but_never_locates_the_robot_from_truth() -> None:
     """The display is held to a different rule than the estimate path, on purpose.
 
