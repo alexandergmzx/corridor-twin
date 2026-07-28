@@ -178,14 +178,25 @@ def building_footprints(scenario: Scenario, profile: CorridorProfile) -> dict[st
 def occluders(scenario: Scenario, profile: CorridorProfile) -> tuple[Occluder, ...]:
     """Return the opaque slabs that can block a camera-to-P sight ray.
 
-    Only the corridor's south wall and the corner mass can ever lie between A's
-    route and P; the north and east buildings are on the far side of both and
-    are excluded here. They are still audited by the independent composed-mesh
-    raycast, which reads every building prim from the stage.
+    This list used to exclude the east building, on the argument that it sat on
+    the far side of both A's route and P. That argument died with ADR 0017: P
+    now stands east of the junction, and the east building is the wall that
+    hides it. Excluding it was not a harmless optimisation — the analytic
+    certificate would have found no witness at all.
+
+    The corridor's south wall and the corner mass stay, because they still lie
+    between A's corridor run and the east corner. The north building remains
+    excluded: it caps the scene along the whole north edge, and neither A's
+    route nor P is ever on its far side.
+
+    Every building is audited regardless by the independent composed-mesh
+    raycast, which discovers prims from the stage by collision schema. These
+    slabs are the analytic half of the proof, not the whole of it.
     """
 
     intercept, slope = _south_face_line(scenario, profile)
     depth = scenario.wall_thickness_m
+    north_face, _ = corridor_faces(profile, 0.0, scenario.corridor_length_m)
     root = "/World/Environment/Corridor"
     return (
         Occluder(
@@ -208,6 +219,19 @@ def occluders(scenario: Scenario, profile: CorridorProfile) -> tuple[Occluder, .
             # face at that plane, not as high as the face at the corner itself.
             y_high_intercept=intercept,
             y_high_slope=slope,
+            height_m=scenario.building_height_m,
+        ),
+        # The next street's east wall. This is what hides P under ADR 0017, so
+        # it is load-bearing rather than incidental: remove it and the
+        # certificate fails on every profile.
+        Occluder(
+            prim_path=f"{root}/EastBuilding",
+            x_min=scenario.street_east_m,
+            x_max=scenario.street_east_m + depth,
+            y_low_intercept=scenario.street_south_m,
+            y_low_slope=0.0,
+            y_high_intercept=north_face,
+            y_high_slope=0.0,
             height_m=scenario.building_height_m,
         ),
     )
@@ -412,18 +436,31 @@ def person_b_xyz(scenario: Scenario) -> Vec3:
 
 
 def police_bounds(scenario: Scenario, profile: CorridorProfile) -> tuple[Vec3, Vec3]:
-    """Return P's axis-aligned body volume, derived from the occluding faces.
+    """Return P's axis-aligned body volume at the junction's east corner.
 
-    P is placed by offsets from the corner mass and the corridor's south wall
-    rather than by absolute coordinates, so a different corridor profile moves
-    P with the geometry instead of stranding it inside a wall or in the road.
+    The supplied diagram places P east of the junction rather than west of the
+    corner mass. P stands on the far side of the next street's east wall, which
+    is the surface that hides it; ADR 0017 records why the body sits behind
+    that wall rather than in the street channel where the drawing's label is.
+
+    P is placed by offsets from wall faces rather than by absolute coordinates,
+    so a different corridor profile moves P with the geometry instead of
+    stranding it inside a wall or in the road. ``east_offset_m`` is clear air
+    east of EastBuilding's outer face; ``north_offset_m`` runs south from the
+    north wall's inner face, which is the only one of the two that varies with
+    the profile, because it sits at ``m/2``.
     """
 
     police = scenario.police
     size_x, size_y, size_z = police.body_size_xyz_m
-    center_x = scenario.corridor_length_m - scenario.wall_thickness_m - police.west_offset_m
-    _, south_face = corridor_faces(profile, center_x, scenario.corridor_length_m)
-    center_y = south_face - scenario.wall_thickness_m - police.south_offset_m
+    center_x = (
+        scenario.street_east_m
+        + scenario.wall_thickness_m
+        + police.east_offset_m
+        + size_x / 2.0
+    )
+    north_face, _ = corridor_faces(profile, 0.0, scenario.corridor_length_m)
+    center_y = north_face - police.north_offset_m
     return (
         (center_x - size_x / 2.0, center_y - size_y / 2.0, 0.0),
         (center_x + size_x / 2.0, center_y + size_y / 2.0, size_z),
@@ -458,19 +495,25 @@ def validate_layout(scenario: Scenario, profile: CorridorProfile) -> None:
     clearance = scenario.police.minimum_clearance_m
     pmin, pmax = police_bounds(scenario, profile)
 
-    # P must stay west of the corner mass, which is what hides it.
-    if pmax[0] > length - depth - clearance:
+    # P must stay east of the east wall, which is what hides it under ADR 0017.
+    if pmin[0] < scenario.street_east_m + depth + clearance:
         raise ValueError(
-            f"profile {profile.name}: P is within {clearance} m of the corner wall's west face"
+            f"profile {profile.name}: P is within {clearance} m of the east wall's outer face"
         )
-    # P must stay south of the corridor's south wall, outside the road.
-    for corner_x in (pmin[0], pmax[0]):
-        _, south_face = corridor_faces(profile, corner_x, length)
-        if pmax[1] > south_face - depth - clearance:
-            raise ValueError(
-                f"profile {profile.name}: P is within {clearance} m of the south wall at "
-                f"x={corner_x:.3f}"
-            )
+    # P must stay south of the north wall's inner face, so the east wall spans
+    # its whole body. North of that the east wall stops and P would be exposed
+    # over the top of the junction.
+    north_face, _ = corridor_faces(profile, 0.0, length)
+    if pmax[1] > north_face - clearance:
+        raise ValueError(
+            f"profile {profile.name}: P reaches y={pmax[1]:.3f}, within {clearance} m of the "
+            f"north face at y={north_face:.3f}, where the east wall no longer covers it"
+        )
+    # And south of the street's far end, for the same reason at the other end.
+    if pmin[1] < scenario.street_south_m + clearance:
+        raise ValueError(
+            f"profile {profile.name}: P reaches y={pmin[1]:.3f}, past the street's south end"
+        )
     # P must not stand in drivable space at any of its footprint corners.
     for corner_x in (pmin[0], pmax[0]):
         for corner_y in (pmin[1], pmax[1]):

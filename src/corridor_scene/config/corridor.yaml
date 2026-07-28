@@ -97,13 +97,19 @@ fiducials:
       - {surface: east_face,  along_m: 0.75, height_m: 1.0, size_m: 0.60, cant_deg: 0.0}
 
 police:
-  # P stands at the corner on the non-drivable side of the corner wall. The
-  # placement is expressed as offsets from the occluding wall faces so it
-  # follows the geometry when a different (m,n) profile is selected, instead of
-  # being frozen as absolute coordinates that only suit one profile.
+  # P stands at the junction's east corner, on the far side of the next
+  # street's east wall, which is the surface that hides P from A. The supplied
+  # diagram puts P on this side; ADR 0017 records why the body sits behind the
+  # wall rather than in the street channel where the drawing's label is.
+  #
+  # The placement stays expressed as offsets from wall faces rather than as
+  # absolute coordinates, per ADR 0010, so selecting a different (m,n) profile
+  # moves P with the geometry instead of stranding it inside a wall.
   body_size_xyz_m: [0.6, 0.6, 1.8]
-  west_offset_m: 0.60
-  south_offset_m: 1.20
+  # East of EastBuilding's outer face.
+  east_offset_m: 0.60
+  # South of the north wall's inner face, which is m/2.
+  north_offset_m: 1.20
   minimum_clearance_m: 0.25
 
 speed_policy:

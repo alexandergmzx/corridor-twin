@@ -158,4 +158,9 @@ def test_scene_is_drawn_before_any_estimate_arrives(node, manifest: Path) -> Non
 
     # Both blocking surfaces the occlusion certificate reasons about are shown,
     # so what the viewer sees hiding P is what the proof is about.
-    assert len(namespaces["occluders"]) == len(block["occluders"]) == 2
+    # Every blocking surface the certificate reasons about must be drawn, so
+    # what a viewer sees hiding P is what the proof is about. The count is read
+    # from the manifest rather than pinned: ADR 0017 added the east wall, and a
+    # literal here would have to be edited every time the occluder set changes.
+    assert len(namespaces["occluders"]) == len(block["occluders"])
+    assert len(block["occluders"]) >= 2

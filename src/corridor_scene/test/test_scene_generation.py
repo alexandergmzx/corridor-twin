@@ -19,8 +19,15 @@ from scene.geometry import (
     police_bounds,
 )
 from scene.model import CorridorProfile, load_scenario
-from scene.occlusion import _mesh_triangles, _segment_hits_triangle, opaque_mesh_prims, verify
-from scene.trajectory import delivery_trajectory
+from scene.occlusion import (
+    Occluder,
+    _mesh_triangles,
+    _segment_hits_triangle,
+    continuous_certificate,
+    opaque_mesh_prims,
+    verify,
+)
+from scene.trajectory import delivery_trajectory, trajectory_from_manifest
 
 BUILDINGS = ("NorthBuilding", "SouthBuilding", "CornerBuilding", "EastBuilding")
 
@@ -130,37 +137,68 @@ def test_every_flanking_building_is_a_static_collider(generated: tuple[Path, Pat
             assert UsdPhysics.MeshCollisionAPI(prim).GetApproximationAttr().Get() == "convexHull"
 
 
-def test_actors_follow_the_selected_profile(generated: tuple[Path, Path]) -> None:
-    """P must move with (m,n); a frozen P would end up in a wall or the road."""
+def _police_y(stage: Usd.Stage) -> float:
+    cache = UsdGeom.XformCache()
+    cache.Clear()
+    return float(
+        cache.GetLocalToWorldTransform(
+            stage.GetPrimAtPath("/World/Actors/P")
+        ).ExtractTranslation()[1]
+    )
 
-    stage_path, _ = generated
+
+def test_p_is_derived_from_the_geometry_and_not_frozen(tmp_path: Path) -> None:
+    """A frozen P would end up in a wall or the road on some profile.
+
+    Before ADR 0017, P sat behind the corner mass and its Y came off the south
+    face, which varies with both m and n -- so it differed across all three
+    configured profiles. P now stands east of the junction and its Y comes off
+    the north face at ``m/2``, which varies with m alone. All three configured
+    profiles share ``m = 6.0``, so P is deliberately in the *same* place in all
+    of them; asserting that it moves between them would now be asserting a
+    coincidence of the old anchor.
+
+    What must still hold is that the placement is derived rather than frozen,
+    so this varies the thing it actually depends on.
+    """
+
+    stage_path, _ = build_scene(None, tmp_path / "six.usda", 6.0, 3.0)
     stage = Usd.Stage.Open(str(stage_path))
     variants = _variants(stage)
-    cache = UsdGeom.XformCache()
-    seen: set[float] = set()
+    configured = {}
     for name in variants.GetVariantNames():
         variants.SetVariantSelection(name)
-        cache.Clear()
-        police = cache.GetLocalToWorldTransform(
-            stage.GetPrimAtPath("/World/Actors/P")
-        ).ExtractTranslation()
-        seen.add(round(float(police[1]), 6))
-    assert len(seen) == len(variants.GetVariantNames())
+        configured[name] = round(_police_y(stage), 6)
+    assert len(set(configured.values())) == 1, (
+        f"the configured profiles share m = 6.0, so P should not move: {configured}"
+    )
+
+    # Change the one dimension P is anchored to, and it must follow.
+    wider_path, _ = build_scene(None, tmp_path / "eight.usda", 8.0, 4.5)
+    wider = Usd.Stage.Open(str(wider_path))
+    _variants(wider).SetVariantSelection("requested_m8_n4_5")
+    assert _police_y(wider) - next(iter(configured.values())) == pytest.approx(1.0, abs=1e-6), (
+        "P's Y is measured from the north face at m/2, so a 2 m wider entry moves it 1 m north"
+    )
 
 
 def test_actor_topology_matches_the_supplied_diagram() -> None:
-    """A approaches down the corridor, B is along the next street, P is outside both."""
+    """A approaches down the corridor, B is along the next street, P is outside both.
+
+    Since ADR 0017 P stands at the junction's *east* corner, matching the side
+    the supplied diagram draws it on, behind the next street's east wall.
+    """
 
     scenario = load_scenario()
     length = scenario.corridor_length_m
     for profile in scenario.profiles:
         police_min, police_max = police_bounds(scenario, profile)
-        # P stays west of the corner mass that hides it.
-        assert police_max[0] < length - scenario.wall_thickness_m
-        # P stays south of the corridor's south wall, outside the road.
-        for corner_x in (police_min[0], police_max[0]):
-            south_face = corridor_faces(profile, corner_x, length)[1]
-            assert police_max[1] < south_face - scenario.wall_thickness_m
+        # P stays east of the east wall that hides it.
+        assert police_min[0] > scenario.street_east_m + scenario.wall_thickness_m
+        # P stays within the span of that wall, so it is covered end to end.
+        north_face = corridor_faces(profile, 0.0, length)[0]
+        assert police_max[1] < north_face
+        assert police_min[1] > scenario.street_south_m
         # P's body enters no drivable space at any footprint corner.
         for corner_x in (police_min[0], police_max[0]):
             for corner_y in (police_min[1], police_max[1]):
@@ -498,9 +536,10 @@ def test_certificate_names_the_blocking_prim(generated: tuple[Path, Path]) -> No
     assert all(prim is not None and prim.startswith("/World/Environment/") for prim in prims)
     assert all(item.witness_axis in {"x", "y"} for item in result.coverage)
     assert all(item.witness_coordinate_m is not None for item in result.coverage)
-    # The reconciled scene genuinely needs both plane orientations. Recording
-    # the axis prevents a Y coordinate from masquerading as witness_x_m.
-    assert {item.witness_axis for item in result.coverage} == {"x", "y"}
+    # Since ADR 0017 the default scene is separated entirely by the east wall,
+    # a single plane of constant X, so it no longer exercises both orientations.
+    # `test_a_crosswise_witness_is_still_required` keeps that machinery covered.
+    assert {item.witness_axis for item in result.coverage} == {"x"}
     audited = set(result.usd_audit_prims)
     assert {f"/World/Environment/Corridor/{name}" for name in BUILDINGS} <= audited
 
@@ -523,6 +562,69 @@ def test_visible_negative_control_fails(generated: tuple[Path, Path], tmp_path: 
     assert not result.line_of_sight_blocked_everywhere
     # The independent composed-mesh audit must agree, not just the analytic proof.
     assert result.usd_audit_failures > 0
+
+
+def test_removing_the_east_wall_fails_the_certificate(
+    generated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """The wall that hides P must be load-bearing, not incidentally present.
+
+    Under ADR 0017 P stands east of the junction and the next street's east wall
+    is what blocks A's line of sight to it. `occluders()` excluded that building
+    for years on the argument that it sat on the far side of both A's route and
+    P -- true of the old west placement, false of this one. If the exclusion
+    came back, the analytic certificate would have no witness at all.
+
+    Deleting it from the slab list must therefore fail the proof. Note the mesh
+    audit still passes: it discovers prims from the composed stage by collision
+    schema, so it does not care what the manifest lists. That the two halves
+    disagree here is the point -- they are independent, and this exercises the
+    analytic one.
+    """
+
+    stage_path, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selected = manifest["selected_profile"]
+    block = manifest["profiles"][selected]
+
+    kept = [
+        slab for slab in block["occluders"] if not slab["prim_path"].endswith("EastBuilding")
+    ]
+    assert len(kept) == len(block["occluders"]) - 1, "the east wall must be in the slab list"
+    block["occluders"] = kept
+    mutated = tmp_path / "no_east_wall.manifest.json"
+    mutated.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = verify(stage_path, mutated, selected)
+    assert not result.passed
+    assert not result.line_of_sight_blocked_everywhere
+
+    # Fail for the right reason. A mutation test that passes because the code
+    # crashed is a false green, so require the specific symptom: P becomes
+    # genuinely camera-visible, over named route intervals, rather than the
+    # proof merely failing to find a witness.
+    assert result.camera_visible_intervals, "P should be exposed once its wall is gone"
+    assert {label for label, _, _ in result.camera_visible_intervals} <= {
+        "approach",
+        "arc",
+        "departure",
+    }
+
+    # And the mesh audit must still pass. It discovers prims from the composed
+    # stage, which the mutation did not touch, so a failure here would mean
+    # something structural broke instead of the analytic proof losing its
+    # witness -- exactly the confusion this assertion exists to prevent.
+    assert result.usd_audit_rays > 0
+    assert result.usd_audit_failures == 0
+    assert any("EastBuilding" in prim for prim in result.usd_audit_prims)
+
+    # And the unmutated manifest passes with that wall doing the work, so the
+    # failure above is attributable to the removal rather than to anything else.
+    intact = verify(stage_path, manifest_path, selected)
+    assert intact.passed
+    assert {item.blocking_prim for item in intact.coverage} == {
+        "/World/Environment/Corridor/EastBuilding"
+    }
 
 
 def test_reference_plates_never_become_enforcement_gates(
@@ -754,3 +856,37 @@ def test_the_band_clamp_moved_no_configured_profile(generated: tuple[Path, Path]
             )
             checked += 1
     assert checked == len(manifest["profiles"]) * len(EAST_FACE_SURVEY_BEFORE_BAND_CLAMP)
+
+
+def test_a_crosswise_witness_is_still_required(generated: tuple[Path, Path]) -> None:
+    """Keep the constant-Y witness covered after ADR 0017 moved P east.
+
+    ADR 0011 argued the crosswise witness was "not an optimisation but a
+    necessity": where A drew level with P, no plane of constant X separated
+    them at all. That was a property of the *west* placement. With P east of
+    the junction the east wall separates every interval on its own, so the
+    default scene now uses X planes exclusively and would no longer notice if
+    the Y solver broke.
+
+    This drives the previous west placement, verbatim, against the current
+    occluders. It still needs both orientations, so the machinery ADR 0011
+    justified keeps its regression instead of quietly losing it when the
+    default scene stopped needing it.
+    """
+
+    _, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selected = manifest["selected_profile"]
+    block = manifest["profiles"][selected]
+
+    trajectory = trajectory_from_manifest(block["delivery_trajectory"])
+    slabs = tuple(Occluder(**slab) for slab in block["occluders"])
+    fov = float(manifest["camera"]["horizontal_fov_deg"])
+
+    # P as it stood before ADR 0017: south of the corridor, behind the corner
+    # mass, on the nominal profile.
+    result = continuous_certificate(
+        trajectory, (10.6, -2.275, 0.0), (11.2, -1.675, 1.8), slabs, fov, selected
+    )
+    assert result.passed, "the superseded placement was valid; this is a solver check"
+    assert {item.witness_axis for item in result.coverage} == {"x", "y"}
