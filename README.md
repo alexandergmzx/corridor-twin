@@ -22,9 +22,10 @@ live-stream checks.
 
 **Geometry reconciled with the supplied diagram — 2026-07-27.** The corridor now
 carries the drawing's one-sided taper, a real perpendicular next street with a
-corner mass, and a continuous line-arc-line delivery trajectory. P is placed
-from the occluding wall faces, so it follows the geometry when a different
-`(m,n)` profile is selected.
+corner mass, and a continuous delivery trajectory. P is placed from the
+occluding wall faces, so it follows the geometry when a different `(m,n)`
+profile is selected. Since ADR 0018 the route has five pieces: it turns in
+behind the east-wall stub to reach B in the pocket the drawing puts B in.
 
 **Static production-camera fiducials — historical run, renderer unqualified.**
 On 2026-07-27 the one-product Isaac ROS graph recovered surveyed station at five
@@ -170,8 +171,11 @@ never images P, and the stronger reciprocal claim that an opaque wall does the
 hiding. Straight route intervals use their exact endpoint segment; turn
 intervals use a conservative rectangle derived from the circular arc's exact
 extrema, so an arc is never replaced by its chord. Current result for the
-nominal profile: 78 certified interval and sub-volume pairs, 204 audit rays with
-0 failures, nearest blocking surface 3.116 m.
+nominal profile: 5 covered intervals, 404 audit rays with 0 failures, nearest
+blocking surface 5.366 m, `EastBuilding` the sole blocking prim. Since ADR 0017
+put P east of the junction, one plane of constant X separates it from the whole
+route, so the proof needs five intervals rather than the seventy-eight the
+previous placement required.
 
 Check the other authored profiles too, since each one moves P:
 

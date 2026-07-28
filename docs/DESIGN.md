@@ -255,8 +255,9 @@ Stable prim paths:
       /NextStreetSurface
       /NorthBuilding                    <- straight face
       /SouthBuilding                    <- tapering face
-      /CornerBuilding                   <- corner mass; hides P
-      /EastBuilding                     <- next street's far kerb
+      /CornerBuilding                   <- corner mass
+      /EastBuilding                     <- next street's far kerb; hides P
+      /EastWallStub                     <- the drawn block B stands behind
       /Fiducials
   /Actors
     /A
@@ -480,11 +481,18 @@ collision schema so that renaming or adding a building cannot silently shrink
 the audit. A negative test moves P into the clear corridor and must fail.
 
 Current result for the nominal profile: `passed`, line of sight blocked over the
-whole route, 78 certified interval/sub-volume pairs, 204 audit rays with 0
-failures, nearest blocking surface 3.116 m. 76 of the 78 are blocked by
-`SouthBuilding` and 2 by `CornerBuilding`; 50 use constant-X witnesses and 28
-use constant-Y witnesses. The certificate records `witness_axis` separately
-from `witness_coordinate_m`.
+whole route, 5 covered intervals, 404 audit rays with 0 failures, nearest
+blocking surface 5.366 m. All five are blocked by `EastBuilding` and all five
+use constant-X witnesses. The certificate records `witness_axis` separately from
+`witness_coordinate_m`.
+
+Before ADR 0017 the figures were 78 interval/sub-volume pairs, 204 rays and
+3.116 m, split 76/2 between `SouthBuilding` and `CornerBuilding` with 50
+constant-X and 28 constant-Y witnesses. P behind the corner mass drew level with
+A, so no single plane separated them and the general machinery was required.
+With P east of the junction one plane does, which is why the count collapsed —
+the proof got simpler, not weaker. `test_a_crosswise_witness_is_still_required`
+keeps the constant-Y solver covered against the superseded placement.
 
 ## ROS time model
 
@@ -689,7 +697,7 @@ Phase 1 packages. The version-specific tools are isolated in
   error, and a passing mirror negative control.
 - **0.5.0 — 2026-07-27:** Reconciled the scene with the supplied
   [`ROBO_TASK.pdf`](ROBO_TASK.pdf): one-sided taper, authored next street and
-  corner mass, P derived from the occluding faces, and a continuous line-arc-line
+  corner mass, P derived from the occluding faces, and a continuous five-piece
   delivery trajectory. Strengthened the visibility gate to cover P's full volume
   across a swept yaw range and to report wall occlusion separately from frustum
   exclusion. Corrected an 0.8% speed under-report caused by measuring station

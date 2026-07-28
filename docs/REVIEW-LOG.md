@@ -278,3 +278,44 @@ cite the measurement or say plainly that the cost is estimated.
 
 Worth applying to what is still deferred: the static requalification and the
 pose-to-render latency both carry costs that have never been measured either.
+
+---
+
+## Round 5 — what could not see the new wall
+
+Modelling the east-wall stub (ADR 0018) exposed a structural gap rather than a
+one-off omission, found by the owner noticing RViz did not draw it.
+
+**The manifest never published building footprints.** Per profile it carried
+`occluders` -- the analytic proof's slab list -- and nothing else about walls, so
+every manifest consumer was *structurally unable* to see a wall the proof does
+not reference. `NorthBuilding` had been invisible the same way since it was
+authored; nobody noticed because nothing drives past it.
+
+| Where | Missed | Fixed |
+|---|---|---|
+| `viz_node.py` | Drew `occluders`, so the stub and the north wall were never rendered | `3bf0995`. Draws `walls`, emphasising the ones the certificate uses as witnesses |
+| `tools/isaac_5_1_smoke.py` | Two hardcoded four-name tuples. Did not fail; silently stopped covering the stub | `3bf0995`. Derives from the manifest, with a contract test requiring it |
+| `docs/DESIGN.md` prim tree | Listed four buildings | Corrected |
+| `ACTIVATION.md`, `README.md`, `DESIGN.md` occlusion figures | **Stale since ADR 0017**, not 0018 | Corrected |
+| `README.md`, `DESIGN.md` route prose | Still said "line-arc-line" | Corrected |
+
+The proof itself was never wrong. The composed-mesh audit discovers prims from
+the stage by collision schema and reported all five buildings throughout. What
+was blind was the reporting and the display.
+
+### The stale figures are the recurring pattern again
+
+Three documents still quoted *78 certified pairs, 204 audit rays, 3.116 m
+nearest, 76 `SouthBuilding` / 2 `CornerBuilding`, 50 constant-X / 28 constant-Y*.
+Those describe P behind the corner mass — superseded by **ADR 0017**, a round
+earlier, and they survived it. Measured now: **5 intervals, 404 rays, 5.366 m,
+`EastBuilding` sole blocker, all constant-X.**
+
+`test_live_run_headline_figures_match_the_recorded_summary` did not catch it
+because it reads `live-demo/summary.json`, and these figures come from the
+occlusion certificates. That is the fourth recurrence of prose drifting from a
+measured artifact, and the third time the durable fix was a test that reads the
+artifact rather than more careful editing. **Extending that test to the
+certificates is the open follow-up**, and it is the only thing that would have
+caught this.
