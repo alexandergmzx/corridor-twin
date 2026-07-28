@@ -142,7 +142,8 @@ flowchart LR
     Scene --> Smoke["Headless + visible composition<br/><b>PASS</b>"]
     Smoke --> Camera["One-camera ROS contract<br/>headless + visible<br/><b>PASS</b>"]
     Camera --> Static["Rendered fiducial station gate<br/><b>PASS</b>"]
-    Static --> Motion["Robot motion and live speed<br/><b>NEXT</b>"]
+    Static --> Motion["Robot motion and live speed<br/><b>PASS</b>"]
+    Motion --> Requal["Paired static requalification<br/><b>NEXT</b>"]
     OS["Linux Mint support gate<br/><b>FAIL</b><br/>Ubuntu 24.04 fallback"]:::conditional -.-> HW
 
     classDef conditional fill:#5c471f,color:#ffffff,stroke:#ffc857,stroke-width:2px;
@@ -167,6 +168,8 @@ together. Headroom is measured against the project's 14,336 MiB soft ceiling.
 | Reconciled composition smoke | 0 | Visible | 3,147 MiB | 11,189 MiB |
 | Reconciled live ROS camera contract | 1 | Headless | 3,075 MiB | 11,261 MiB |
 | Static rendered-fiducial gate | 1 | Headless | 3,024 MiB | 11,312 MiB |
+| Live demonstration, A driving the route | 1 | Headless | 3,411 MiB | 12,892 MiB |
+| Live demonstration, A driving the route | 1 | Visible | 3,547 MiB | 12,756 MiB |
 | Project soft ceiling | — | — | 14,336 MiB | 0 MiB |
 
 ## Activation gate results

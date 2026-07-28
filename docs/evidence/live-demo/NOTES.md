@@ -123,7 +123,26 @@ ISAAC_ROS_CAMERA_PASS updates=1433 profile=nominal_m6_n3 static_probe=False driv
   which bounds the effect on a single station but has not been characterised.
 - Produce a full GUI run. The viewport path was confirmed separately (see
   below) but the recorded enforcement result above is from `--headless`.
-- Say anything about profiles other than `nominal_m6_n3`.
+- Say anything about profiles other than `nominal_m6_n3`. At this speed neither
+  alternate can produce a violation at all: `wide_corner_m6_n4_5`'s narrowest
+  gate is 4.75 m (limit 1.2 m/s) and `uniform_m6_n6` is 1.5 m/s throughout, so
+  neither has any gate in the 0.8 m/s zone.
+
+## Known risk: the violation has no redundancy
+
+The strict 0.8 m/s zone holds exactly two gates, 8.0 and 10.0, and the policy
+requires two consecutive over-limit measurements to confirm. Both gates must
+therefore be measured **and** over-limit, or this run produces no violation at
+all — a silent absence rather than a wrong answer.
+
+What makes that acceptable today is that the margin is comfortable rather than
+marginal: gate 8 measured 0.963 m/s against a 0.80 m/s limit, and the
+conservative 2σ lower bound is 0.935 m/s. The risk is a *missed* measurement,
+not a borderline one, and `e0bea0c` reduced exactly that failure mode by
+stopping noise-level backward station steps from discarding gate history.
+
+Mitigation is to rehearse rather than to widen the zone a second time. The
+simulator-free fallback produces the same single event if the live run fails.
 
 ## Viewport path
 

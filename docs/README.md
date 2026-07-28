@@ -9,8 +9,8 @@ increments without requiring a reader to reconstruct status from commit history.
 | Map version | 1.4.1 |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | Renderer/camera contract corrected; static renderer claim invalidated, so no canonical qualification exists |
-| Next milestone | Corner coverage, then GPU requalification, then motion |
+| Current milestone | Live camera-only demonstration working end to end; static renderer claim still invalidated, so no canonical static qualification exists |
+| Next milestone | Paired static requalification, then pose-to-render latency |
 
 ## Read the documentation in this order
 
@@ -35,15 +35,16 @@ flowchart LR
     P2["2. GPU activation<br/>RTX 5070 Ti<br/>headless + visible smoke<br/><b>QUALIFIED*</b>"]
     P3["3. Production camera gate<br/>pixels valid, renderer claim<br/>invalidated<br/><b>REQUALIFY</b>"]
     P3b["3b. Corner coverage<br/>gates 8 and 10 restored<br/>reference fiducials<br/><b>WORKING</b>"]
-    P3c["3c. GPU requalification<br/>measured renderer state<br/>on corrected geometry<br/><b>NEXT</b>"]
-    P4["4. Robot motion<br/>follow delivery path<br/>controlled speed profile<br/><b>BLOCKED</b>"]
-    P5["5. Live estimation<br/>Isaac pixels to observer<br/>error and violation evidence<br/><b>PENDING</b>"]
-    P6["6. Demo hardening<br/>failure cases + evidence pack<br/>launch path + rehearsal<br/><b>PENDING</b>"]
+    P4["4. Robot motion<br/>follows the authored route<br/>driven from simulation time<br/><b>WORKING</b>"]
+    P5["5. Live estimation<br/>Isaac pixels to observer<br/>4 gates, 1 violation, measured<br/><b>WORKING</b>"]
+    P6["6. Demo hardening<br/>one launch path + RViz<br/>rehearsed, fallback recorded<br/><b>WORKING</b>"]
+    P3c["3c. GPU requalification<br/>measured renderer state<br/>paired dwell capture<br/><b>NEXT</b>"]
+    P7["7. Latency + remaining profiles<br/>pose-to-render offset<br/>other (m,n) variants<br/><b>PENDING</b>"]
 
-    P1 --> P2 --> P3 --> P3b --> P3c --> P4 --> P5 --> P6
+    P1 --> P2 --> P3 --> P3b --> P4 --> P5 --> P6 --> P3c --> P7
 
     classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
-    class P4 blocked;
+    class P3c blocked;
 ```
 
 `QUALIFIED*` means all hardware gates passed, but NVIDIA's checker still rejects
@@ -105,7 +106,7 @@ truth is available only to evaluation code.
 | Resolution and rate | 640×360 at 15 Hz | Increase only after live estimator accuracy is measured |
 | Renderer | Real-time `RaytracedLighting` | No interactive path tracing |
 | Sensors | RGB only | No depth, LiDAR, radar, or segmentation in the interview scope |
-| Current one-product GPU memory | 3,024 MiB in the static rendered-fiducial gate | Remain below the 14,336 MiB soft ceiling |
+| Current one-product GPU memory | 3,411 MiB headless and 3,547 MiB with the viewport, in the live demonstration | Remain below the 14,336 MiB soft ceiling |
 | Clock sources | Exactly 1 per time mode | Never run competing `/clock` publishers |
 
 ## Keeping this map current

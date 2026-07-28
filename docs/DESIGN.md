@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.7.1 |
+| Design version | 0.8.0 |
 | Status | Corner enforcement coverage restored with reference fiducials; static renderer claim still invalidated pending requalification |
 | Last updated | 2026-07-27 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
@@ -273,13 +273,13 @@ camera model while moving it along a known station function. Truth is published
 on a test-only topic for the evaluator. A source contract test proves that the
 observer adapter contains no truth or odometry subscription.
 
-> **Provisional figures.** The numbers in this section were observed directly,
-> but they exist only as prose and as broad test bounds — there is no committed
-> command or machine-readable result behind them, so a reader cannot reproduce
-> them without rebuilding the run by hand. A deterministic reporter and a
-> curated `docs/evidence/synthetic-observer/` summary are planned *after* the
-> reference-fiducial geometry lands, because restoring gates 8.0 and 10.0 will
-> move these values again. Treat them as indicative until then.
+> **Superseded.** These figures were measured by hand on a 0.4 m station grid,
+> a schedule the system never runs. At the real 15 Hz cadence the same code
+> reports worse maxima, because a denser sample finds worse frames: 0.0391 m
+> became 0.0705 m on the nominal profile. `tools/synthetic_observer_report.py`
+> (`82417a8`) now emits these figures on a **declared** schedule with full
+> provenance, and a test pins that a rerun reproduces them. Take any number
+> below as historical; the reporter's artifact is the current source.
 
 The implemented clean synthetic test uses actual ArUco pixels, camera intrinsics,
 detection, PnP, gate interpolation, and the violation debounce. Re-measured after
@@ -360,11 +360,16 @@ invalidated name and **no canonical static qualification exists** until a fresh
 paired run passes on the corrected geometry. See
 [static fiducial evidence](evidence/static-fiducials/NOTES.md).
 
-Two limits also apply to what that run can support. It sampled only
-`0.5 … 7.0 m`, so it says nothing about the corner; and past camera x ≈ 7.5 the
-wall markers leave the 75° frustum entirely, which is why gates 8.0 and 10.0
-currently produce no estimate and the 0.8 m/s corner rule cannot be exercised
-from camera evidence.
+One limit still applies to what that run can support: it sampled only
+`0.5 … 7.0 m`, so it says nothing about the corner.
+
+The frustum limit it exposed is closed. Past camera x ≈ 7.5 the corridor wall
+markers do leave the 75° frustum — that is geometry, not resolution — so
+height-staggered reference plates on the north-wall extension and the east
+building face now carry the pose through the strict zone. Gates 8.0 and 10.0
+both produced measurements in the live run, and the 0.8 m/s corner rule fired
+exactly one violation. See [ADR 0015](adr/0015-reference-fiducials-for-corner-coverage.md)
+and the [live evidence](evidence/live-demo/NOTES.md).
 
 ## Occlusion verification
 
@@ -584,8 +589,8 @@ Phase 1 packages. The version-specific tools are isolated in
 | Demo GPU is qualified | 5070 Ti checker component results, headless/GUI smoke, and measured VRAM snapshots |
 | Live camera contract is correct | External ROS probe of paired stamps, frames, dimensions, encoding, calibration, QoS, rate, clocks, and publisher cardinality |
 | Rendered fiducials are measurable | Five static Isaac dwells over `0.5 … 7.0 m` pass station, reprojection, corner-order, calibration, and rate gates; the mirrored actual capture fails. Historical: that run's renderer mode was not measured |
-| The active render mode is ray-traced | **Not currently evidenced.** The readback exists since `5bc1c99` but has not yet produced a committed paired run |
-| Every surveyed gate is measurable | **False today.** Gates 8.0 and 10.0 fall outside the frustum, so the 0.8 m/s corner rule cannot be exercised from camera evidence |
+| The active render mode is ray-traced | Evidenced for the live run, not for a paired dwell capture. `ISAAC_ROS_CAMERA_RENDER_READY` reported `RaytracedLighting` on both `/rtx` and `/rtx-defaults` with AA enum 3. A paired **static** requalification is still outstanding |
+| Every surveyed gate is measurable | True for the gates that can carry a speed. All four produced measurements from live Isaac pixels; gate 2.0 is the first crossing and a speed needs two |
 | GPU constraints are explicit | One camera, 640×360, real-time rendering, no path tracing, and a 14 GB soft ceiling |
 
 ## Risks and mitigations

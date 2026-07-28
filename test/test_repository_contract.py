@@ -73,6 +73,24 @@ def test_versioned_evidence_topics_have_provenance() -> None:
     assert missing == []
 
 
+def test_evidence_index_lists_every_recorded_topic() -> None:
+    """A topic nobody links to is evidence nobody finds.
+
+    The provenance check above proves each topic directory documents itself, but
+    said nothing about whether the index points at it. The live-demo topic sat
+    unlisted for four commits because of exactly that gap.
+    """
+
+    evidence_root = ROOT / "docs/evidence"
+    index = (evidence_root / "README.md").read_text(encoding="utf-8")
+    unlisted = [
+        path.name
+        for path in sorted(evidence_root.iterdir())
+        if path.is_dir() and f"{path.name}/NOTES.md" not in index
+    ]
+    assert unlisted == [], f"add these to docs/evidence/README.md: {unlisted}"
+
+
 def test_interface_definitions_exist() -> None:
     message_dir = ROOT / "src/corridor_interfaces/msg"
     assert (message_dir / "SpeedEstimate.msg").is_file()

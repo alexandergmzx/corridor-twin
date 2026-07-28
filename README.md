@@ -230,7 +230,23 @@ exactly one violation episode without anyone touching a throttle.
 | `--record` | `ros2 bag record` the camera, estimate, violation and clock topics |
 | `SPEED_MPS=1.8` | sustained speeding: one episode that opens on the approach |
 | `SPEED_MPS=0.6` | fully compliant run, no violation |
-| `CORRIDOR_PROFILE=wide_corner_m6_n4_5` | a different authored `(m,n)` variant |
+| `CORRIDOR_PROFILE=wide_corner_m6_n4_5` | a different authored `(m,n)`; **no violation at 1.0 m/s**, see below |
+
+**Switching the corridor variant changes the policy, not just the walls.** The
+speed limit is a function of local clear width, so a wider corner means a
+looser rule at the same station:
+
+| Profile | Narrowest gate | Limit there | Violation at 1.0 m/s |
+|---|---:|---:|---|
+| `nominal_m6_n3` | 3.50 m | 0.8 m/s | yes, one at station 10.0 m |
+| `wide_corner_m6_n4_5` | 4.75 m | 1.2 m/s | **no** |
+| `uniform_m6_n6` | 6.00 m | 1.5 m/s | **no** |
+
+A variant switch therefore turns the readout green at the same commanded speed.
+That is the demonstration's point — geometry drives policy — and not a fault.
+To show a violation on `wide_corner_m6_n4_5`, raise the speed above its 1.2 m/s
+limit; `uniform_m6_n6` has no taper at all, so it is the control case where the
+rule never tightens. Only `nominal_m6_n3` has been measured live.
 
 Logs and the commanded-pose schedule land under `out/evidence/live-demo/`. The
 commanded schedule is simulator truth and is labelled as evaluator-only; it is

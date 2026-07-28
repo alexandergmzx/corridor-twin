@@ -5,9 +5,9 @@
 | Handoff version | 1.4.0 |
 | Prepared | 2026-07-27 |
 | Branch | `main` |
-| Published base | `a416e47` on `origin/main` |
+| Published base | `f992470` on `origin/main`; everything below is pushed |
 | Last behavior commit to audit | `772d027` |
-| Portable gate at this handoff | 117 repository tests (1 skipped without colcon-generated interfaces), 86 ROS package tests |
+| Portable gate at this handoff | 119 repository tests plus 1 skipped without the colcon-generated interfaces, 86 ROS package tests |
 | Current gate | Demonstration works end to end; static requalification still outstanding |
 | Next implementation slice | Close R17, then the paired static requalification |
 
@@ -79,11 +79,26 @@ single-marker pose sits at 3.4 sigma, and is rejected upstream on rank anyway.
    offset compensates for it. One camera period is 0.066 m at 1.0 m/s.
 3. **R11 runtime corridor-profile reload** is still not implemented; the
    observer reads `corridor_profile` once at construction.
-4. **ADRs 0015 and 0016 are unwritten** — reference fiducials for corner
-   coverage, and the owner-approved 3.5 -> 4.0 m policy boundary.
-5. **`docs/DESIGN.md` still contains the superseded synthetic figures** and, at
-   its verification matrix, still says gates 8/10 are unmeasurable. The live run
-   contradicts that directly.
+4. **The headline violation has no redundancy.** The strict 0.8 m/s zone holds
+   exactly two gates, 8.0 and 10.0, and `consecutive_estimates: 2` requires two
+   consecutive over-limit measurements to confirm. Both gates must therefore be
+   measured *and* over-limit or the demonstration produces no violation at all
+   — not a wrong one, a silent absence.
+
+   The margin when they are measured is comfortable rather than marginal: gate
+   8 read 0.963 m/s against a 0.80 limit, and the conservative 2-sigma lower
+   bound is 0.935 m/s. So the risk is a *missed measurement*, not a borderline
+   one, and `e0bea0c` reduced exactly that failure mode by stopping noise-level
+   backward steps from discarding gate history. Accepted as a documented risk
+   rather than closed by widening the zone a second time; the mitigation is to
+   rehearse, and the recorded fallback shows the same event.
+
+5. **The live run covers one profile at one speed.** `nominal_m6_n3` at
+   1.0 m/s. At that speed neither `wide_corner_m6_n4_5` (narrowest gate 4.75 m,
+   limit 1.2 m/s) nor `uniform_m6_n6` (1.5 m/s throughout) has any gate in the
+   0.8 m/s zone, so neither can produce a violation. That is the intended
+   policy story, not a defect — but it means a live variant switch shows a
+   green readout and needs the explanation prepared.
 
 ## Status since handoff 1.1.0
 
@@ -116,12 +131,18 @@ retroactively qualify the recorded one.
 | ID | Severity | Finding | State |
 |---|---|---|---|
 | R1 | High | The canonical static qualification presented renderer mode as measured although that run predated the readback fix | **Closed by this Stage 0.** Summary preserved byte-for-byte as `qualification-summary-v1-request-echo-invalidated.json`; no canonical qualification exists until the Stage 2 rerun |
-| R2 | Medium | Exact synthetic speeds, station-error bands, and the principal-point comparison have no committed command or machine-readable result | **Open, deliberately.** Deferred until after the reference-fiducial geometry lands, because that change will move the figures again |
+| R2 | Medium | Exact synthetic speeds, station-error bands, and the principal-point comparison have no committed command or machine-readable result | **Closed by `82417a8`.** `tools/synthetic_observer_report.py` emits them on a declared 15 Hz schedule with provenance, and a test pins that a rerun reproduces them |
 | R3 | Low | `DESIGN.md` and `SENSOR-FEED.md` metadata did not advance with the changed claims | **Closed by this Stage 0** |
 | R4 | Low | This handoff and the `CLAUDE.md` pointer stopped at `391773b` and reported 74 tests | **Closed by this Stage 0** |
 | R5 | Low | Renderer-evidence provenance was proved by AST checks that never exercised normalization or rejection | **Closed by `3d9a754`** |
 
-### Gate: no motion yet
+### Gate: no motion yet — superseded
+
+> **Historical.** This gate was lifted. Corner coverage landed in `61bd4c9`
+> with reference fiducials ([ADR 0015](adr/0015-reference-fiducials-for-corner-coverage.md)),
+> and motion followed in `8edc076`. The static-qualification half of the gate
+> still stands and is tracked above. The text below records what was believed
+> at handoff 1.0.0.
 
 Deterministic motion must not begin. Two things block it:
 
@@ -154,20 +175,20 @@ the one-camera and truth-isolation invariants in `CLAUDE.md` throughout.
 
 ```mermaid
 flowchart LR
-    Base["Published base<br/>a416e47"] --> Static["Static production pixels<br/><b>PIXELS VALID</b><br/>renderer claim invalidated"]
+    Base["Published base<br/>f992470"] --> Static["Static production pixels<br/><b>PIXELS VALID</b><br/>renderer claim invalidated"]
     Static --> Fixes["Renderer/camera contract<br/>5bc1c99, 0c4e9b8, 3d9a754<br/><b>DONE</b>"]
-    Fixes --> Review["Stage 0 review<br/><b>DO FIRST</b>"]
-    Review --> Coverage["Restore corner coverage<br/><b>NEXT</b>"]
-    Coverage --> Requal["GPU requalification<br/><b>THEN</b>"]
-    Requal --> Motion["Deterministic route motion<br/><b>BLOCKED UNTIL THEN</b>"]:::blocked
+    Fixes --> Review["Stage 0 review<br/><b>DONE</b>"]
+    Review --> Coverage["Corner coverage<br/><b>DONE</b>"]
+    Coverage --> Motion["Route motion + live estimation<br/><b>DONE</b>"]
+    Motion --> Requal["Paired static requalification<br/><b>NEXT</b>"]:::blocked
 
     classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
 ```
 
-## Local commits awaiting review
+## Commits under review
 
-These commits are local and have not been pushed. Review the actual range with
-`git log --reverse origin/main..HEAD`; the documentation commit containing this
+These are published on `origin/main` through `f992470`. Review the range with
+`git log --reverse a416e47..f992470`; the documentation commit containing this
 handoff will appear after the commits below.
 
 | Commit | Boundary | Why it is separate |
@@ -198,14 +219,14 @@ earlier scene fix so the causal chain remains visible.
 | The recorded run used a ray-traced renderer | **Not qualified** | Requested, never read back. Invalidated by R1; a fresh paired run is required |
 | Surveyed station can be recovered from production pixels | Qualified | Five static approach dwells; maximum accepted error 0.010563 m |
 | Negative control detects a broken image/corner convention | Qualified | A mirrored copy of the actual capture produced zero passing frames |
-| Every surveyed gate can be measured from camera evidence | **False** | Gates 8.0 and 10.0 are outside the frustum; the 0.8 m/s corner rule is unreachable until Stage 1 |
-| Exact synthetic speed and error figures are reproducible | **Not yet** | R2 open: prose and test bounds only, no committed command or machine-readable result |
-| Observer receives no simulator truth | Covered by source/AST tests and capture topology | Runtime subscription audit belongs to the later live-observer slice |
+| Every surveyed gate can be measured from camera evidence | Qualified | All four gates that can carry a speed produced one in the live run. Gate 2.0 is the first crossing and cannot carry a speed, which needs two. [Evidence](evidence/live-demo/NOTES.md) |
+| Exact synthetic speed and error figures are reproducible | Qualified | `tools/synthetic_observer_report.py` (`82417a8`) emits them on a declared 15 Hz schedule with provenance, and a test pins that a rerun reproduces them |
+| Observer receives no simulator truth | Covered by structural tests and capture topology | Every subscription each estimate-path module constructs is enumerated and type-checked. A **runtime** `ros2 node info` capture is still not recorded and remains the strongest missing form of this evidence |
 | Fiducial mounts clear their walls | Covered for every authored profile | Only the nominal profile has been qualified through rendered pixels |
-| GPU use is below the project ceiling | Qualified at the accepted checkpoint | 3,024 MiB is one `nvidia-smi` used-memory snapshot, not a time-series peak |
+| GPU use is below the project ceiling | Qualified at the accepted checkpoint | 3,411 MiB headless and 3,547 MiB with the viewport in the live run; each is one `nvidia-smi` used-memory snapshot, not a time-series peak |
 | P remains hidden from A | Qualified by the existing continuous proof and mesh audit | Re-run after any geometry, trajectory, camera, or actor-bound change |
-| A follows the route in Isaac | Not implemented | The USD contains the trajectory and static actor pose only |
-| Live Isaac pixels produce correct speed/violation output | Not implemented | Synthetic motion and static Isaac pixels are separate qualified layers so far |
+| A follows the route in Isaac | Qualified | `8edc076`. A completed the 23.851 m authored route in 23.867 s of simulation time, `reached_end=True`, driven from `/clock` |
+| Live Isaac pixels produce correct speed/violation output | Qualified for `nominal_m6_n3` at 1.0 m/s | Max speed error 0.0371 m/s, four gates measured, exactly one violation at station 10.0 m. Says nothing about the other profiles or other speeds |
 | Host is an NVIDIA-supported deployment | False | Hardware gates pass, but Linux Mint remains unsupported; Ubuntu 24.04 is the fallback |
 
 The recorded run is described in
@@ -244,9 +265,9 @@ The last clean run on 2026-07-27 produced:
 | Layer | Expected result |
 |---|---:|
 | Ruff | Pass |
-| Repository pytest | 117 passed |
+| Repository pytest | 119 passed, 1 skipped |
 | Colcon build | 3 packages built |
-| ROS package tests | 72 tests, 0 errors, 0 failures, 0 skipped |
+| ROS package tests | 86 tests, 0 errors, 0 failures, 0 skipped |
 
 The ament test run currently prints deprecation warnings about implicit `None`
 returns; they are not failures, but they should not be silently relabelled as a
@@ -294,7 +315,14 @@ The review report should contain:
 5. claims that remain provisional; and
 6. a clear go/no-go decision for deterministic motion.
 
-## Next slice after a passing review: coverage, not motion
+## Coverage slice — delivered
+
+> **Historical plan, now delivered.** Reference fiducials landed in `61bd4c9`
+> and are confirmed on rendered Isaac pixels; the decision is recorded in
+> [ADR 0015](adr/0015-reference-fiducials-for-corner-coverage.md). The GPU
+> requalification described at the end of this section is the one part still
+> outstanding. Retained because the angular reasoning is the clearest statement
+> of *why* the reference plates exist.
 
 Stage 1 restores enforcement-gate coverage. Near the corner the corridor is
 3.0 m wide, so wall markers sit ±1.5 m from the centreline and a marker 2 m
@@ -316,7 +344,15 @@ Stage 2 then requalifies on GPU, adding dwells that sample the weak two-tag band
 and the previously unreachable region. Only after that does a canonical static
 qualification exist again.
 
-## Motion slice, blocked until both gates above pass
+## Motion slice — partly delivered
+
+> **Partly delivered.** `8edc076` moves A along the authored route from
+> simulation time and the live run completed the full 23.851 m route. Three
+> items in the acceptance table below are **not** met and are still open: there
+> is no `PathSpeedProfile`, so only constant speed is implemented and
+> piecewise acceleration is untested; stamp alignment was never measured, and
+> no offset compensates for it; and the paused profile-reset transition is not
+> implemented. The remaining rows are met.
 
 Implement `PathSpeedProfile` as simulator-independent logic that maps simulation
 time to route arc length, then make the installed-version adapter apply

@@ -29,6 +29,7 @@ location; it must not silently replace the reviewed artifact.
 | Topic | Status | Evidence |
 |---|---|---|
 | Static production-camera fiducials | **Renderer claim invalidated; no canonical qualification** | [Notes and preserved v1 summary](static-fiducials/NOTES.md) |
+| Live camera-only enforcement demonstration | Qualified for `nominal_m6_n3` at 1.0 m/s | [Notes, frames, and per-message summary](live-demo/NOTES.md) |
 
 The static topic's pixel, calibration, rate, and station-error results remain
 valid historical evidence, but its renderer mode was requested rather than
