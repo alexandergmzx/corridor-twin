@@ -14,6 +14,7 @@ the waste this file exists to prevent.
 | 1 | Documentation and decisions | `5a3a083`, `43db0fc`, `ab09aff` |
 | 2 | Code | `b5194bf`, `55eb69e`, `dbcf57e` |
 | 3 | Closing the deferred findings | `a101b28`, `82b490d` |
+| 4 | Independent review of rounds 1–3 | `f2e2504`, `be4694f`, `1099245`, `64220a7`, `ade033e`, `7a5980a` |
 
 ---
 
@@ -217,3 +218,63 @@ from the same field the system under test divides by cannot measure that field.
 The schedule now advances along route arc length, which is also how the live
 Isaac run drives, so the synthetic control and the live run finally share a
 definition of "travelled a metre".
+
+---
+
+## Round 4 — independent review of the first three rounds
+
+Five findings, all confirmed, all fixed by the reviewer. Three were mine.
+
+| ID | Sev | Finding | Disposition |
+|---|---|---|---|
+| F1 | High | Non-finite values split the two policy validators | Fixed `f2e2504`. `nan <= 0` and `inf <= 0` are both false, so the build side accepted what the observer side rejected |
+| F2 | Med | `cdb6f79` re-recorded the evidence and left seven citations behind | Fixed `1099245`. Two camera figures also disagreed with their own `summary.json` |
+| F3 | Med | The envelope justification was wrong and the narrowing avoidable | Justification corrected `64220a7`; **capability restored `7a5980a`**, see below |
+| F4 | Med | Three routes past the subscription enumeration | Fixed `be4694f`. Keyword forms and `tf2_ros.TransformListener` all bypassed a positional-only walk |
+| F5 | Low | Handoff counts went stale a third time | Fixed `ade033e`. Counts removed; the header now says to read them off your own run |
+
+### F1 is the instructive one
+
+`test_speed_policy_validation_agrees_across_packages` exists *specifically* to
+catch a split between the two validators, and its six-case list had no
+non-finite case. `.inf` is spellable directly in YAML, so the authored config
+could produce a stage and a manifest with no complaint and then kill the
+observer at construction — the exact failure shape `772d027` and `f992470` were
+both about. A test written to catch a class of defect still only catches the
+cases someone thought to enumerate.
+
+### F3 — and the same mistake twice in one file
+
+I wrote in ADR 0015 that `m = 8.0, n = 3.0` "leaves no visible east face for a
+reference to sit on". Review measured it and that is simply not what the
+geometry says: the band runs `m/2 - n` to `m/2`, so it is `n` tall wherever it
+sits, and at `m = 8.0, n = 3.0` it is the same height as on the default profile
+with the upper plate inside it. The bound was real; the reason given for it was
+invented.
+
+Review corrected the reason and deferred the capability fix, "because moving a
+plate changes the measured accuracy figures". That ground was also not measured
+before being written. All three configured profiles have entry width 6.0, so
+clamping placement to the band floor does not bind on any of them and their
+surveys come out identical. `7a5980a` restores `m = 8.0` through `m = 10.0` at
+`n = 3.0`, and the new geometry was measured: every frame accepted, all four
+gates at all three speeds, speed error 0.0123–0.0247 m/s.
+
+## The deferral pattern
+
+Three deferrals this session, three stated grounds that dissolved on contact:
+
+| Deferred | Stated ground | What measurement showed |
+|---|---|---|
+| R17 | "every occlusion-free placement loses gate 8.0 at 0.6 m/s" | Not a placement problem. The continuity guard was treating noise as pose jumps; once fixed, every placement held |
+| C4 | "closing it shifts the published figures" | It shifted them by 0.004 m/s, and the shift was an improvement |
+| F3 | "moving a plate changes the measured accuracy figures" | It moved no profile that has figures |
+
+The lesson is not that deferring is wrong. It is that a deferral's *stated
+ground* is a claim like any other, and none of these three was measured before
+being written down — including by the reviewer, who caught the pattern in my
+work and then reproduced it once. A deferral that names a cost should either
+cite the measurement or say plainly that the cost is estimated.
+
+Worth applying to what is still deferred: the static requalification and the
+pose-to-render latency both carry costs that have never been measured either.

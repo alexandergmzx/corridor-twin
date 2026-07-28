@@ -84,10 +84,7 @@ split exists so a reference plate cannot silently become a phantom gate at
   | Bound | Rule | Why |
   |---|---|---|
   | Entry width floor | `m >= 4.886`, declared as `m >= 5.0` | The east face spans `y` only up to `m/2`, so a narrow corridor shortens it until the upper plate overhangs |
-  | Corner mass clearance | `m/2 - n < 0.349` | The corner mass reaches north to `m/2 - n`; past that it walls off the strip of east face the lower plate *as configured* is mounted on |
-
-  At `n = 3.0` the second bound puts the entry width under 6.70 m, so `m = 8.0`
-  with `n = 3.0` is refused.
+  | Corner mass clearance | the band must hold the plate | The corner mass reaches north to `m/2 - n`, so the visible strip of east face is `n` tall wherever it sits. A profile whose band is shorter than a plate is refused; `m = 6.0, n = 1.0` is |
 
   > **Correction, 2026-07-27.** This section first justified that refusal by
   > saying the geometry "leaves no visible east face for a reference to sit
@@ -99,16 +96,30 @@ split exists so a reference plate cannot silently become a phantom gate at
   > because `along_m: 0.75` is an absolute coordinate while the band's
   > position shifts with `m/2 - n`.
   >
-  > So `0.349` is a real bound on the configuration as authored, and the
+  > So `0.349` was a real bound on the configuration as authored, and the
   > validator that enforces it is correct — a plate half inside a building is
-  > exactly the defect R17 was. But it is a property of one hard-coded plate
-  > coordinate, not of the scenario, and the capability loss is avoidable:
-  > expressing the reference plates relative to the resolved band rather than
-  > in absolute metres would restore `m = 8.0, n = 3.0` without weakening the
-  > check. That is deferred rather than done here, because moving a plate
-  > changes the measured accuracy figures and needs the re-measurement
-  > `a101b28` ran, not a documentation edit. The decision to add reference
-  > fiducials and to validate their placement is unchanged.
+  > exactly the defect R17 was. But it was a property of one hard-coded plate
+  > coordinate, not of the scenario.
+  >
+  > **Second correction, same day.** The paragraph above went on to defer the
+  > fix, "because moving a plate changes the measured accuracy figures and needs
+  > re-measurement". That ground was not checked before it was written, and it
+  > does not hold. All three configured profiles have entry width 6.0, so their
+  > band floors sit below the configured coordinate — two of them negative — and
+  > clamping placement to the floor does not bind on any of them. Their surveys
+  > come out identical, so nothing measured moved and no re-measurement was
+  > owed.
+  >
+  > Placement now clamps to the band floor (`7a5980a`). `m = 8.0` through
+  > `m = 10.0` at `n = 3.0` build, and the newly reachable geometry was measured
+  > rather than assumed: at `m = 8.0, n = 3.0` the synthetic run accepts every
+  > frame, measures all four gates at 0.6, 1.0 and 1.8 m/s, and holds
+  > gate-derived speed error between 0.0123 and 0.0247 m/s — comparable to the
+  > default profile. The bound that remains is the honest one: a band shorter
+  > than the plate is still refused.
+  >
+  > The decision to add reference fiducials and to validate their placement is
+  > unchanged by either correction.
 
 - The lower east-face plate must clear the corner mass, not merely sit on the
   wall. It was originally centred at `along_m: 0.0`, and on the default profile
