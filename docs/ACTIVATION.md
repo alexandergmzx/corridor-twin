@@ -61,9 +61,19 @@ true on 2026-07-26.
   pairs, and a composed-USD audit of 204 rays with zero failures. Nearest
   blocking surface 3.116 m. The `wide_corner_m6_n4_5` and `uniform_m6_n6`
   profiles pass independently, each with P moved by the geometry.
+
+  > **Superseded by ADR 0017 and ADR 0018.** Those figures describe P behind the
+  > corner mass on the old three-piece route. Measured on the current geometry:
+  > **5 covered intervals, 404 audit rays, zero failures, 5.366 m nearest
+  > blocking surface, `EastBuilding` the sole blocking prim, every witness
+  > constant-X.** The other profiles give 408 and 416 rays at 5.705 m and
+  > 5.909 m. One plane now separates P from the whole route, so the certificate
+  > covers each profile in five intervals rather than seventy-eight.
 - The headless smoke composed the reconciled stage and found one authored robot
   camera, all three corridor variants, and collision schemas on all four
   buildings including the new corner mass and next-street kerb. 1,486 MiB.
+  (ADR 0018 added a fifth, the east-wall stub; the smoke test now derives its
+  list from the manifest rather than naming four.)
 - The same validation passed with a visible real-time viewport after 240 Kit
   updates at 3,147 MiB. The visible figure is now higher than headless, which
   the earlier smaller scene had reversed; both remain far below the ceiling.
@@ -82,9 +92,10 @@ The subsequent proof-only correction in ADR 0012 did not change the generated
 USD, manifest geometry, renderer, or Isaac adapter, so repeating GPU measurements
 would measure the same artifact. The CPU certificate was rebuilt after replacing
 the turn's endpoint chord with a conservative analytic arc enclosure. All three
-profiles still pass; the nominal result remains 78 certified pairs, 204 audit
-rays, zero failures, and a 3.116 m nearest blocking surface. A new curved-source
-negative control now fails where the old endpoint-only method falsely passed.
+profiles still pass; the nominal result at that time was 78 certified pairs, 204
+audit rays, zero failures, and a 3.116 m nearest blocking surface. A new
+curved-source negative control now fails where the old endpoint-only method
+falsely passed. (Those counts are pre-ADR-0017; see the correction above.)
 
 ## Static rendered-fiducial run — 2026-07-27 — historical, renderer unqualified
 
@@ -142,7 +153,8 @@ flowchart LR
     Scene --> Smoke["Headless + visible composition<br/><b>PASS</b>"]
     Smoke --> Camera["One-camera ROS contract<br/>headless + visible<br/><b>PASS</b>"]
     Camera --> Static["Rendered fiducial station gate<br/><b>PASS</b>"]
-    Static --> Motion["Robot motion and live speed<br/><b>NEXT</b>"]
+    Static --> Motion["Robot motion and live speed<br/><b>PASS</b>"]
+    Motion --> Requal["Paired static requalification<br/><b>NEXT</b>"]
     OS["Linux Mint support gate<br/><b>FAIL</b><br/>Ubuntu 24.04 fallback"]:::conditional -.-> HW
 
     classDef conditional fill:#5c471f,color:#ffffff,stroke:#ffc857,stroke-width:2px;
@@ -167,6 +179,10 @@ together. Headroom is measured against the project's 14,336 MiB soft ceiling.
 | Reconciled composition smoke | 0 | Visible | 3,147 MiB | 11,189 MiB |
 | Reconciled live ROS camera contract | 1 | Headless | 3,075 MiB | 11,261 MiB |
 | Static rendered-fiducial gate | 1 | Headless | 3,024 MiB | 11,312 MiB |
+| Live demonstration, A driving the route | 1 | Headless | 3,411 MiB | 12,892 MiB |
+| Live demonstration, A driving the route | 1 | Visible | 3,547 MiB | 12,756 MiB |
+| Live demonstration after the R17 plate correction | 1 | Headless | 3,486 MiB | 12,817 MiB |
+| Live demonstration, second run on the same geometry | 1 | Headless | 3,546 MiB | 12,757 MiB |
 | Project soft ceiling | — | — | 14,336 MiB | 0 MiB |
 
 ## Activation gate results

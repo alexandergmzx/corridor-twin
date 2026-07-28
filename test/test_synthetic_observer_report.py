@@ -51,6 +51,36 @@ def test_report_declares_its_sampling_schedule(report: dict) -> None:
         assert provenance[key], f"provenance is missing {key}"
 
 
+def test_coverage_flag_moves_in_both_directions(report: dict, tmp_path: Path) -> None:
+    """The old flag was structurally false and therefore a dead detector.
+
+    It compared the measured set against *every* authored gate, including the
+    first — which arms the estimator and can never carry a speed of its own. So
+    it read False on every run of every profile while coverage was in fact
+    complete, and losing gate 10.0 could not have changed it.
+
+    Proving it works means showing it takes both values for the right reasons:
+    false on a window that stops short of the later gates, true on the full
+    covered window.
+    """
+
+    summary = report["summary"]
+    assert summary["measurable_gates_m"] == summary["enforcement_gates_m"][1:]
+
+    # The module fixture stops at x = 5.0, so only gate 4.0 is reachable.
+    assert summary["every_measurable_gate_measured"] is False
+    assert report["profiles"]["nominal_m6_n3"]["gates_measured_m"] == [4.0]
+
+    complete = run_report(
+        tmp_path / "complete",
+        schedule=Schedule(rate_hz=15.0, speeds_mps=(1.0,), window_x_m=(0.0, 10.8)),
+        profiles=("nominal_m6_n3",),
+        check_visibility=False,
+    )
+    assert complete["summary"]["every_measurable_gate_measured"] is True
+    assert complete["profiles"]["nominal_m6_n3"]["gates_measured_m"] == [4.0, 6.0, 8.0, 10.0]
+
+
 def test_speed_error_is_primary_and_station_error_secondary(report: dict) -> None:
     block = report["profiles"]["nominal_m6_n3"]
     assert block["max_gate_speed_error_mps"] is not None
@@ -64,6 +94,129 @@ def test_speed_error_is_primary_and_station_error_secondary(report: dict) -> Non
     for sample in run["samples"]:
         assert sample["accepted_marker_ids"]
         assert sample["correspondence_rank"] == 3
+
+
+def test_a_wrong_path_axis_fraction_is_detectable(tmp_path: Path) -> None:
+    """The report used to command with the same field the estimator divides by.
+
+    `x = v*t*path_axis_fraction` against `speed = dx/dt/path_axis_fraction`
+    cancels exactly, so an error in the one conversion the tapered corridor made
+    necessary was invisible to the primary accuracy instrument. Driving by route
+    arc length instead breaks the cancellation, and this is what proves it: a
+    corrupted fraction must move the reported speed error.
+    """
+
+    import ast
+    import json
+
+    import synthetic_observer_report as reporter
+    from police_observer.estimator import (
+        ArucoStationEstimator,
+        MarkerMap,
+        ObserverPipeline,
+    )
+    from police_observer.synthetic import SyntheticCamera
+    from scene.build import build_scene
+
+    # 1. The drive loop must no longer multiply by the field the estimator
+    #    divides by. That multiplication was the cancellation.
+    source = Path(reporter.__file__).read_text(encoding="utf-8")
+    drive = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_one"
+    )
+    body = "\n".join(ast.dump(statement) for statement in drive.body[1:])
+    assert "attr='path_axis_fraction'" not in body, (
+        "the commanded station must come from the trajectory, not from the conversion factor"
+    )
+
+    # 2. And the estimator's output must genuinely depend on that field, so the
+    #    report can now see an error in it.
+    _, manifest_path = build_scene(None, tmp_path / "corridor.usda", 6.0, 3.0)
+    honest = MarkerMap.from_manifest(manifest_path, "nominal_m6_n3")
+
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    block = raw["profiles"]["nominal_m6_n3"]["delivery_trajectory"]
+    block["approach_heading"] = [block["approach_heading"][0] * 0.90, block["approach_heading"][1]]
+    corrupted_path = tmp_path / "corrupted.manifest.json"
+    corrupted_path.write_text(json.dumps(raw), encoding="utf-8")
+    corrupted = MarkerMap.from_manifest(corrupted_path, "nominal_m6_n3")
+    assert corrupted.path_axis_fraction == pytest.approx(honest.path_axis_fraction * 0.90)
+
+    camera = SyntheticCamera(manifest_path, "nominal_m6_n3")
+    estimator = ArucoStationEstimator(honest, camera.dictionary_name)
+    pipelines = {"honest": ObserverPipeline(honest), "corrupted": ObserverPipeline(corrupted)}
+    speeds: dict[str, list[float]] = {name: [] for name in pipelines}
+
+    frame = 0
+    while True:
+        elapsed = frame / 15.0
+        station_x_m = honest.path_axis_fraction * 1.0 * elapsed
+        if station_x_m > 10.8:
+            break
+        frame += 1
+        observation = estimator.estimate(
+            camera.render(station_x_m), camera.calibration, timestamp_s=1.0 + elapsed
+        )
+        if observation is None:
+            continue
+        for name, pipeline in pipelines.items():
+            for measurement, _ in pipeline.update(observation):
+                speeds[name].append(measurement.speed_mps)
+
+    assert speeds["honest"] and len(speeds["honest"]) == len(speeds["corrupted"])
+    honest_error = max(abs(value - 1.0) for value in speeds["honest"])
+    corrupted_error = max(abs(value - 1.0) for value in speeds["corrupted"])
+    # A 10% wrong conversion inflates every recovered speed by 1/0.9, which is
+    # an order of magnitude outside the honest run's error. The report can now
+    # see this; before the fix it cancelled to exactly zero.
+    assert honest_error < 0.05
+    assert corrupted_error > 0.10
+    assert corrupted_error > honest_error * 3
+
+
+def test_build_output_never_lands_beside_the_artifact(tmp_path: Path, monkeypatch) -> None:
+    """The scene the reporter builds is not evidence and must not join it.
+
+    ``main`` used to hand ``run_report`` the artifact's own directory, so
+    pointing ``--out`` at ``docs/evidence/`` dropped a stage, a manifest and the
+    marker PNGs into the curated tree -- while the comment beside it claimed a
+    tool could not write there.
+    """
+
+    import synthetic_observer_report as reporter
+
+    handed: list[Path] = []
+
+    def fake_run_report(scratch_dir: Path, **kwargs):
+        handed.append(Path(scratch_dir))
+        Path(scratch_dir).mkdir(parents=True, exist_ok=True)
+        # Stand in for the stage, manifest and marker PNGs a real build writes.
+        (Path(scratch_dir) / "corridor.usda").write_text("stage", encoding="utf-8")
+        return {
+            "summary": {
+                "max_gate_speed_error_mps": 0.0,
+                "max_station_error_m": 0.0,
+                "every_measurable_gate_measured": True,
+                "measurable_gates_m": [4.0],
+                "minimum_correspondence_rank": 3,
+                "all_accepted_unoccluded": True,
+            },
+            "profiles": {
+                "nominal_m6_n3": {
+                    "max_gate_speed_error_mps": 0.0,
+                    "max_station_error_m": 0.0,
+                }
+            },
+        }
+
+    monkeypatch.setattr(reporter, "run_report", fake_run_report)
+    output = tmp_path / "evidence" / "summary.json"
+    assert reporter.main(["--out", str(output)]) == 0
+
+    assert handed and handed[0].resolve() != output.parent.resolve()
+    assert sorted(path.name for path in output.parent.iterdir()) == ["summary.json"]
 
 
 def test_the_same_schedule_reproduces_the_same_numbers(

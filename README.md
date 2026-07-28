@@ -22,9 +22,10 @@ live-stream checks.
 
 **Geometry reconciled with the supplied diagram — 2026-07-27.** The corridor now
 carries the drawing's one-sided taper, a real perpendicular next street with a
-corner mass, and a continuous line-arc-line delivery trajectory. P is placed
-from the occluding wall faces, so it follows the geometry when a different
-`(m,n)` profile is selected.
+corner mass, and a continuous delivery trajectory. P is placed from the
+occluding wall faces, so it follows the geometry when a different `(m,n)`
+profile is selected. Since ADR 0018 the route has five pieces: it turns in
+behind the east-wall stub to reach B in the pocket the drawing puts B in.
 
 **Static production-camera fiducials — historical run, renderer unqualified.**
 On 2026-07-27 the one-product Isaac ROS graph recovered surveyed station at five
@@ -41,11 +42,11 @@ The gate did expose and correct buried, undersampled marker plates.
 **Live camera-only enforcement demonstration working — 2026-07-27.** One
 command drives A along the authored route in Isaac Sim while the police
 observer recovers speed from that camera alone. At a constant 1.0 m/s the run
-measured all four enforcement gates with a maximum speed error of 0.0371 m/s,
+measured all four enforcement gates with a maximum speed error of 0.0369 m/s,
 stayed compliant on the wide approach, and raised **exactly one** violation once
-the corridor narrowed and the limit tightened — 0.194 m/s over the 0.80 m/s
-corner rule, at station 10.0 m. A completed the 23.851 m route in 23.867 s of
-simulation time using 3411 MiB of the RTX 5070 Ti and one render product, with
+the corridor narrowed and the limit tightened — 0.191 m/s over the 0.80 m/s
+corner rule, at station 10.0 m. A completed the 24.601 m route in 24.617 s of
+simulation time using 3354 MiB of the RTX 5070 Ti and one render product, with
 the renderer mode read back rather than requested. See the
 [measured evidence](docs/evidence/live-demo/NOTES.md).
 
@@ -170,8 +171,11 @@ never images P, and the stronger reciprocal claim that an opaque wall does the
 hiding. Straight route intervals use their exact endpoint segment; turn
 intervals use a conservative rectangle derived from the circular arc's exact
 extrema, so an arc is never replaced by its chord. Current result for the
-nominal profile: 78 certified interval and sub-volume pairs, 204 audit rays with
-0 failures, nearest blocking surface 3.116 m.
+nominal profile: 5 covered intervals, 404 audit rays with 0 failures, nearest
+blocking surface 5.366 m, `EastBuilding` the sole blocking prim. Since ADR 0017
+put P east of the junction, one plane of constant X separates it from the whole
+route, so the proof needs five intervals rather than the seventy-eight the
+previous placement required.
 
 Check the other authored profiles too, since each one moves P:
 
@@ -228,9 +232,26 @@ exactly one violation episode without anyone touching a throttle.
 | `--headless` | no Isaac viewport; RViz still shows the camera feed and readout |
 | `--no-rviz` | observer and display only, for a terminal-only check |
 | `--record` | `ros2 bag record` the camera, estimate, violation and clock topics |
+| `VIEW=corner` | Isaac viewport perspective; `rviz` (default) matches the RViz angle, `corner` frames the junction, `chase` follows A. GUI only; it moves Kit's own viewport camera and adds no render product |
 | `SPEED_MPS=1.8` | sustained speeding: one episode that opens on the approach |
 | `SPEED_MPS=0.6` | fully compliant run, no violation |
-| `CORRIDOR_PROFILE=wide_corner_m6_n4_5` | a different authored `(m,n)` variant |
+| `CORRIDOR_PROFILE=wide_corner_m6_n4_5` | a different authored `(m,n)`; **no violation at 1.0 m/s**, see below |
+
+**Switching the corridor variant changes the policy, not just the walls.** The
+speed limit is a function of local clear width, so a wider corner means a
+looser rule at the same station:
+
+| Profile | Narrowest gate | Limit there | Violation at 1.0 m/s |
+|---|---:|---:|---|
+| `nominal_m6_n3` | 3.50 m | 0.8 m/s | yes, one at station 10.0 m |
+| `wide_corner_m6_n4_5` | 4.75 m | 1.2 m/s | **no** |
+| `uniform_m6_n6` | 6.00 m | 1.5 m/s | **no** |
+
+A variant switch therefore turns the readout green at the same commanded speed.
+That is the demonstration's point — geometry drives policy — and not a fault.
+To show a violation on `wide_corner_m6_n4_5`, raise the speed above its 1.2 m/s
+limit; `uniform_m6_n6` has no taper at all, so it is the control case where the
+rule never tightens. Only `nominal_m6_n3` has been measured live.
 
 Logs and the commanded-pose schedule land under `out/evidence/live-demo/`. The
 commanded schedule is simulator truth and is labelled as evaluator-only; it is

@@ -265,9 +265,115 @@ def test_drive_and_static_probe_are_mutually_exclusive() -> None:
     assert "--drive-out requires --drive-speed-mps" in main
 
 
+def _add_argument_keywords(path: Path, flag: str) -> dict[str, ast.AST]:
+    """Return the keyword nodes of the ``add_argument`` call declaring ``flag``.
+
+    Matching the source text instead would match the flag's own help string,
+    which is how the first version of these assertions passed a mutation that
+    changed the default.
+    """
+
+    for node in ast.walk(_function_def(path, "arguments")):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_argument"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == flag
+        ):
+            return {keyword.arg: keyword.value for keyword in node.keywords}
+    raise AssertionError(f"{flag} is not declared in {path}")
+
+
+def _call_keywords(path: Path, function_name: str, call_name: str) -> dict[str, ast.AST]:
+    """Return the keyword nodes of a named call inside a named function."""
+
+    for node in ast.walk(_function_def(path, function_name)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+        if name == call_name:
+            return {keyword.arg: keyword.value for keyword in node.keywords}
+    raise AssertionError(f"{function_name} does not call {call_name}")
+
+
+def test_the_viewport_camera_is_never_the_sensor() -> None:
+    """Moving the GUI view must not reach the one camera the contract counts.
+
+    `test_drive_mode_adds_no_sensor_and_reuses_the_authored_route` bans the
+    token "Camera" from the drive body, which the viewport helper happens to
+    pass because its name is lower-case. That is a coincidence, so the actual
+    invariant is asserted here: the helper writes Kit's own perspective prim and
+    the sensor prim appears nowhere in it.
+    """
+
+    contract = literal_assignment(ADAPTER, "ADAPTER_CONTRACT")
+    viewport_prim = literal_assignment(ADAPTER, "VIEWPORT_CAMERA_PRIM")
+    assert viewport_prim == "/OmniverseKit_Persp"
+    assert viewport_prim != contract["camera_prim"]
+
+    # Read the argument the call actually passes, not whether a token appears
+    # somewhere in the function.
+    target = _call_keywords(ADAPTER, "_set_viewport_camera", "set_camera_view")
+    prim_argument = target["camera_prim_path"]
+    assert isinstance(prim_argument, ast.Name), (
+        "the viewport prim must be the module constant, so one edit moves every caller"
+    )
+    assert prim_argument.id == "VIEWPORT_CAMERA_PRIM"
+
+    helper = _function_body(ADAPTER, "_set_viewport_camera")
+    for banned in ("RenderProduct", "IsaacCreateRenderProduct", "annotator", "Lidar"):
+        assert banned not in helper, f"the viewport helper must not create {banned}"
+
+    # The deprecated omni.isaac.core copy ships alongside the installed
+    # namespace; using it would work today and rot at the next upgrade.
+    assert "isaacsim.core.utils.viewports" in helper
+    assert "omni.isaac.core." not in helper
+
+
+def test_the_default_viewpoint_is_the_one_the_evidence_run_assumes() -> None:
+    """`chase` writes the viewport every few updates; `rviz` writes it once.
+
+    The delivered camera rate is a reported figure, so the default must stay the
+    perspective that costs nothing per frame. If the default drifts to a moving
+    view, a recorded run silently stops being the same measurement.
+    """
+
+    options = _add_argument_keywords(ADAPTER, "--view")
+    assert ast.literal_eval(options["default"]) == "rviz"
+
+    drive = _function_body(ADAPTER, "_run_drive")
+    assert "CHASE_UPDATE_INTERVAL" in drive, "chase must be interval-limited, not per-frame"
+
+
 def test_commanded_pose_schedule_is_labelled_evaluator_only() -> None:
     """The drive log is simulator truth and must never look like an observer input."""
 
     source = ADAPTER.read_text(encoding="utf-8")
     assert '"kind": "evaluator_only_commanded_pose_schedule"' in source
     assert "latency unmeasured" in source
+
+
+def test_smoke_test_derives_its_wall_list_from_the_manifest() -> None:
+    """A hardcoded enumeration stops covering new geometry without failing.
+
+    The smoke test listed four building names in two places. ADR 0018 added the
+    east-wall stub and neither list broke -- they simply stopped checking it,
+    which is the silent-coverage-loss a literal always risks. Reading the
+    manifest means a wall is checked the moment it is authored.
+    """
+
+    smoke = ROOT / "tools/isaac_5_1_smoke.py"
+    source = smoke.read_text(encoding="utf-8")
+    body = _function_body(smoke, "main")
+
+    assert "_manifest_walls" in body, "main must derive the wall list"
+    for hardcoded in ("NorthBuilding", "SouthBuilding", "CornerBuilding", "EastBuilding"):
+        assert hardcoded not in body, f"main still hardcodes {hardcoded}"
+
+    # And the helper reads the manifest rather than embedding its own list.
+    helper = _function_body(smoke, "_manifest_walls")
+    assert "walls" in helper
+    assert "manifest.json" in source

@@ -14,15 +14,29 @@ from scene.geometry import (
     MARKER_BACKING_OFFSET_M,
     MARKER_BACKING_SCALE,
     MARKER_WALL_CLEARANCE_M,
+    building_footprints,
     corridor_faces,
     is_clear,
     police_bounds,
 )
-from scene.model import load_scenario
-from scene.occlusion import _mesh_triangles, _segment_hits_triangle, opaque_mesh_prims, verify
-from scene.trajectory import delivery_trajectory
+from scene.model import CorridorProfile, load_scenario
+from scene.occlusion import (
+    Occluder,
+    _mesh_triangles,
+    _segment_hits_triangle,
+    continuous_certificate,
+    opaque_mesh_prims,
+    verify,
+)
+from scene.trajectory import delivery_trajectory, trajectory_from_manifest
 
-BUILDINGS = ("NorthBuilding", "SouthBuilding", "CornerBuilding", "EastBuilding")
+BUILDINGS = (
+    "NorthBuilding",
+    "SouthBuilding",
+    "CornerBuilding",
+    "EastBuilding",
+    "EastWallStub",
+)
 
 
 @pytest.fixture()
@@ -130,37 +144,68 @@ def test_every_flanking_building_is_a_static_collider(generated: tuple[Path, Pat
             assert UsdPhysics.MeshCollisionAPI(prim).GetApproximationAttr().Get() == "convexHull"
 
 
-def test_actors_follow_the_selected_profile(generated: tuple[Path, Path]) -> None:
-    """P must move with (m,n); a frozen P would end up in a wall or the road."""
+def _police_y(stage: Usd.Stage) -> float:
+    cache = UsdGeom.XformCache()
+    cache.Clear()
+    return float(
+        cache.GetLocalToWorldTransform(
+            stage.GetPrimAtPath("/World/Actors/P")
+        ).ExtractTranslation()[1]
+    )
 
-    stage_path, _ = generated
+
+def test_p_is_derived_from_the_geometry_and_not_frozen(tmp_path: Path) -> None:
+    """A frozen P would end up in a wall or the road on some profile.
+
+    Before ADR 0017, P sat behind the corner mass and its Y came off the south
+    face, which varies with both m and n -- so it differed across all three
+    configured profiles. P now stands east of the junction and its Y comes off
+    the north face at ``m/2``, which varies with m alone. All three configured
+    profiles share ``m = 6.0``, so P is deliberately in the *same* place in all
+    of them; asserting that it moves between them would now be asserting a
+    coincidence of the old anchor.
+
+    What must still hold is that the placement is derived rather than frozen,
+    so this varies the thing it actually depends on.
+    """
+
+    stage_path, _ = build_scene(None, tmp_path / "six.usda", 6.0, 3.0)
     stage = Usd.Stage.Open(str(stage_path))
     variants = _variants(stage)
-    cache = UsdGeom.XformCache()
-    seen: set[float] = set()
+    configured = {}
     for name in variants.GetVariantNames():
         variants.SetVariantSelection(name)
-        cache.Clear()
-        police = cache.GetLocalToWorldTransform(
-            stage.GetPrimAtPath("/World/Actors/P")
-        ).ExtractTranslation()
-        seen.add(round(float(police[1]), 6))
-    assert len(seen) == len(variants.GetVariantNames())
+        configured[name] = round(_police_y(stage), 6)
+    assert len(set(configured.values())) == 1, (
+        f"the configured profiles share m = 6.0, so P should not move: {configured}"
+    )
+
+    # Change the one dimension P is anchored to, and it must follow.
+    wider_path, _ = build_scene(None, tmp_path / "eight.usda", 8.0, 4.5)
+    wider = Usd.Stage.Open(str(wider_path))
+    _variants(wider).SetVariantSelection("requested_m8_n4_5")
+    assert _police_y(wider) - next(iter(configured.values())) == pytest.approx(1.0, abs=1e-6), (
+        "P's Y is measured from the north face at m/2, so a 2 m wider entry moves it 1 m north"
+    )
 
 
 def test_actor_topology_matches_the_supplied_diagram() -> None:
-    """A approaches down the corridor, B is along the next street, P is outside both."""
+    """A approaches down the corridor, B is along the next street, P is outside both.
+
+    Since ADR 0017 P stands at the junction's *east* corner, matching the side
+    the supplied diagram draws it on, behind the next street's east wall.
+    """
 
     scenario = load_scenario()
     length = scenario.corridor_length_m
     for profile in scenario.profiles:
         police_min, police_max = police_bounds(scenario, profile)
-        # P stays west of the corner mass that hides it.
-        assert police_max[0] < length - scenario.wall_thickness_m
-        # P stays south of the corridor's south wall, outside the road.
-        for corner_x in (police_min[0], police_max[0]):
-            south_face = corridor_faces(profile, corner_x, length)[1]
-            assert police_max[1] < south_face - scenario.wall_thickness_m
+        # P stays east of the east wall that hides it.
+        assert police_min[0] > scenario.street_east_m + scenario.wall_thickness_m
+        # P stays within the span of that wall, so it is covered end to end.
+        north_face = corridor_faces(profile, 0.0, length)[0]
+        assert police_max[1] < north_face
+        assert police_min[1] > scenario.street_south_m
         # P's body enters no drivable space at any footprint corner.
         for corner_x in (police_min[0], police_max[0]):
             for corner_y in (police_min[1], police_max[1]):
@@ -182,7 +227,7 @@ def test_requested_dimensions_become_selected_variant(tmp_path: Path) -> None:
     assert manifest["selected_profile"] == variants.GetVariantSelection()
 
 
-@pytest.mark.parametrize(("m", "n"), [(6.0, 3.0), (5.5, 3.2), (5.0, 3.0), (8.0, 3.0)])
+@pytest.mark.parametrize(("m", "n"), [(6.0, 3.0), (5.5, 3.2), (5.0, 3.0), (8.0, 4.5)])
 def test_reference_backings_stay_inside_their_host_face(tmp_path: Path, m: float, n: float) -> None:
     """A requested profile must not mount a plate off the end of its wall.
 
@@ -191,8 +236,10 @@ def test_reference_backings_stay_inside_their_host_face(tmp_path: Path, m: float
     widest *configured* profile before ``build`` had even appended the
     requested one. At m = 5.5 that admitted marker 83's backing at y = 2.8429
     against an east face ending at y = 2.75 — 0.09 m inside the adjoining
-    building. m = 5.0 is the declared support floor and 8.0 is wider than any
-    configured profile, so both ends of the range are exercised here.
+    building. m = 5.0 is the declared support floor and m = 8.0 is wider than
+    any configured profile, so both ends of the range are exercised here. That
+    wide case pairs with n = 4.5: with a narrow corner the corner mass reaches
+    north over the east face, which the separate envelope test below covers.
     """
 
     stage_path, manifest_path = build_scene(None, tmp_path / f"m{m}.usda", m, n)
@@ -230,6 +277,104 @@ def test_a_profile_too_narrow_for_its_reference_plates_is_rejected(tmp_path: Pat
 
     with pytest.raises(ValueError, match="leaves the east face"):
         build_scene(None, tmp_path / "narrow.usda", 4.0, 3.0)
+
+
+def test_east_face_plates_must_clear_the_corner_mass(tmp_path: Path) -> None:
+    """Being on the east face is not enough; it must be visible from the corridor.
+
+    The corner mass reaches north to the south face at x = L, which is
+    ``m/2 - n`` -- exactly y = 0.0 on the default profile. Marker 84 was
+    centred there, so half of it sat behind the corner building. SyntheticCamera
+    projects without raycasting and rendered it whole, so the defect was
+    invisible in synthetic runs while a real render would show it cut in half.
+
+    Both corridor faces are straight, so the mouth at x = L is the only binding
+    plane and a single comparison decides it.
+    """
+
+    scenario = load_scenario()
+    profile = scenario.profile("nominal_m6_n3")
+    length = scenario.corridor_length_m
+    _, corner_south_face = corridor_faces(profile, length, length)
+    assert corner_south_face == pytest.approx(0.0), "the default profile is the sharpest case"
+
+    stage_path, manifest_path = build_scene(None, tmp_path / "corridor.usda", 6.0, 3.0)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    stage = Usd.Stage.Open(str(stage_path))
+    variants = _variants(stage)
+
+    for name, block in manifest["profiles"].items():
+        assert variants.SetVariantSelection(name)
+        this_profile = scenario.profile(name)
+        _, edge = corridor_faces(
+            this_profile, scenario.corridor_length_m, scenario.corridor_length_m
+        )
+        for marker in block["markers"]:
+            if marker["side"] != "east_face":
+                continue
+            backing = UsdGeom.Mesh(
+                stage.GetPrimAtPath(
+                    f"/World/Environment/Corridor/Fiducials/Marker_{marker['id']:03d}_Backing"
+                )
+            )
+            points = np.asarray(backing.GetPointsAttr().Get(), dtype=np.float64)
+            assert points[:, 1].min() > edge, (
+                f"{name}: marker {marker['id']} reaches y={points[:, 1].min():.4f}, "
+                f"behind the corner mass at y={edge:.4f}"
+            )
+
+
+def test_east_face_plates_follow_the_visible_band(tmp_path: Path) -> None:
+    """A plate's absolute coordinate must not decide whether a profile builds.
+
+    The corner mass reaches north to ``m/2 - n``, so the usable strip of east
+    face *shifts* north with a wide entry and a narrow corner. Its height is
+    ``n`` regardless of ``m`` -- the band is the same size, just somewhere else
+    -- so a plate whose ``along_m`` is absolute falls out of a band that could
+    hold it perfectly well. That is what made ``m = 8.0, n = 3.0`` unbuildable,
+    and it was a property of one hard-coded number rather than of the geometry.
+
+    Placement now clamps to the band floor. This test pins both halves of that:
+    the arithmetic that says the band is ``n`` tall, and the clamp acting only
+    when the floor rises above the configured coordinate.
+    """
+
+    scenario = load_scenario()
+    length = scenario.corridor_length_m
+
+    # The band is n tall wherever it sits, which is why the old refusal could
+    # not have been about running out of face.
+    for entry, corner in ((6.0, 3.0), (8.0, 3.0), (10.0, 3.0)):
+        profile = CorridorProfile(name="probe", entry_width_m=entry, corner_width_m=corner)
+        _, corner_edge = corridor_faces(profile, length, length)
+        assert profile.entry_width_m / 2.0 - corner_edge == pytest.approx(corner)
+
+    # m = 8.0, n = 3.0 was refused before the clamp and builds now.
+    stage_path, manifest_path = build_scene(None, tmp_path / "wide_entry.usda", 8.0, 3.0)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    block = manifest["profiles"]["requested_m8_n3"]
+    profile = CorridorProfile(name="requested_m8_n3", entry_width_m=8.0, corner_width_m=3.0)
+    _, corner_edge = corridor_faces(profile, length, length)
+
+    stage = Usd.Stage.Open(str(stage_path))
+    variants = _variants(stage)
+    assert variants.SetVariantSelection("requested_m8_n3")
+    east = [marker for marker in block["markers"] if marker["side"] == "east_face"]
+    assert east, "the wide profile must still carry its east-face references"
+    for marker in east:
+        backing = UsdGeom.Mesh(
+            stage.GetPrimAtPath(
+                f"/World/Environment/Corridor/Fiducials/Marker_{marker['id']:03d}_Backing"
+            )
+        )
+        points = np.asarray(backing.GetPointsAttr().Get(), dtype=np.float64)
+        assert points[:, 1].min() > corner_edge, "clamped plate is still behind the corner mass"
+        assert points[:, 1].max() < profile.entry_width_m / 2.0, "clamped plate ran off the top"
+
+    # The clamp is a floor, not a free pass: a band too short for the plate is
+    # still refused rather than squeezed in.
+    with pytest.raises(ValueError, match="leaves the east face"):
+        build_scene(None, tmp_path / "too_short.usda", 6.0, 1.0)
 
 
 def test_output_is_readable_usda_and_has_marker_assets(generated: tuple[Path, Path]) -> None:
@@ -398,9 +543,10 @@ def test_certificate_names_the_blocking_prim(generated: tuple[Path, Path]) -> No
     assert all(prim is not None and prim.startswith("/World/Environment/") for prim in prims)
     assert all(item.witness_axis in {"x", "y"} for item in result.coverage)
     assert all(item.witness_coordinate_m is not None for item in result.coverage)
-    # The reconciled scene genuinely needs both plane orientations. Recording
-    # the axis prevents a Y coordinate from masquerading as witness_x_m.
-    assert {item.witness_axis for item in result.coverage} == {"x", "y"}
+    # Since ADR 0017 the default scene is separated entirely by the east wall,
+    # a single plane of constant X, so it no longer exercises both orientations.
+    # `test_a_crosswise_witness_is_still_required` keeps that machinery covered.
+    assert {item.witness_axis for item in result.coverage} == {"x"}
     audited = set(result.usd_audit_prims)
     assert {f"/World/Environment/Corridor/{name}" for name in BUILDINGS} <= audited
 
@@ -423,6 +569,69 @@ def test_visible_negative_control_fails(generated: tuple[Path, Path], tmp_path: 
     assert not result.line_of_sight_blocked_everywhere
     # The independent composed-mesh audit must agree, not just the analytic proof.
     assert result.usd_audit_failures > 0
+
+
+def test_removing_the_east_wall_fails_the_certificate(
+    generated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """The wall that hides P must be load-bearing, not incidentally present.
+
+    Under ADR 0017 P stands east of the junction and the next street's east wall
+    is what blocks A's line of sight to it. `occluders()` excluded that building
+    for years on the argument that it sat on the far side of both A's route and
+    P -- true of the old west placement, false of this one. If the exclusion
+    came back, the analytic certificate would have no witness at all.
+
+    Deleting it from the slab list must therefore fail the proof. Note the mesh
+    audit still passes: it discovers prims from the composed stage by collision
+    schema, so it does not care what the manifest lists. That the two halves
+    disagree here is the point -- they are independent, and this exercises the
+    analytic one.
+    """
+
+    stage_path, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selected = manifest["selected_profile"]
+    block = manifest["profiles"][selected]
+
+    kept = [
+        slab for slab in block["occluders"] if not slab["prim_path"].endswith("EastBuilding")
+    ]
+    assert len(kept) == len(block["occluders"]) - 1, "the east wall must be in the slab list"
+    block["occluders"] = kept
+    mutated = tmp_path / "no_east_wall.manifest.json"
+    mutated.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = verify(stage_path, mutated, selected)
+    assert not result.passed
+    assert not result.line_of_sight_blocked_everywhere
+
+    # Fail for the right reason. A mutation test that passes because the code
+    # crashed is a false green, so require the specific symptom: P becomes
+    # genuinely camera-visible, over named route intervals, rather than the
+    # proof merely failing to find a witness.
+    assert result.camera_visible_intervals, "P should be exposed once its wall is gone"
+    assert {label for label, _, _ in result.camera_visible_intervals} <= {
+        "approach",
+        "arc",
+        "departure",
+    }
+
+    # And the mesh audit must still pass. It discovers prims from the composed
+    # stage, which the mutation did not touch, so a failure here would mean
+    # something structural broke instead of the analytic proof losing its
+    # witness -- exactly the confusion this assertion exists to prevent.
+    assert result.usd_audit_rays > 0
+    assert result.usd_audit_failures == 0
+    assert any("EastBuilding" in prim for prim in result.usd_audit_prims)
+
+    # And the unmutated manifest passes with that wall doing the work, so the
+    # failure above is attributable to the removal rather than to anything else.
+    intact = verify(stage_path, manifest_path, selected)
+    assert intact.passed
+    assert {item.blocking_prim for item in intact.coverage} == {
+        "/World/Environment/Corridor/EastBuilding"
+    }
 
 
 def test_reference_plates_never_become_enforcement_gates(
@@ -617,4 +826,108 @@ def test_generated_manifests_declare_the_new_schema(generated: tuple[Path, Path]
 
     _, manifest_path = generated
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == "0.3.0"
+    assert manifest["schema_version"] == "0.5.0"
+
+
+# Captured from the build immediately before east-face placement began clamping
+# to the visible band. The clamp was only safe to make because it provably moves
+# no profile that has published accuracy figures; this is that proof, and it
+# fails loudly if a future placement change quietly invalidates a measured run.
+EAST_FACE_SURVEY_BEFORE_BAND_CLAMP = {
+    "83": (17.983, 2.3, 2.1),
+    "84": (17.983, 1.05, 0.7),
+}
+
+
+def test_the_band_clamp_moved_no_configured_profile(generated: tuple[Path, Path]) -> None:
+    """Every profile carrying a measured figure must be untouched by the clamp.
+
+    The three configured profiles all have entry width 6.0, so their band floors
+    sit below the configured coordinate -- two of them negative -- and the clamp
+    does not bind. That is what let the envelope widen without owing a
+    re-measurement of the live run or the synthetic report.
+    """
+
+    _, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    checked = 0
+    for name, block in manifest["profiles"].items():
+        for marker in block["markers"]:
+            if marker["side"] != "east_face":
+                continue
+            expected = EAST_FACE_SURVEY_BEFORE_BAND_CLAMP[str(marker["id"])]
+            first_corner = tuple(round(value, 6) for value in marker["corners_xyz_m"][0])
+            assert first_corner == pytest.approx(expected, abs=1e-6), (
+                f"{name}: marker {marker['id']} moved to {first_corner}; a configured "
+                "profile shifting invalidates its published accuracy figures"
+            )
+            checked += 1
+    assert checked == len(manifest["profiles"]) * len(EAST_FACE_SURVEY_BEFORE_BAND_CLAMP)
+
+
+def test_a_crosswise_witness_is_still_required(generated: tuple[Path, Path]) -> None:
+    """Keep the constant-Y witness covered after ADR 0017 moved P east.
+
+    ADR 0011 argued the crosswise witness was "not an optimisation but a
+    necessity": where A drew level with P, no plane of constant X separated
+    them at all. That was a property of the *west* placement. With P east of
+    the junction the east wall separates every interval on its own, so the
+    default scene now uses X planes exclusively and would no longer notice if
+    the Y solver broke.
+
+    This drives the previous west placement, verbatim, against the current
+    occluders. It still needs both orientations, so the machinery ADR 0011
+    justified keeps its regression instead of quietly losing it when the
+    default scene stopped needing it.
+    """
+
+    _, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selected = manifest["selected_profile"]
+    block = manifest["profiles"][selected]
+
+    trajectory = trajectory_from_manifest(block["delivery_trajectory"])
+    slabs = tuple(Occluder(**slab) for slab in block["occluders"])
+    fov = float(manifest["camera"]["horizontal_fov_deg"])
+
+    # P as it stood before ADR 0017: south of the corridor, behind the corner
+    # mass, on the nominal profile.
+    result = continuous_certificate(
+        trajectory, (10.6, -2.275, 0.0), (11.2, -1.675, 1.8), slabs, fov, selected
+    )
+    assert result.passed, "the superseded placement was valid; this is a solver check"
+    assert {item.witness_axis for item in result.coverage} == {"x", "y"}
+
+
+def test_manifest_publishes_every_authored_wall(generated: tuple[Path, Path]) -> None:
+    """A wall that is not published is a wall no consumer can see.
+
+    The manifest used to carry only `occluders` -- the analytic proof's slab
+    list -- so anything reading it was structurally unable to know about a wall
+    the proof does not reference. That is why the east-wall stub was invisible
+    in RViz and unchecked by the Isaac smoke test while being solid in the stage
+    and audited by the mesh raycast. See ADR 0018.
+    """
+
+    stage_path, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    scenario = load_scenario()
+    stage = Usd.Stage.Open(str(stage_path))
+    variants = _variants(stage)
+
+    for name, block in manifest["profiles"].items():
+        assert variants.SetVariantSelection(name)
+        expected = set(building_footprints(scenario, scenario.profile(name)))
+        assert set(block["walls"]) == expected, f"{name}: manifest walls disagree with geometry"
+        assert set(block["walls"]) == set(BUILDINGS), f"{name}: BUILDINGS is out of date"
+
+        # Every occluder is one of those walls; they are the same surfaces.
+        occluding = {slab["prim_path"].rsplit("/", 1)[-1] for slab in block["occluders"]}
+        assert occluding <= set(block["walls"])
+
+        # And each published footprint matches the authored prim.
+        for wall, footprint in block["walls"].items():
+            mesh = UsdGeom.Mesh(stage.GetPrimAtPath(f"/World/Environment/Corridor/{wall}"))
+            assert mesh, f"{name}: {wall} is published but not authored"
+            authored = {(round(p[0], 6), round(p[1], 6)) for p in mesh.GetPointsAttr().Get()}
+            assert {(round(x, 6), round(y, 6)) for x, y in footprint} <= authored

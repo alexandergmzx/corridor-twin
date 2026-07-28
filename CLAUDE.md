@@ -80,14 +80,15 @@ Claude is currently the implementation/planning agent. Codex independently
 reviews completed milestone commits. Claude should not repeatedly restart the
 independent audit unless the user explicitly assigns that role.
 
-The active sequence is:
+Steps 1–5 of the original sequence are done: correctness defects closed,
+camera-derived enforcement coverage restored at the corner, deterministic
+motion implemented, and the live observer and visualization connected and
+measured. The remaining sequence is:
 
-1. close confirmed correctness defects;
-2. restore camera-derived enforcement coverage at the corner;
-3. requalify that final static geometry on the GPU;
-4. implement deterministic motion;
-5. connect the live observer and visualization;
-6. rehearse and harden the interview demonstration.
+1. requalify the static geometry on the GPU with a fresh paired capture;
+2. characterise the pose-to-render latency;
+3. close R17 and extend the live qualification to the other profiles;
+4. rehearse and harden the interview demonstration.
 
 ## Architectural invariants
 
@@ -150,40 +151,48 @@ bash tools/check_workspace.sh   # ruff, pytest, colcon build, colcon test
 unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 `scene.occlusion` does take `--profile`, meaning the corridor profile.
 
-## Current handoff: restore enforcement coverage, requalify, then move A
+## Current handoff: the demonstration runs; requalify the static gate next
 
-Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first. It records the exact commit
-range through the corner-enforcement correction, the current 117-repository plus 72-package test result,
-review findings R1–R10, and the limits that are not yet closed.
+Read [`docs/REVIEW-LOG.md`](docs/REVIEW-LOG.md) first. It records every finding
+raised so far and how each was dispositioned, including the ones deliberately
+left open. Read the gate counts off your own `bash tools/check_workspace.sh`
+run; written-down counts have gone stale three times.
 
-Stage 0 and corner coverage are closed. The next work is the runtime
-corridor-profile reload, then GPU requalification.
+**The demonstration works end to end.** `bash tools/run_demo.sh` drives A along
+the authored route in Isaac Sim while the camera-only observer measures its
+speed and RViz shows the result. Measured on the RTX 5070 Ti: all four
+enforcement gates recovered from camera pixels alone, maximum speed error
+0.0369 m/s at 1.0 m/s truth, exactly one violation at the corner, 3,354 MiB
+headless. See [`docs/evidence/live-demo/NOTES.md`](docs/evidence/live-demo/NOTES.md).
 
-**Robot motion must not start yet.** Two things block it, and neither is a
-matter of taste:
+Two limits remain open and must not be claimed closed:
 
-1. **There is no canonical static qualification.** The recorded run predates the
-   renderer readback fix and reported a *requested* mode as measured. Its
-   summary is preserved unmodified as
+1. **There is no canonical static qualification.** The recorded dwell run
+   predates the renderer readback fix and reported a *requested* mode as
+   measured. Its summary is preserved unmodified as
    `qualification-summary-v1-request-echo-invalidated.json`, and no replacement
-   is published until a fresh paired run passes. Motion evidence built on that
-   baseline would inherit the same defect.
-2. **Enforcement coverage does not reach the corner.** Past camera x ≈ 7.5 the
-   wall markers fall outside the 75° frustum, so gates 8.0 and 10.0 can never
-   produce an estimate and the tightest rule — 0.8 m/s at x ≥ 10 — cannot be
-   exercised from camera evidence. This is a renderer-independent FOV
-   obstruction, not a rendering-quality problem.
+   is published until a fresh paired run passes. The live run does not replace
+   it: a paired dwell capture with its own mirror control is a different
+   measurement.
+2. **The pose-to-render latency is uncharacterised.** Whether a pose written
+   before `app.update()` lands in that frame or the next was never measured, and
+   no offset compensates for it. One camera period is 0.066 m at 1.0 m/s, which
+   bounds but does not measure the effect.
 
-| Status | Slice | Required evidence before continuing |
+| Status | Slice | Evidence |
 |---|---|---|
 | Done | Static ArUco rendering probe | Nominal profile passes five production-pixel dwells with an actual-capture mirror control. Its renderer claim is invalidated; its pixel and station results stand. |
 | Done | Renderer/camera contract correction | `5bc1c99` reads the render mode back, `0c4e9b8` gates encoding and aligns the principal point behind a 0.05 px criterion, `3d9a754` covers every rejecting branch portably. |
-| Next | Restore enforcement-gate coverage | Add reference fiducials on the north-wall extension and the east building face — perpendicular planes, so combined correspondences stay non-coplanar. Split marker roles so references never become phantom gates. Re-run the occlusion certificate for all three profiles. |
-| Then | Requalify on GPU | Fresh paired capture of the corrected geometry, with dwells sampling the weak two-tag band and the previously unreachable region. Only then does a canonical static qualification exist again. |
-| Then | Deterministic robot motion | Move `/World/Actors/A` continuously along the authored line-arc-line trajectory with position and yaw derived from route station; drive it from simulation time with a configured path-speed profile; reset safely after a corridor-variant change. Thresholds come from the requalification, not from synthetic extrapolation. |
-| Later | Live camera-to-observer qualification | Feed only the camera contract to `police_observer`. Keep simulator truth in a separate evaluator. Demonstrate 1.0 m/s without a violation, 1.8 m/s with exactly one violation, acceleration through the limit, and dropped/single-marker frames; report speed error, usable-frame coverage, and latency. |
-| Later | Interview visualization | Show active `(m,n)`, measured speed and uncertainty, local width and speed limit, violation state, A's route, P's location, and the blocking-wall/certificate result. An ordinary viewport may explain the scene, but it must not become a second sensor or ROS render product. |
-| Last | Demo hardening | Provide one documented launch path, repeat the VRAM measurement on the RTX 5070 Ti, preserve failure evidence, document the Ubuntu fallback, and tag the interview-ready release only after the gates pass. |
+| Done | Enforcement-gate coverage at the corner | Height-staggered reference plates on the north-wall extension and the east building face — perpendicular planes, so combined correspondences stay rank 3. Roles split so a reference never becomes a phantom gate. Confirmed on rendered Isaac pixels: [corner frame](docs/evidence/live-demo/corner-references.png). ADR 0015. |
+| Done | Deterministic robot motion | `8edc076`. `/World/Actors/A` moves continuously along the authored route, position and yaw from route station, driven from simulation time. Since ADR 0018 the route has five pieces and A completed its 24.601 m in 24.62 s of sim time. |
+| Done | Live camera-to-observer demonstration | `f10280f`. Only the camera contract reaches `police_observer`; simulator truth stays in a separately labelled evaluator schedule. 1.0 m/s produces a compliant approach and exactly one corner violation. |
+| Done | Interview visualization | `e52ca12`. `enforcement_view` publishes active `(m,n)`, measured speed and uncertainty, local width and limit, violation state, A's route, P's location and the blocking walls. RViz consumes existing topics; it is not a second sensor or render product. |
+| Done | One documented launch path | `5b2bc6c`, `772d027`, `f992470`. `tools/run_demo.sh` starts both ABIs in their own environments, records evidence, and shuts every node down on exit. |
+| **Next** | Requalify the static gate on GPU | Fresh paired capture of the current geometry, with dwells sampling the weak two-tag band and the previously unreachable region. Only then does a canonical static qualification exist again. |
+| Then | Characterise pose-to-render latency | Measure whether the commanded pose leads or lags the frame it is rendered into. Do not add a learned offset that merely makes an evaluator pass. |
+| Then | Close R17 | Reference marker 84 is half behind the corner mass on `nominal_m6_n3`. Re-measure any relocation against the corrected continuity guard, not the old strict-monotonicity one. |
+| Later | Extend the live qualification | Acceleration through the limit, dropped and single-marker frames, usable-frame coverage and latency; and the other `(m,n)` profiles, which the live run says nothing about. |
+| Later | Demo hardening | Rehearse on the presentation machine, preserve failure evidence, document the Ubuntu fallback, and tag the interview-ready release only after the gates pass. |
 
 ### Planning and implementation constraints
 
@@ -211,8 +220,18 @@ matter of taste:
 
 ### Independent-review handoff
 
-The current incoming reviewer is Claude. `docs/HANDOFF.md` is the operative
-checklist. Do not squash or rewrite history for this handoff. Report:
+The open pull request is the operative checklist: it names the range and what to
+challenge in it. A branch under review carries its audit checklist in its own
+pull-request body, not in a tracked document that goes stale between rounds.
+
+Read [`docs/REVIEW-LOG.md`](docs/REVIEW-LOG.md) **before raising a finding.**
+Two audit rounds have already run. Three findings were resolved differently from
+what the audit prescribed — in one case the prescribed fix would have broken the
+build — and several items are open deliberately, each with a recorded reason.
+Disagreeing with a disposition there is welcome; re-deriving one wastes the
+round.
+
+Do not squash or rewrite history for this handoff. Report:
 
 1. every new commit hash and subject, in order;
 2. files changed and any deviation from the milestone order above;

@@ -20,6 +20,7 @@ manifest="${MANIFEST:-${stage%.usda}.manifest.json}"
 speed="${SPEED_MPS:-1.0}"
 profile="${CORRIDOR_PROFILE:-}"
 updates="${UPDATES:-3000}"
+view="${VIEW:-rviz}"
 isaac_python="${ISAAC_PYTHON:-$HOME/isaac/env_isaaclab/bin/python}"
 evidence_dir="${EVIDENCE_DIR:-$workspace_dir/out/evidence/live-demo}"
 
@@ -33,6 +34,7 @@ Environment overrides:
   SPEED_MPS=<float>        constant path speed  (default 1.0)
   CORRIDOR_PROFILE=<name>  corridor variant     (default the stage's selection)
   UPDATES=<int>            adapter safety cap   (default 3000)
+  VIEW=<name>              viewport perspective (default rviz; corner, chase)
   ISAAC_PYTHON=<path>      Isaac interpreter    (default ~/isaac/env_isaaclab/bin/python)
 USAGE
 }
@@ -169,6 +171,7 @@ env -u AMENT_PREFIX_PATH -u PYTHONPATH -u ROS_DISTRO -u CMAKE_PREFIX_PATH \
     --drive-speed-mps "$speed" \
     --drive-out "$drive_out" \
     --updates "$updates" \
+    --view "$view" \
     --report-gpu-memory \
     ${gui_flag} 2>&1 | tee "$isaac_log"
 

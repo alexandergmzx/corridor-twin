@@ -99,6 +99,25 @@ def test_robot_is_drawn_at_the_measured_station_not_at_truth(node) -> None:
     assert far.x - near.x == pytest.approx(6.0, abs=0.15)
 
 
+def test_a_station_off_the_approach_does_not_kill_the_display(node) -> None:
+    """This runs in a subscription callback, so an exception ends the display.
+
+    A SpeedMeasurement always carries a surveyed gate station today, so the
+    lookup cannot fail -- but nothing enforces that, and one refactor that
+    published a raw observation station would take RViz down mid-run rather
+    than lose one marker.
+    """
+
+    node._on_estimate(_estimate(station_m=10.0, speed_mps=1.0, limit_mps=0.8))
+    assert "robot" in _published(node)
+
+    node._on_estimate(_estimate(station_m=40.0, speed_mps=1.0, limit_mps=0.8))
+    namespaces = _published(node)
+    assert "robot" not in namespaces, "the marker is dropped, not the display"
+    # Everything else still renders, including the readout.
+    assert {"corridor", "occluders", "route", "readout"} <= set(namespaces)
+
+
 def test_readout_reports_speed_limit_width_and_profile(node) -> None:
     node._on_estimate(_estimate(station_m=10.0, speed_mps=1.02, limit_mps=0.8))
     text = _published(node)["readout"][0].text
@@ -137,6 +156,13 @@ def test_scene_is_drawn_before_any_estimate_arrives(node, manifest: Path) -> Non
     assert police.pose.position.x == pytest.approx((low[0] + high[0]) / 2.0)
     assert police.pose.position.y == pytest.approx((low[1] + high[1]) / 2.0)
 
-    # Both blocking surfaces the occlusion certificate reasons about are shown,
-    # so what the viewer sees hiding P is what the proof is about.
-    assert len(namespaces["occluders"]) == len(block["occluders"]) == 2
+    # Every wall in the scene must be drawn, not just the ones the occlusion
+    # proof reasons about. Drawing only the occluder list left the east-wall
+    # stub invisible while A drove around it (ADR 0018). The count comes from
+    # the manifest so a newly authored wall cannot go unrendered.
+    assert len(namespaces["occluders"]) == len(block["walls"])
+    assert set(block["walls"]) >= {name.rsplit("/", 1)[-1] for slab in block["occluders"]
+                                   for name in [slab["prim_path"]]}, (
+        "every occluder must also be a wall; they are the same surfaces"
+    )
+    assert "EastWallStub" in block["walls"], "the stub is a wall and must be published"

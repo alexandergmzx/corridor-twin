@@ -19,6 +19,10 @@ supersedes the old record.
 | [0012](0012-conservative-curved-path-visibility.md) | Accepted | Enclose curved camera motion conservatively before certifying visibility |
 | [0013](0013-size-fiducials-from-delivered-camera.md) | Accepted | Size and mount fiducials from the delivered production camera |
 | [0014](0014-violation-episode-semantics.md) | Accepted | Emit one violation per continuous speeding episode |
+| [0015](0015-reference-fiducials-for-corner-coverage.md) | Accepted | Restore corner enforcement coverage with reference fiducials |
+| [0016](0016-corner-enforcement-policy-boundary.md) | Accepted | Move the strict speed zone to 4.0 m clear width |
+| [0017](0017-relocate-p-to-diagram-east-corner.md) | Accepted | Relocate P to the junction's east corner, behind the east wall |
+| [0018](0018-model-the-east-wall-stub.md) | Accepted | Model the east-wall stub, recess B behind it, extend the route |
 
 ## Decision map
 
@@ -46,8 +50,12 @@ flowchart LR
     A2 --> A13["0013<br/>Camera-sized fiducials"]
     A6 --> A13
     A9 --> A13
+    A13 --> A15["0015<br/>Reference fiducials"]
+    A7 --> A16["0016<br/>Corner policy boundary"]
+    A15 --> A16
     A12 --> Demo["Defensible interview demo"]
     A13 --> Demo
+    A16 --> Demo
     A7 --> Demo
     A9 --> Demo
 
@@ -66,3 +74,21 @@ onto the reconciled topology and the continuous turn.
 ADR 0012 corrects the implementation detail that initially represented a turn
 interval by its endpoint chord. It extends 0005 and 0011 without weakening their
 continuous-coverage decision.
+
+ADR 0015 **extends** ADR 0013. Sizing fiducials from the delivered camera still
+stands; 0015 adds a second class of plate on perpendicular far-field surfaces
+because the corner limit turned out to be angular — the wall markers leave the
+frustum entirely — and no amount of resizing reaches an out-of-frame target.
+
+ADR 0016 **extends** ADR 0007 and depends on 0015. It moves a policy value that
+ADR 0007 requires the owner to approve, and it is only implementable because
+0015 made two gates measurable inside the strict zone. ADR 0007's decision, that
+violations are confirmed conservatively over consecutive measurements, is
+unchanged and was deliberately not weakened to make the corner rule fire.
+
+ADR 0017 **supersedes one rejected alternative** in ADR 0011 rather than the
+decision itself. ADR 0011 rejected placing P at the drawing's literal label
+position because A would see it; that reasoning stands. 0017 takes the third
+option 0011 did not consider — the diagram's *side*, with the body behind the
+east wall — which satisfies the same visibility gate that rejection was
+protecting.

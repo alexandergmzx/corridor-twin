@@ -30,7 +30,7 @@ from typing import Any
 from pxr import Gf, Usd, UsdGeom, UsdPhysics
 
 from .geometry import Occluder
-from .trajectory import ARC, DeliveryTrajectory, trajectory_from_manifest
+from .trajectory import ARC, DELIVERY_ARC, DeliveryTrajectory, trajectory_from_manifest
 
 Vec3 = tuple[float, float, float]
 
@@ -370,18 +370,40 @@ def _camera_source_vertices(
         (start.x_m, start.y_m, start.z_m),
         (end.x_m, end.y_m, end.z_m),
     )
-    if kind != ARC:
+    if kind not in {ARC, DELIVERY_ARC}:
+        return endpoints
+
+    # Both turns are enclosed the same way; they differ only in where they
+    # start along the route, which way the polar angle runs, and which centre
+    # they turn about. The delivery turn is left-handed, so its angle rises
+    # where the first turn's falls.
+    if kind == ARC:
+        piece_start_s = trajectory.approach_length_m
+        piece_length = trajectory.arc_length_m
+        radius = trajectory.arc_radius_m
+        center_x, center_y = trajectory.arc_center_xy_m
+        start_angle = trajectory.arc_start_angle_rad
+        direction = -1.0
+    else:
+        piece_start_s = (
+            trajectory.approach_length_m
+            + trajectory.arc_length_m
+            + trajectory.departure_length_m
+        )
+        piece_length = trajectory.delivery_arc_length_m
+        radius = trajectory.delivery_arc_radius_m
+        center_x, center_y = trajectory.delivery_arc_center_xy_m
+        start_angle = trajectory.delivery_arc_start_angle_rad
+        direction = 1.0
+    if radius <= 0.0 or piece_length <= 0.0:
         return endpoints
 
     low_s, high_s = sorted((start_s_m, end_s_m))
-    low_s = max(low_s, trajectory.approach_length_m)
-    high_s = min(high_s, trajectory.approach_length_m + trajectory.arc_length_m)
-    angle_high = trajectory.arc_start_angle_rad - (
-        low_s - trajectory.approach_length_m
-    ) / trajectory.arc_radius_m
-    angle_low = trajectory.arc_start_angle_rad - (
-        high_s - trajectory.approach_length_m
-    ) / trajectory.arc_radius_m
+    low_s = max(low_s, piece_start_s)
+    high_s = min(high_s, piece_start_s + piece_length)
+    edge_a = start_angle + direction * (low_s - piece_start_s) / radius
+    edge_b = start_angle + direction * (high_s - piece_start_s) / radius
+    angle_low, angle_high = sorted((edge_a, edge_b))
     angles = [angle_low, angle_high]
     quarter_turn = math.pi / 2.0
     first_cardinal = math.ceil((angle_low - 1e-12) / quarter_turn)
@@ -390,9 +412,8 @@ def _camera_source_vertices(
         index * quarter_turn for index in range(first_cardinal, last_cardinal + 1)
     )
 
-    center_x, center_y = trajectory.arc_center_xy_m
-    xs = [center_x + trajectory.arc_radius_m * math.cos(angle) for angle in angles]
-    ys = [center_y + trajectory.arc_radius_m * math.sin(angle) for angle in angles]
+    xs = [center_x + radius * math.cos(angle) for angle in angles]
+    ys = [center_y + radius * math.sin(angle) for angle in angles]
     vertices = tuple(
         (x_m, y_m, start.z_m)
         for x_m in (min(xs), max(xs))

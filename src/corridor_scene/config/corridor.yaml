@@ -1,4 +1,4 @@
-schema_version: 0.3.0
+schema_version: 0.5.0
 status: topology_reconciled_metric_scale_demo_assumption
 
 provenance:
@@ -31,6 +31,26 @@ geometry:
     length_m: 10.0
     turn_radius_m: 2.0
     b_distance_m: 8.0
+    # B's lateral position across the street, measured from the drawing: the
+    # label centres 0.7989 of the way across the clear channel, which puts B in
+    # the stub's shadow against the east wall rather than out in the lane.
+    b_lateral_fraction: 0.7989
+    # The unlabelled block the drawing puts on the east wall beside B. It was
+    # measured and deliberately left out until ADR 0018; modelling it makes B
+    # stand in the pocket behind it, which is where the drawing puts B.
+    #
+    # Only the *ratios* transfer. The drawing's own scale gives a 43.4 m
+    # corridor and B at 20.3 m against the scene's 12.0 and 8.0, so the
+    # along-street position is a project choice (ADR 0010). The depth transfers
+    # as a fraction of the street rather than through the `m` arrow, because
+    # the two disagree and the fraction is what decides whether A can pass.
+    east_wall_stub:
+      # Measured: 166 px of the 358 px clear channel.
+      depth_fraction: 0.4637
+      # Measured: 63 px at the stub's own 2.635:1 aspect.
+      length_m: 1.06
+      # Project choice, preserving the drawn "B immediately south of it".
+      gap_north_of_b_m: 1.05
   profiles:
     nominal_m6_n3:
       entry_width_m: 6.0
@@ -87,16 +107,29 @@ fiducials:
       - {surface: north_wall, along_m: 15.0, height_m: 2.0, size_m: 0.60, cant_deg: 35.0}
       - {surface: north_wall, along_m: 17.0, height_m: 3.1, size_m: 0.60, cant_deg: 35.0}
       - {surface: east_face,  along_m: 1.8,  height_m: 2.6, size_m: 1.00, cant_deg: 0.0}
-      - {surface: east_face,  along_m: 0.0,  height_m: 1.0, size_m: 1.00, cant_deg: 0.0}
+      # The lower east plate must also clear the corner mass, whose north edge
+      # sits at m/2 - n: exactly y = 0.0 on the default profile. Centred there,
+      # half of it was behind the corner building -- invisible to a
+      # projection-only synthetic camera, and half-clipped in a real render.
+      # Moved to 0.75 and shrunk to 0.60 m, which measured strictly better than
+      # the occluded original on every metric: zero occluded frames, and worst
+      # station and speed error both lower across all three profiles.
+      - {surface: east_face,  along_m: 0.75, height_m: 1.0, size_m: 0.60, cant_deg: 0.0}
 
 police:
-  # P stands at the corner on the non-drivable side of the corner wall. The
-  # placement is expressed as offsets from the occluding wall faces so it
-  # follows the geometry when a different (m,n) profile is selected, instead of
-  # being frozen as absolute coordinates that only suit one profile.
+  # P stands at the junction's east corner, on the far side of the next
+  # street's east wall, which is the surface that hides P from A. The supplied
+  # diagram puts P on this side; ADR 0017 records why the body sits behind the
+  # wall rather than in the street channel where the drawing's label is.
+  #
+  # The placement stays expressed as offsets from wall faces rather than as
+  # absolute coordinates, per ADR 0010, so selecting a different (m,n) profile
+  # moves P with the geometry instead of stranding it inside a wall.
   body_size_xyz_m: [0.6, 0.6, 1.8]
-  west_offset_m: 0.60
-  south_offset_m: 1.20
+  # East of EastBuilding's outer face.
+  east_offset_m: 0.60
+  # South of the north wall's inner face, which is m/2.
+  north_offset_m: 1.20
   minimum_clearance_m: 0.25
 
 speed_policy:

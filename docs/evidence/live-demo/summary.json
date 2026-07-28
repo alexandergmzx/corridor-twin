@@ -1,18 +1,19 @@
 {
   "kind": "live_isaac_camera_only_enforcement_run",
   "command": "bash tools/run_demo.sh --headless --record",
-  "commit": "5b2bc6cffaf9b7467a35faf4fa0e92088e0e4d3e",
+  "commit": "f15dbff97b45f5a1d795433b5c4f1cc6684fd8d5",
   "profile": "nominal_m6_n3",
   "path_speed_mps": 1.0,
+  "geometry_note": "east-wall stub modelled (ADR 0018); B recessed behind it at x=16.79; five-piece route of 24.601 m",
   "camera": {
     "encoding": "rgb8",
     "width": 640,
     "height": 360,
-    "images": 339,
-    "stamp_span_s": 23.8,
-    "rate_hz_mean": 14.2017,
+    "images": 329,
+    "stamp_span_s": 24.467,
+    "rate_hz_mean": 13.406,
     "rate_hz_max": 15.0,
-    "rate_hz_min": 5.0,
+    "rate_hz_min": 3.75,
     "fx": 417.0321044921875,
     "fy": 417.0321044921875,
     "cx": 320.0,
@@ -29,36 +30,36 @@
   "estimates": [
     {
       "station_m": 4.0,
-      "speed_mps": 1.0007,
-      "speed_stddev_mps": 0.014,
-      "speed_error_mps": 0.0007,
+      "speed_mps": 1.0006,
+      "speed_stddev_mps": 0.0153,
+      "speed_error_mps": 0.0006,
       "corridor_width_m": 5.0,
       "speed_limit_mps": 1.2,
       "over_limit": false
     },
     {
       "station_m": 6.0,
-      "speed_mps": 1.0015,
-      "speed_stddev_mps": 0.0142,
-      "speed_error_mps": 0.0015,
+      "speed_mps": 1.0014,
+      "speed_stddev_mps": 0.0158,
+      "speed_error_mps": 0.0014,
       "corridor_width_m": 4.5,
       "speed_limit_mps": 1.2,
       "over_limit": false
     },
     {
       "station_m": 8.0,
-      "speed_mps": 0.9629,
-      "speed_stddev_mps": 0.0139,
-      "speed_error_mps": 0.0371,
+      "speed_mps": 0.9631,
+      "speed_stddev_mps": 0.0143,
+      "speed_error_mps": 0.0369,
       "corridor_width_m": 4.0,
       "speed_limit_mps": 0.8,
       "over_limit": true
     },
     {
       "station_m": 10.0,
-      "speed_mps": 1.0192,
-      "speed_stddev_mps": 0.0126,
-      "speed_error_mps": 0.0192,
+      "speed_mps": 1.0177,
+      "speed_stddev_mps": 0.0132,
+      "speed_error_mps": 0.0177,
       "corridor_width_m": 3.5,
       "speed_limit_mps": 0.8,
       "over_limit": true
@@ -68,7 +69,7 @@
     {
       "event_id": 1,
       "station_m": 10.0,
-      "exceedance_mps": 0.194,
+      "exceedance_mps": 0.1914,
       "speed_limit_mps": 0.8
     }
   ],
@@ -79,8 +80,34 @@
       8.0,
       10.0
     ],
-    "max_speed_error_mps": 0.0371,
+    "max_speed_error_mps": 0.0369,
     "violation_count": 1,
-    "every_enforcement_gate_after_the_first_measured": true
+    "every_measurable_gate_measured": true
+  },
+  "delivered_rate_across_runs": {
+    "note": "Minimum delivered rate observed across two runs of the same command. It is a ros2 bag record artifact, not a renderer property: gate crossings are interpolated between message stamps, so a stretched frame moves when a crossing is placed, not how far apart the gates are.",
+    "runs_hz_min": [
+      5.0,
+      3.75
+    ],
+    "runs_hz_mean": [
+      13.9347,
+      13.406
+    ],
+    "worst_observed_hz": 3.75
+  },
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 5070 Ti",
+    "used_mib": 3354,
+    "total_mib": 16303,
+    "mode": "headless"
+  },
+  "motion": {
+    "path_speed_mps": 1.0,
+    "route_s_m": 24.601,
+    "route_length_m": 24.601,
+    "reached_end": true,
+    "updates": 1478,
+    "sim_span_s": 24.617
   }
 }

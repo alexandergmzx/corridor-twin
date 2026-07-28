@@ -37,6 +37,7 @@ import json
 import platform
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -122,11 +123,16 @@ def _run_one(
         marker["id"]: np.asarray(marker["corners_xyz_m"], dtype=np.float64)
         for marker in manifest["profiles"][profile_name]["markers"]
     }
+    # The trajectory is needed unconditionally, not only for the raycast audit:
+    # the schedule below advances along route arc length and reads world X back
+    # off the authored path. Commanding `x = v*t*path_axis_fraction` instead
+    # would multiply by the same field the estimator divides by, so an error in
+    # it cancelled exactly and this report -- the primary accuracy instrument --
+    # was blind to the one conversion the tapered corridor made necessary.
+    scenario = load_scenario()
+    trajectory = delivery_trajectory(scenario, scenario.profile(profile_name))
     triangles: list[Any] = []
-    trajectory = None
     if check_visibility:
-        scenario = load_scenario()
-        trajectory = delivery_trajectory(scenario, scenario.profile(profile_name))
         stage = Usd.Stage.Open(str(stage_path))
         # The audit has to see the meshes this profile actually composes, so
         # select its variant rather than whatever the build left selected.
@@ -136,6 +142,7 @@ def _run_one(
         triangles = [t for prim in opaque_mesh_prims(stage) for t in _mesh_triangles(prim)]
 
     start_x, end_x = schedule.window_x_m
+    start_s_m = trajectory.approach_s_at_x(start_x)
     samples: list[dict[str, Any]] = []
     measurements: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
@@ -143,7 +150,10 @@ def _run_one(
     frame = 0
     while True:
         elapsed = frame / schedule.rate_hz
-        commanded_x_m = start_x + truth_speed_mps * elapsed * marker_map.path_axis_fraction
+        # Distance actually travelled along the route, which is what the speed
+        # policy is written about; world X follows from the authored path.
+        route_s_m = start_s_m + truth_speed_mps * elapsed
+        commanded_x_m = trajectory.pose_at(route_s_m).x_m
         if commanded_x_m > end_x:
             break
         frames += 1
@@ -157,8 +167,8 @@ def _run_one(
         accepted = list(observation.marker_ids)
         combined = np.concatenate([surveyed[marker_id] for marker_id in accepted])
         unoccluded: bool | None = None
-        if check_visibility and trajectory is not None:
-            camera_pose = trajectory.camera_pose_at(trajectory.approach_s_at_x(commanded_x_m))
+        if check_visibility:
+            camera_pose = trajectory.camera_pose_at(route_s_m)
             origin = (camera_pose.x_m, camera_pose.y_m, camera_pose.z_m)
             unoccluded = True
             for marker_id in accepted:
@@ -175,6 +185,7 @@ def _run_one(
 
         samples.append(
             {
+                "commanded_route_s_m": round(route_s_m, 6),
                 "commanded_x_m": round(commanded_x_m, 6),
                 "estimated_x_m": round(observation.station_m, 6),
                 "station_error_m": round(abs(observation.station_m - commanded_x_m), 6),
@@ -229,15 +240,21 @@ def _run_one(
 
 
 def run_report(
-    output_dir: Path,
+    scratch_dir: Path,
     schedule: Schedule | None = None,
     profiles: tuple[str, ...] = PROFILE_NAMES,
     check_visibility: bool = True,
 ) -> dict[str, Any]:
-    """Build a scene, drive the declared schedule, and return the summary."""
+    """Build a scene, drive the declared schedule, and return the summary.
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stage_path, manifest_path = build_scene(None, output_dir / "corridor.usda", 6.0, 3.0)
+    ``scratch_dir`` receives the generated stage, manifest and marker PNGs. It
+    is deliberately *not* where the summary goes: pointing ``--out`` at
+    ``docs/evidence/`` used to drop build output into the curated tree, which
+    the comment in ``main`` claimed could not happen.
+    """
+
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    stage_path, manifest_path = build_scene(None, scratch_dir / "corridor.usda", 6.0, 3.0)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     schedule = schedule or Schedule(
         rate_hz=float(manifest["camera"]["rate_hz"]),
@@ -284,9 +301,16 @@ def run_report(
         {
             float(marker["station_m"])
             for marker in manifest["profiles"][profiles[0]]["markers"]
-            if marker["role"] == "gate"
+            if marker.get("role", "gate") == "gate"
         }
     )
+    # A speed needs two gate crossings, so the *first* gate arms the estimator
+    # and can never carry a measurement of its own. Comparing the measured set
+    # against every authored gate therefore reported False on every run of every
+    # profile while coverage was in fact complete -- and, worse, could not move
+    # if a gate were genuinely lost. Coverage is judged against the gates that
+    # can carry a speed.
+    measurable_gates = enforcement_gates[1:]
     overall_speed = [
         block["max_gate_speed_error_mps"]
         for block in per_profile.values()
@@ -319,8 +343,9 @@ def run_report(
             "max_gate_speed_error_mps": max(overall_speed) if overall_speed else None,
             "max_station_error_m": max(overall_station) if overall_station else None,
             "enforcement_gates_m": enforcement_gates,
-            "every_enforcement_gate_measured": all(
-                block["gates_measured_m"] == enforcement_gates for block in per_profile.values()
+            "measurable_gates_m": measurable_gates,
+            "every_measurable_gate_measured": all(
+                block["gates_measured_m"] == measurable_gates for block in per_profile.values()
             ),
             "minimum_correspondence_rank": min(
                 block["minimum_correspondence_rank"]
@@ -376,14 +401,22 @@ def main(argv: list[str] | None = None) -> int:
     # by a tool, so a silent overwrite of a published artifact is not possible.
     if output.exists() and not args.force:
         raise FileExistsError(f"{output} exists; pass --force to replace it")
-    report = run_report(output.parent, check_visibility=not args.skip_visibility)
+    # The scene the reporter builds is an implementation detail of the
+    # measurement, not part of the evidence, so it goes to a temporary
+    # directory rather than next to the artifact.
+    with tempfile.TemporaryDirectory(prefix="synthetic-observer-") as scratch:
+        report = run_report(Path(scratch), check_visibility=not args.skip_visibility)
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     summary = report["summary"]
     print(f"wrote {output}")
     print(f"  max gate-derived speed error : {summary['max_gate_speed_error_mps']:.4f} m/s")
     print(f"  max per-frame station error  : {summary['max_station_error_m']:.4f} m  (secondary)")
-    print(f"  every enforcement gate measured: {summary['every_enforcement_gate_measured']}")
+    print(
+        f"  every measurable gate measured: {summary['every_measurable_gate_measured']}"
+        f"  {summary['measurable_gates_m']}"
+    )
     print(f"  minimum correspondence rank  : {summary['minimum_correspondence_rank']}")
     print(f"  all accepted markers unoccluded: {summary['all_accepted_unoccluded']}")
     for name, block in report["profiles"].items():

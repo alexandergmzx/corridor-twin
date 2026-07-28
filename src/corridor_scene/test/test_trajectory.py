@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import pytest
 from scene.geometry import (
     Occluder,
     a_start_xyz,
     corridor_centerline,
+    east_wall_stub_bounds,
     is_clear,
     person_b_xyz,
     police_bounds,
+    street_drive_center_x_m,
 )
 from scene.model import load_scenario
 from scene.occlusion import (
@@ -28,6 +30,7 @@ from scene.trajectory import (
     DeliveryTrajectory,
     delivery_trajectory,
     trajectory_from_manifest,
+    validate_trajectory,
 )
 
 
@@ -54,7 +57,9 @@ def test_route_starts_at_a_and_ends_at_b(scenario, profile) -> None:
     assert (start.x_m, start.y_m, start.z_m) == pytest.approx(a_start_xyz(scenario, profile))
     end = trajectory.pose_at(trajectory.length_m)
     assert (end.x_m, end.y_m) == pytest.approx(person_b_xyz(scenario)[:2], abs=1e-6)
-    assert end.yaw_rad == pytest.approx(-math.pi / 2.0, abs=1e-9)
+    # B stands in the pocket behind the east-wall stub, so A arrives heading
+    # east into it rather than still running south down the lane (ADR 0018).
+    assert end.yaw_rad == pytest.approx(0.0, abs=1e-9)
 
 
 @pytest.mark.parametrize("scenario,profile", _profiles())
@@ -92,18 +97,68 @@ def test_world_x_to_route_station_rejects_non_approach_values() -> None:
 
 
 @pytest.mark.parametrize("scenario,profile", _profiles())
-def test_yaw_is_monotone_through_the_turn(scenario, profile) -> None:
-    """yaw_range() depends on this, and the certificate depends on yaw_range()."""
+def test_yaw_range_is_exact_although_yaw_is_not_monotone(scenario, profile) -> None:
+    """The certificate depends on yaw_range(), which used to depend on monotonicity.
+
+    Yaw fell monotonically over the old line-arc-line route, so yaw_range could
+    read the interval's two endpoints and be right. ADR 0018 added a left-handed
+    delivery turn, so yaw now falls through the first arc and rises through the
+    second: an interval spanning both has its extremes in the *interior*.
+    Endpoint sampling would under-report the sweep and bound the camera over a
+    narrower cone than it actually traverses, which is a silent false pass.
+
+    This pins the property that replaced monotonicity: yaw_range is exact
+    against a dense sample, over the whole route and over every sub-interval
+    that spans the two turns.
+    """
 
     trajectory = delivery_trajectory(scenario, profile)
+    count = 2000
     samples = [
-        trajectory.pose_at(trajectory.length_m * index / 400).yaw_rad for index in range(401)
+        trajectory.pose_at(trajectory.length_m * index / count).yaw_rad
+        for index in range(count + 1)
     ]
-    pairs = zip(samples, samples[1:], strict=False)
-    assert all(later <= earlier + 1e-12 for earlier, later in pairs)
+
+    # Yaw genuinely is not monotone any more, so the old assumption is dead.
+    assert not all(
+        later <= earlier + 1e-12 for earlier, later in zip(samples, samples[1:], strict=False)
+    )
+
     low, high = trajectory.yaw_range(0.0, trajectory.length_m)
-    assert low == pytest.approx(min(samples))
-    assert high == pytest.approx(max(samples))
+    assert low == pytest.approx(min(samples), abs=1e-6)
+    assert high == pytest.approx(max(samples), abs=1e-6)
+
+    # And on sub-intervals, including ones whose extremes are interior.
+    for start_frac, end_frac in ((0.0, 0.6), (0.4, 1.0), (0.45, 0.95), (0.5, 0.75)):
+        start_s = trajectory.length_m * start_frac
+        end_s = trajectory.length_m * end_frac
+        window = [
+            trajectory.pose_at(start_s + (end_s - start_s) * index / count).yaw_rad
+            for index in range(count + 1)
+        ]
+        low, high = trajectory.yaw_range(start_s, end_s)
+        window_name = f"[{start_frac}, {end_frac}]"
+        assert low <= min(window) + 1e-6, f"yaw_range missed a minimum on {window_name}"
+        assert high >= max(window) - 1e-6, f"yaw_range missed a maximum on {window_name}"
+
+
+@pytest.mark.parametrize("scenario,profile", _profiles())
+def test_yaw_is_monotone_within_each_piece(scenario, profile) -> None:
+    """What replaced whole-route monotonicity, and what makes yaw_range exact."""
+
+    trajectory = delivery_trajectory(scenario, profile)
+    for segment in trajectory.segments():
+        span = segment.end_s_m - segment.start_s_m
+        if span <= 0.0:
+            continue
+        samples = [
+            trajectory.pose_at(segment.start_s_m + span * index / 200).yaw_rad
+            for index in range(201)
+        ]
+        deltas = [later - earlier for earlier, later in zip(samples, samples[1:], strict=False)]
+        assert all(d <= 1e-12 for d in deltas) or all(d >= -1e-12 for d in deltas), (
+            f"yaw is not monotone within {segment.kind}, so yaw_range cannot read its ends"
+        )
 
 
 @pytest.mark.parametrize("scenario,profile", _profiles())
@@ -247,3 +302,87 @@ def test_turn_radius_that_cannot_fit_is_rejected(tmp_path) -> None:
     )
     with pytest.raises(ValueError, match="too large to fit"):
         delivery_trajectory(oversized, profile)
+
+
+def test_the_old_street_centreline_would_drive_through_the_stub() -> None:
+    """The reroute is required, not cosmetic.
+
+    Before ADR 0018 the lane line was the street's geometric centre at
+    x = 15.0. The stub's west face lands at x = 15.218 and A's body is 0.45 m
+    wide, so that centreline puts A into the wall. `validate_trajectory` applies
+    a 0.3 m margin, which is what would have caught it -- this drives that
+    directly rather than trusting the arithmetic.
+    """
+
+    scenario = load_scenario()
+    profile = scenario.profile("nominal_m6_n3")
+    stub_west, _, _, _ = east_wall_stub_bounds(scenario)
+    # A's visual body is 0.45 m wide, so its half-width is 0.225 m. The stub's
+    # west face at 15.218 is 0.218 m east of the old centreline, which is inside
+    # that half-width: the robot itself would clip the wall, before the
+    # trajectory margin is considered at all.
+    half_width = 0.225
+    overlap = (scenario.street_center_x_m + half_width) - stub_west
+    assert overlap > 0.0, (
+        f"the stub must actually foul the old centreline for this to mean anything; "
+        f"stub west face {stub_west:.3f}, A's flank {scenario.street_center_x_m + half_width:.3f}"
+    )
+
+    # The old route: lane and B both on the street's geometric centre.
+    honest = delivery_trajectory(scenario, profile)
+    superseded = replace(
+        honest,
+        departure_length_m=honest.departure_length_m + honest.delivery_arc_length_m,
+        delivery_arc_radius_m=0.0,
+        delivery_arc_sweep_rad=0.0,
+        delivery_length_m=0.0,
+    )
+    shifted = replace(
+        superseded,
+        arc_center_xy_m=(
+            superseded.arc_center_xy_m[0]
+            + (scenario.street_center_x_m - street_drive_center_x_m(scenario)),
+            superseded.arc_center_xy_m[1],
+        ),
+    )
+    with pytest.raises(ValueError, match="leaves drivable space"):
+        validate_trajectory(scenario, profile, shifted)
+
+
+def test_route_legs_are_pinned() -> None:
+    """A silent route change would invalidate every recorded live figure.
+
+    The live evidence is measured against this route's length and timing, so
+    the legs are pinned rather than merely asserted positive. If a geometry
+    change moves them, this fails and the evidence has to be re-recorded with
+    it -- which is the coupling that was missing when the route last moved.
+    """
+
+    scenario = load_scenario()
+    trajectory = delivery_trajectory(scenario, scenario.profile("nominal_m6_n3"))
+    lengths = {
+        segment.kind: segment.end_s_m - segment.start_s_m for segment in trajectory.segments()
+    }
+    assert lengths["approach"] == pytest.approx(11.449, abs=5e-3)
+    assert lengths["arc"] == pytest.approx(3.390, abs=5e-3)
+    assert lengths["departure"] == pytest.approx(5.436, abs=5e-3)
+    assert lengths["delivery_arc"] == pytest.approx(3.142, abs=5e-3)
+    assert lengths["delivery"] == pytest.approx(1.184, abs=5e-3)
+    assert trajectory.length_m == pytest.approx(24.601, abs=5e-3)
+
+
+def test_manifest_round_trip_preserves_all_five_pieces() -> None:
+    """Isaac drives the route from the manifest, so the parse must be lossless."""
+
+    scenario = load_scenario()
+    profile = scenario.profile("nominal_m6_n3")
+    original = delivery_trajectory(scenario, profile)
+    restored = trajectory_from_manifest(asdict(original))
+    assert restored == original
+    assert [segment.kind for segment in restored.segments()] == [
+        "approach",
+        "arc",
+        "departure",
+        "delivery_arc",
+        "delivery",
+    ]

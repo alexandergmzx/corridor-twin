@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,22 @@ class FiducialSpec:
 
 
 @dataclass(frozen=True)
+class EastWallStubSpec:
+    """The block the drawing puts on the street's east wall beside B.
+
+    ``depth_fraction`` is the share of the clear street width it occupies,
+    measured from the drawing. It is a fraction rather than a length because the
+    drawing's own scale and the scene's chosen street width disagree, and the
+    fraction is the part that decides whether A can still get past. See
+    ADR 0018.
+    """
+
+    depth_fraction: float
+    length_m: float
+    gap_north_of_b_m: float
+
+
+@dataclass(frozen=True)
 class NextStreetSpec:
     """The perpendicular street A turns onto to reach B."""
 
@@ -79,20 +96,25 @@ class NextStreetSpec:
     length_m: float
     turn_radius_m: float
     b_distance_m: float
+    b_lateral_fraction: float
+    east_wall_stub: EastWallStubSpec
 
 
 @dataclass(frozen=True)
 class PoliceSpec:
-    """P's body and its standoff from the occluding corner walls.
+    """P's body and its standoff from the wall that hides it.
 
     Offsets are measured from wall faces rather than stored as absolute
     coordinates so that P follows the geometry when a different corridor
-    profile is selected.
+    profile is selected. ``east_offset_m`` is measured east from the next
+    street's east wall — the outer face, so the offset is clear air between the
+    wall and the body — and ``north_offset_m`` south from the north wall's
+    inner face at ``m/2``. See ADR 0017.
     """
 
     body_size_xyz_m: Vec3
-    west_offset_m: float
-    south_offset_m: float
+    east_offset_m: float
+    north_offset_m: float
     minimum_clearance_m: float
 
 
@@ -214,17 +236,24 @@ def load_scenario(path: Path | None = None) -> Scenario:
         ),
     )
     street_raw = geometry["next_street"]
+    stub_raw = street_raw["east_wall_stub"]
     next_street = NextStreetSpec(
         clear_width_m=float(street_raw["clear_width_m"]),
         length_m=float(street_raw["length_m"]),
         turn_radius_m=float(street_raw["turn_radius_m"]),
         b_distance_m=float(street_raw["b_distance_m"]),
+        b_lateral_fraction=float(street_raw["b_lateral_fraction"]),
+        east_wall_stub=EastWallStubSpec(
+            depth_fraction=float(stub_raw["depth_fraction"]),
+            length_m=float(stub_raw["length_m"]),
+            gap_north_of_b_m=float(stub_raw["gap_north_of_b_m"]),
+        ),
     )
     police_raw = raw["police"]
     police = PoliceSpec(
         body_size_xyz_m=_xyz(police_raw["body_size_xyz_m"], "police.body_size_xyz_m"),
-        west_offset_m=float(police_raw["west_offset_m"]),
-        south_offset_m=float(police_raw["south_offset_m"]),
+        east_offset_m=float(police_raw["east_offset_m"]),
+        north_offset_m=float(police_raw["north_offset_m"]),
         minimum_clearance_m=float(police_raw["minimum_clearance_m"]),
     )
     scenario = Scenario(
@@ -247,6 +276,58 @@ def load_scenario(path: Path | None = None) -> Scenario:
     return scenario
 
 
+def _validate_speed_policy(scenario: Scenario) -> None:
+    """Reject a policy that cannot describe a limit for this corridor."""
+
+    rules = scenario.speed_policy.get("rules")
+    if not isinstance(rules, list) or not rules:
+        raise ValueError("speed policy must define at least one rule")
+
+    thresholds: list[float] = []
+    for index, rule in enumerate(rules):
+        try:
+            maximum_width = float(rule["maximum_width_m"])
+            limit = float(rule["limit_mps"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(
+                f"speed policy rule {index} needs numeric maximum_width_m and limit_mps"
+            ) from error
+        # Finiteness is checked before sign, and separately from it. `nan <= 0`
+        # and `inf <= 0` are both False, so a sign test alone accepts them here
+        # while `normalized_speed_rules` rejects them on the observer side --
+        # the scene builds, the manifest is written, and the observer then
+        # refuses to construct. YAML spells both directly as `.nan` and `.inf`.
+        if not math.isfinite(maximum_width):
+            raise ValueError(f"speed policy rule {index} has a non-finite maximum_width_m")
+        if not math.isfinite(limit):
+            raise ValueError(f"speed policy rule {index} has a non-finite limit_mps")
+        if maximum_width <= 0.0:
+            raise ValueError(f"speed policy rule {index} has a non-positive maximum_width_m")
+        if limit <= 0.0:
+            raise ValueError(f"speed policy rule {index} has a non-positive limit_mps")
+        thresholds.append(maximum_width)
+
+    duplicates = sorted({value for value in thresholds if thresholds.count(value) > 1})
+    if duplicates:
+        raise ValueError(f"speed policy repeats maximum_width_m {duplicates}")
+
+    # Every width any authored profile can present must have a rule. The entry
+    # width is the widest point of a tapering corridor, so it bounds the rest.
+    widest_rule = max(thresholds)
+    uncovered = sorted(
+        {
+            profile.entry_width_m
+            for profile in scenario.profiles
+            if profile.entry_width_m > widest_rule
+        }
+    )
+    if uncovered:
+        raise ValueError(
+            f"speed policy does not cover corridor widths {uncovered}; "
+            f"the widest rule stops at {widest_rule} m"
+        )
+
+
 def validate_scenario(scenario: Scenario) -> None:
     """Reject geometry that cannot satisfy the project contract.
 
@@ -259,6 +340,19 @@ def validate_scenario(scenario: Scenario) -> None:
             f"unsupported taper mode {scenario.taper_mode!r}; "
             "the supplied diagram shows a straight north face"
         )
+
+    # The speed policy is the most hand-edited value in this configuration and
+    # it used to be the least protected: it travelled from here to the manifest
+    # to the observer as an opaque dictionary, so a reordered rule list silently
+    # deleted the corner rule and a missing catch-all killed the observer from
+    # inside a subscription callback. Reject both before a manifest exists.
+    #
+    # `police_observer.estimator.normalized_speed_rules` enforces the same
+    # invariant on whatever the observer reads, because a manifest can be edited
+    # after it is built. corridor_scene cannot import that -- the dependency
+    # runs the other way -- so `test_speed_policy_validation_agrees_across_packages`
+    # pins the two against the same cases.
+    _validate_speed_policy(scenario)
     if scenario.corridor_length_m <= 0.0:
         raise ValueError("corridor length must be positive")
     if scenario.wall_thickness_m <= 0.0:
@@ -305,10 +399,32 @@ def validate_scenario(scenario: Scenario) -> None:
         raise ValueError("P must have a positive body volume")
     if police.minimum_clearance_m <= 0.0:
         raise ValueError("P needs a positive clearance margin from occluders")
-    if police.west_offset_m < police.minimum_clearance_m:
-        raise ValueError("P's west offset is inside its own clearance margin")
-    if police.south_offset_m < police.minimum_clearance_m:
-        raise ValueError("P's south offset is inside its own clearance margin")
+    if police.east_offset_m < police.minimum_clearance_m:
+        raise ValueError("P's east offset is inside its own clearance margin")
+    # The north offset is measured from a face P stands *below* rather than
+    # behind, so the body must clear that face by its own half-depth as well as
+    # the margin, or it would overlap the wall it is measured from.
+    if police.north_offset_m < police.minimum_clearance_m + police.body_size_xyz_m[1] / 2.0:
+        raise ValueError("P's north offset would put its body inside the north wall")
+
+    # The stub narrows the street A drives down, so it has to leave a lane A
+    # fits through. A lane thinner than the robot plus the trajectory margin
+    # would fail validate_trajectory later with a message about the *route*,
+    # which sends a reader looking in the wrong file.
+    street = scenario.next_street
+    stub = street.east_wall_stub
+    if not 0.0 < stub.depth_fraction < 1.0:
+        raise ValueError("the east-wall stub must occupy part of the street, not none or all")
+    if stub.length_m <= 0.0 or stub.gap_north_of_b_m <= 0.0:
+        raise ValueError("the east-wall stub needs a positive length and gap north of B")
+    lane_width = street.clear_width_m * (1.0 - stub.depth_fraction)
+    if lane_width <= 2.0 * street.turn_radius_m - street.clear_width_m:
+        raise ValueError(
+            f"the east-wall stub leaves a {lane_width:.3f} m lane, too narrow for the "
+            f"{street.turn_radius_m} m turn radius"
+        )
+    if not 0.0 < street.b_lateral_fraction < 1.0:
+        raise ValueError("B's lateral fraction must place it inside the street")
 
     # Occlusion needs buildings taller than both the observing camera and the
     # body being hidden behind them.

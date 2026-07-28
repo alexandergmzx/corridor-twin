@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Design version | 0.7.1 |
+| Design version | 0.8.1 |
 | Status | Corner enforcement coverage restored with reference fiducials; static renderer claim still invalidated pending requalification |
-| Last updated | 2026-07-27 |
+| Last updated | 2026-07-28 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
 | Target ROS | ROS 2 Jazzy |
 | Target host | Linux Mint 22 demo host / Ubuntu 24.04 supported fallback |
@@ -96,14 +96,68 @@ text, and widths labelled only as the symbols `m` and `n`. Its topology is
 authoritative; its pixel lengths are not. See
 [ADR 0010](adr/0010-supplied-diagram-geometry.md).
 
+| Field | Value |
+|---|---|
+| File | `docs/ROBO_TASK.pdf`, 1 page, A4 595.32 x 841.92 pt |
+| sha256 | `7e00d431a39b0a7a73a48fb810444d370ce735aec21e79b3ac494a71615937a4` |
+
+`test_source_document.py` pins that digest. If the supplied task is ever
+revised, the pin fails rather than letting the claims below quietly detach from
+the file they describe.
+
+#### The source, in full
+
+> Lets simulate an imaginary scenario where a robot (A) is delivering a packet
+> autonomously to a person(B) located on the next street. There are traffic
+> police (P) who is looking for speed violation at the corner using the data from
+> the robot camera as the road is narrower there. The robot cannot see the
+> traffic police, but the police can read the data from the robot.
+
+Those four sentences and one unscaled figure are the entire specification.
+
+"The robot **cannot see** the traffic police" binds *A-camera visibility* — the
+gate `scene.occlusion` proves. The additional rule that A's software consumes
+nothing about P is repo-added and additive; it is not in the source and never
+substitutes for the gate. See [ADR 0011](adr/0011-visibility-semantics.md).
+
+#### Three categories, not two
+
 | From the source | A project choice |
 |---|---|
 | `m >= n`, narrowing toward the corner | Corridor length, 12.0 m |
-| One straight face, one tapering face | Next-street width 6.0 m, length 10.0 m |
-| A perpendicular next street with real walls | Turn radius 2.0 m |
-| B along that street, P at its corner | B at 8.0 m along the street |
+| One straight face, one tapering face, carrying one continuous slope | Next-street width 6.0 m, length 10.0 m |
+| A perpendicular next street with real walls, opening off the **tapering** face, so A turns right | Turn radius 2.0 m |
+| B along that street; P at its **east** corner | B at 8.0 m along the street |
 
-The config and the manifest publish this as
+The category the table above has never had room for is what the drawing shows
+and the scene deliberately does **not** follow:
+
+| Drawn | Authored | Why |
+|---|---|---|
+| P's label sits in the open street channel | P stands behind the street's east wall | The drawing fixes P's *side*; the written requirement fixes the standoff. [ADR 0017](adr/0017-relocate-p-to-diagram-east-corner.md) |
+| `m : n` of roughly 3 : 1 | 2 : 1 on the nominal profile | A ratio is metric scale, which ADR 0010 already governs. See below |
+| An east-wall stub beside B | **Modelled** since [ADR 0018](adr/0018-model-the-east-wall-stub.md) | Depth transfers as 0.4637 of the street width; B stands in the pocket behind it, which is why the route has a delivery turn |
+
+The measured drawing, the annotated figure, and the reproduction script are in
+[`evidence/source-diagram/`](evidence/source-diagram/NOTES.md). The drawn
+proportions are recorded there as dimensionless observations and are **not**
+adopted: ADR 0010 explicitly rejected scaling the figure by pixel ratios, and
+`n = 3.0` is load-bearing for the 4.0 m strict zone, the reference-plate
+geometry, and every live result measured on it. That evidence quantifies the
+drawing; it does not contradict it.
+
+#### What the source does not contain
+
+No numeric value or unit of any kind appears anywhere in the task. In
+particular there is no scale bar, north arrow, or coordinate frame; no speed
+limit or threshold; no fiducials or any means of measurement; no sensor
+specification beyond the word "camera", and so no resolution, rate, message,
+topic, or middleware; no route or turn geometry; no wall height, thickness,
+material, or lighting; and no straight-then-taper split, the drawn slope being
+continuous. Every one of those is a project choice, recorded as such here and in
+the ADRs.
+
+The config and the manifest publish the distinction as
 `topology: reconciled_with_supplied_diagram` and
 `metric_scale: demo_assumption`.
 
@@ -134,8 +188,12 @@ continuously. A polyline with one heading per segment can hide a visibility
 window that a real rotating camera sweeps through, so the visibility gate
 consumes this trajectory and bounds whole intervals of the turn.
 
-For the nominal profile: 12.851 m approach at 7.13°, a 2.0 m-radius arc
-sweeping 97.13°, then a 7.609 m departure — 23.851 m in total.
+For the nominal profile, five pieces: an 11.449 m approach at 7.13°, a 2.0 m
+-radius arc sweeping 97.13° into the street, a 5.436 m run down the lane the
+east-wall stub leaves clear, a left-handed 2.0 m-radius delivery arc sweeping
+90°, and a 1.184 m run east to B in the pocket behind the stub — 24.601 m in
+total. Yaw is therefore *not* monotonic over the route; see
+[ADR 0018](adr/0018-model-the-east-wall-stub.md).
 
 ## Corridor variants
 
@@ -197,8 +255,9 @@ Stable prim paths:
       /NextStreetSurface
       /NorthBuilding                    <- straight face
       /SouthBuilding                    <- tapering face
-      /CornerBuilding                   <- corner mass; hides P
-      /EastBuilding                     <- next street's far kerb
+      /CornerBuilding                   <- corner mass
+      /EastBuilding                     <- next street's far kerb; hides P
+      /EastWallStub                     <- the drawn block B stands behind
       /Fiducials
   /Actors
     /A
@@ -273,13 +332,13 @@ camera model while moving it along a known station function. Truth is published
 on a test-only topic for the evaluator. A source contract test proves that the
 observer adapter contains no truth or odometry subscription.
 
-> **Provisional figures.** The numbers in this section were observed directly,
-> but they exist only as prose and as broad test bounds — there is no committed
-> command or machine-readable result behind them, so a reader cannot reproduce
-> them without rebuilding the run by hand. A deterministic reporter and a
-> curated `docs/evidence/synthetic-observer/` summary are planned *after* the
-> reference-fiducial geometry lands, because restoring gates 8.0 and 10.0 will
-> move these values again. Treat them as indicative until then.
+> **Superseded.** These figures were measured by hand on a 0.4 m station grid,
+> a schedule the system never runs. At the real 15 Hz cadence the same code
+> reports worse maxima, because a denser sample finds worse frames: 0.0391 m
+> became 0.0705 m on the nominal profile. `tools/synthetic_observer_report.py`
+> (`82417a8`) now emits these figures on a **declared** schedule with full
+> provenance, and a test pins that a rerun reproduces them. Take any number
+> below as historical; the reporter's artifact is the current source.
 
 The implemented clean synthetic test uses actual ArUco pixels, camera intrinsics,
 detection, PnP, gate interpolation, and the violation debounce. Re-measured after
@@ -360,11 +419,16 @@ invalidated name and **no canonical static qualification exists** until a fresh
 paired run passes on the corrected geometry. See
 [static fiducial evidence](evidence/static-fiducials/NOTES.md).
 
-Two limits also apply to what that run can support. It sampled only
-`0.5 … 7.0 m`, so it says nothing about the corner; and past camera x ≈ 7.5 the
-wall markers leave the 75° frustum entirely, which is why gates 8.0 and 10.0
-currently produce no estimate and the 0.8 m/s corner rule cannot be exercised
-from camera evidence.
+One limit still applies to what that run can support: it sampled only
+`0.5 … 7.0 m`, so it says nothing about the corner.
+
+The frustum limit it exposed is closed. Past camera x ≈ 7.5 the corridor wall
+markers do leave the 75° frustum — that is geometry, not resolution — so
+height-staggered reference plates on the north-wall extension and the east
+building face now carry the pose through the strict zone. Gates 8.0 and 10.0
+both produced measurements in the live run, and the 0.8 m/s corner rule fired
+exactly one violation. See [ADR 0015](adr/0015-reference-fiducials-for-corner-coverage.md)
+and the [live evidence](evidence/live-demo/NOTES.md).
 
 ## Occlusion verification
 
@@ -417,11 +481,18 @@ collision schema so that renaming or adding a building cannot silently shrink
 the audit. A negative test moves P into the clear corridor and must fail.
 
 Current result for the nominal profile: `passed`, line of sight blocked over the
-whole route, 78 certified interval/sub-volume pairs, 204 audit rays with 0
-failures, nearest blocking surface 3.116 m. 76 of the 78 are blocked by
-`SouthBuilding` and 2 by `CornerBuilding`; 50 use constant-X witnesses and 28
-use constant-Y witnesses. The certificate records `witness_axis` separately
-from `witness_coordinate_m`.
+whole route, 5 covered intervals, 404 audit rays with 0 failures, nearest
+blocking surface 5.366 m. All five are blocked by `EastBuilding` and all five
+use constant-X witnesses. The certificate records `witness_axis` separately from
+`witness_coordinate_m`.
+
+Before ADR 0017 the figures were 78 interval/sub-volume pairs, 204 rays and
+3.116 m, split 76/2 between `SouthBuilding` and `CornerBuilding` with 50
+constant-X and 28 constant-Y witnesses. P behind the corner mass drew level with
+A, so no single plane separated them and the general machinery was required.
+With P east of the junction one plane does, which is why the count collapsed —
+the proof got simpler, not weaker. `test_a_crosswise_witness_is_still_required`
+keeps the constant-Y solver covered against the superseded placement.
 
 ## ROS time model
 
@@ -584,8 +655,8 @@ Phase 1 packages. The version-specific tools are isolated in
 | Demo GPU is qualified | 5070 Ti checker component results, headless/GUI smoke, and measured VRAM snapshots |
 | Live camera contract is correct | External ROS probe of paired stamps, frames, dimensions, encoding, calibration, QoS, rate, clocks, and publisher cardinality |
 | Rendered fiducials are measurable | Five static Isaac dwells over `0.5 … 7.0 m` pass station, reprojection, corner-order, calibration, and rate gates; the mirrored actual capture fails. Historical: that run's renderer mode was not measured |
-| The active render mode is ray-traced | **Not currently evidenced.** The readback exists since `5bc1c99` but has not yet produced a committed paired run |
-| Every surveyed gate is measurable | **False today.** Gates 8.0 and 10.0 fall outside the frustum, so the 0.8 m/s corner rule cannot be exercised from camera evidence |
+| The active render mode is ray-traced | Evidenced for the live run, not for a paired dwell capture. `ISAAC_ROS_CAMERA_RENDER_READY` reported `RaytracedLighting` on both `/rtx` and `/rtx-defaults` with AA enum 3. A paired **static** requalification is still outstanding |
+| Every surveyed gate is measurable | True for the gates that can carry a speed. All four produced measurements from live Isaac pixels; gate 2.0 is the first crossing and a speed needs two |
 | GPU constraints are explicit | One camera, 640×360, real-time rendering, no path tracing, and a 14 GB soft ceiling |
 
 ## Risks and mitigations
@@ -613,6 +684,11 @@ Phase 1 packages. The version-specific tools are isolated in
 
 ## Version history
 
+- **0.8.1 — 2026-07-28:** Recorded what the supplied source actually states.
+  Quoted its four sentences verbatim, pinned the PDF by digest, measured the
+  drawing at 300 dpi, and separated what it fixes from what the scene
+  deliberately does not follow. Documentation and one pin test only; no
+  interface, geometry, or decision changed.
 - **0.6.0 — 2026-07-27:** Qualified the production Isaac/ROS pixels at five
   static approach dwells. Increased the surveyed code to 0.40 m, added physical
   white quiet-zone plates, and solved canted bracket standoff against the real
@@ -621,7 +697,7 @@ Phase 1 packages. The version-specific tools are isolated in
   error, and a passing mirror negative control.
 - **0.5.0 — 2026-07-27:** Reconciled the scene with the supplied
   [`ROBO_TASK.pdf`](ROBO_TASK.pdf): one-sided taper, authored next street and
-  corner mass, P derived from the occluding faces, and a continuous line-arc-line
+  corner mass, P derived from the occluding faces, and a continuous five-piece
   delivery trajectory. Strengthened the visibility gate to cover P's full volume
   across a swept yaw range and to report wall occlusion separately from frustum
   exclusion. Corrected an 0.8% speed under-report caused by measuring station

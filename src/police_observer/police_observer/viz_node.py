@@ -13,10 +13,11 @@ corridor is watching camera-derived localisation, which is the claim being
 demonstrated. Drawing simulator truth here would make the display prettier and
 the demonstration meaningless.
 
-The blocking geometry is drawn from the manifest's own occluder list -- the
-same south wall and corner mass the occlusion certificate reasons about -- so
-what the viewer sees hiding P is what the proof is about, not a second
-hand-drawn approximation of it.
+The scene is drawn from the manifest's own wall set, so what a viewer sees is
+what the street contains, not a second hand-drawn approximation of it. The walls
+the occlusion certificate uses as witnesses are emphasised, so the concealment
+story is still legible -- but a wall the proof never references is still drawn,
+because it is still there. See ADR 0018.
 """
 
 from __future__ import annotations
@@ -45,6 +46,9 @@ LATCHED_QOS = QoSProfile(
 COMPLIANT = ColorRGBA(r=0.25, g=0.85, b=0.35, a=1.0)
 VIOLATING = ColorRGBA(r=0.95, g=0.20, b=0.20, a=1.0)
 WALL = ColorRGBA(r=0.55, g=0.57, b=0.62, a=1.0)
+# Opaque, but never between A and P: drawn so the scene is legible without
+# implying the certificate uses it as a witness.
+SCENERY = ColorRGBA(r=0.38, g=0.40, b=0.44, a=1.0)
 ROUTE = ColorRGBA(r=0.30, g=0.60, b=1.00, a=0.9)
 GATE = ColorRGBA(r=1.00, g=0.80, b=0.10, a=1.0)
 REFERENCE = ColorRGBA(r=0.70, g=0.45, b=0.95, a=1.0)
@@ -136,24 +140,42 @@ class EnforcementViewNode(Node):
         marker.pose.orientation.w = 1.0
         return marker
 
-    def _occluder_markers(self) -> list[Marker]:
-        """Outline the surfaces that actually hide P, from the manifest."""
+    def _wall_names_that_hide_p(self) -> set[str]:
+        """Return the walls the occlusion proof actually reasons about."""
 
+        return {
+            str(slab["prim_path"]).rsplit("/", maxsplit=1)[-1]
+            for slab in self.profile["occluders"]
+        }
+
+    def _occluder_markers(self) -> list[Marker]:
+        """Outline every wall, distinguishing the ones that hide P.
+
+        This used to draw the manifest's occluder list, on the argument that
+        what a viewer sees hiding P should be what the proof is about. That
+        argument holds for P's concealment and stopped being sufficient the
+        moment a wall existed that the proof does not reference: the east-wall
+        stub is solid, A turns in behind it to reach B, and it was invisible
+        here because it can never lie between A and P. A viewer watching the
+        robot drive around a wall that is not drawn is being misled by a display
+        that was only ever a map of the proof.
+
+        The scene is now drawn from the manifest's `walls`, which is every
+        opaque footprint. Walls the certificate uses as witnesses keep the
+        emphasis, so the concealment story survives without the display
+        pretending the other walls are absent.
+        """
+
+        blocking = self._wall_names_that_hide_p()
         markers = []
-        for index, occluder in enumerate(self.profile["occluders"]):
+        for index, (name, footprint) in enumerate(sorted(self.profile["walls"].items())):
             marker = self._marker("occluders", index, Marker.LINE_STRIP)
-            marker.scale.x = 0.08
-            marker.color = WALL
-            x_min = float(occluder["x_min"])
-            x_max = float(occluder["x_max"])
-            corners = [
-                (x_min, occluder["y_low_intercept"] + occluder["y_low_slope"] * x_min),
-                (x_max, occluder["y_low_intercept"] + occluder["y_low_slope"] * x_max),
-                (x_max, occluder["y_high_intercept"] + occluder["y_high_slope"] * x_max),
-                (x_min, occluder["y_high_intercept"] + occluder["y_high_slope"] * x_min),
-            ]
-            marker.points = [_point(x, y, 0.02) for x, y in corners]
-            marker.points.append(marker.points[0])
+            hides_p = name in blocking
+            marker.scale.x = 0.08 if hides_p else 0.05
+            marker.color = WALL if hides_p else SCENERY
+            marker.points = [_point(x, y, 0.02) for x, y in footprint]
+            if marker.points:
+                marker.points.append(marker.points[0])
             markers.append(marker)
         return markers
 
@@ -241,7 +263,20 @@ class EnforcementViewNode(Node):
         estimate = self.latest_estimate
         if estimate is None or not estimate.valid:
             return None
-        pose = self.trajectory.pose_at(self.trajectory.approach_s_at_x(estimate.station_m))
+        # approach_s_at_x raises outside the approach leg. Today a
+        # SpeedMeasurement always carries a surveyed gate station, so this
+        # cannot fire -- but this runs inside a subscription callback, and one
+        # refactor that published a raw observation station would take the whole
+        # display down. Drop the marker and say so instead.
+        try:
+            route_s_m = self.trajectory.approach_s_at_x(estimate.station_m)
+        except ValueError:
+            self.get_logger().warning(
+                f"station {estimate.station_m:.3f} m is off the approach; "
+                "not drawing the robot marker for this estimate"
+            )
+            return None
+        pose = self.trajectory.pose_at(route_s_m)
         marker = self._marker("robot", 0, Marker.SPHERE)
         marker.scale.x = marker.scale.y = marker.scale.z = 0.5
         marker.pose.position = _point(pose.x_m, pose.y_m, 0.35)
