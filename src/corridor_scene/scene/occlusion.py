@@ -36,6 +36,16 @@ Vec3 = tuple[float, float, float]
 
 MAX_DEPTH = 18
 
+# A genuinely visible (or genuinely in-frustum-but-unresolved) region can never
+# be resolved by subdividing further -- no witness or exclusion appears no
+# matter how small the pieces get, so the search would otherwise run every
+# such region to MAX_DEPTH. At binary branching that is up to 2**18 leaf calls
+# per region; measured against the visible negative control this took 40.7 s
+# and 327,719 coverage entries. A genuine scene resolves in a handful of calls
+# (the default profile needs zero subdivision at all), so this budget is slack
+# for real geometry and a hard backstop for a region with nothing to find.
+DEFAULT_CALL_BUDGET = 4096
+
 
 @dataclass(frozen=True)
 class Coverage:
@@ -446,12 +456,24 @@ def continuous_certificate(
     slabs: tuple[Occluder, ...],
     horizontal_fov_deg: float,
     profile_name: str,
+    call_budget: int = DEFAULT_CALL_BUDGET,
 ) -> Certificate:
-    """Cover every trajectory interval using conservative enclosures."""
+    """Cover every trajectory interval using conservative enclosures.
+
+    ``call_budget`` bounds the total number of ``cover`` invocations across the
+    whole search, not just the depth of any one branch. A region that is
+    genuinely visible (or genuinely unresolved) never gains a witness or a
+    frustum exclusion no matter how far it is subdivided, so without a total
+    budget every such region would recurse to ``MAX_DEPTH`` on its own -- up to
+    ``2**MAX_DEPTH`` leaves for that region alone. Exhausting the budget is
+    treated the same as reaching maximum depth: conservatively unresolved, so
+    it counts as visible rather than silently passing.
+    """
 
     tan_half = math.tan(math.radians(horizontal_fov_deg) / 2.0)
     coverage: list[Coverage] = []
     visible: list[tuple[str, float, float]] = []
+    calls = 0
 
     def cover(
         kind: str,
@@ -461,6 +483,8 @@ def continuous_certificate(
         target_max: Vec3,
         depth: int,
     ) -> None:
+        nonlocal calls
+        calls += 1
         sources = _camera_source_vertices(trajectory, kind, start_s, end_s)
         yaw_min, yaw_max = trajectory.yaw_range(start_s, end_s)
         targets = _target_vertices(target_min, target_max)
@@ -487,11 +511,17 @@ def continuous_certificate(
         # Pursue the wall witness even when P is already off-screen. Frustum
         # exclusion alone would satisfy the written requirement, but the
         # stronger reciprocal claim is what makes the scene explainable, so
-        # settling for off-screen is a last resort rather than a shortcut.
+        # settling for off-screen is a last resort rather than a shortcut:
+        # frustum exclusion is only *acted on* once subdivision stops, exactly
+        # as before. Stopping on it early once seemed like a safe speedup and
+        # was not: it let a region that a little more subdivision would have
+        # found a wall witness for settle for the weaker frustum-only answer
+        # instead, which fails the stronger bar this certificate holds the
+        # default scene to. The call budget below is the actual fix.
         if wall is not None:
             record(wall)
             return
-        if depth >= MAX_DEPTH:
+        if depth >= MAX_DEPTH or calls >= call_budget:
             if frustum:
                 record(None)
             else:

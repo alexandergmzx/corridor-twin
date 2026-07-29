@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from pathlib import Path
 
 import numpy as np
@@ -569,6 +570,37 @@ def test_visible_negative_control_fails(generated: tuple[Path, Path], tmp_path: 
     assert not result.line_of_sight_blocked_everywhere
     # The independent composed-mesh audit must agree, not just the analytic proof.
     assert result.usd_audit_failures > 0
+
+
+def test_a_genuinely_visible_placement_fails_promptly(generated: tuple[Path, Path]) -> None:
+    """A6-M1: a real visible/unresolved region must not exhaust the recursion budget.
+
+    Unlike the two substitution tests above, this drives the analytic
+    certificate directly with a stage-and-manifest-*consistent* placement --
+    there is no divergence to reject, so this exercises the actual recursive
+    search on a target that is genuinely, unresolvably visible. Before the
+    call budget was added this took 40.7 s and produced 327,719 coverage
+    entries for one profile; it must now resolve well under a second.
+    """
+
+    _, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selected = manifest["selected_profile"]
+    block = manifest["profiles"][selected]
+    trajectory = trajectory_from_manifest(block["delivery_trajectory"])
+    slabs = tuple(Occluder(**slab) for slab in block["occluders"])
+    fov = float(manifest["camera"]["horizontal_fov_deg"])
+
+    start = time.monotonic()
+    result = continuous_certificate(
+        trajectory, (7.8, -0.3, 0.0), (8.4, 0.3, 1.8), slabs, fov, selected
+    )
+    elapsed_s = time.monotonic() - start
+
+    assert elapsed_s < 5.0, f"a visible negative control must terminate promptly, took {elapsed_s}s"
+    assert not result.passed
+    assert result.camera_visible_intervals
+    assert not result.line_of_sight_blocked_everywhere
 
 
 def test_removing_the_east_wall_fails_the_certificate(
