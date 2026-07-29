@@ -80,15 +80,18 @@ Claude is currently the implementation/planning agent. Codex independently
 reviews completed milestone commits. Claude should not repeatedly restart the
 independent audit unless the user explicitly assigns that role.
 
-Steps 1–5 of the original sequence are done: correctness defects closed,
-camera-derived enforcement coverage restored at the corner, deterministic
-motion implemented, and the live observer and visualization connected and
-measured. The remaining sequence is:
+Steps 1–5 of the original sequence produced an end-to-end demonstration. A new
+independent audit on 2026-07-29 found that P is on the opposite side of the east
+wall from the supplied drawing and that the occlusion verifier is not bound to
+the P actor in the composed USD. Release work and GPU requalification are paused.
+The active sequence is defined by
+[`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md):
 
-1. requalify the static geometry on the GPU with a fresh paired capture;
-2. characterise the pose-to-render latency;
-3. close R17 and extend the live qualification to the other profiles;
-4. rehearse and harden the interview demonstration.
+1. bind and bound the visibility verifier, with substitution regressions;
+2. supersede ADR 0017 and author a source-faithful, visibly defensible P layout;
+3. correct observer/display and calibration contract drift;
+4. reconcile stale status and release documentation; and
+5. obtain fresh GPU evidence only after independent review of the correction.
 
 ## Architectural invariants
 
@@ -151,7 +154,14 @@ bash tools/check_workspace.sh   # ruff, pytest, colcon build, colcon test
 unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 `scene.occlusion` does take `--profile`, meaning the corridor profile.
 
-## Current handoff: the demonstration runs; requalify the static gate next
+## Active handoff: correct police placement before requalification
+
+The operative checklist is
+[`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md).
+It overrides the historical milestone narrative below wherever they conflict.
+Do not requalify or release the current geometry as source-faithful.
+
+## Historical handoff: end-to-end demonstration milestone
 
 Read [`docs/REVIEW-LOG.md`](docs/REVIEW-LOG.md) first. It records every finding
 raised so far and how each was dispositioned, including the ones deliberately

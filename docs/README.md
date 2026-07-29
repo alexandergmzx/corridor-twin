@@ -6,11 +6,11 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.4.2 |
-| Last updated | 2026-07-28 |
+| Map version | 1.5.0 |
+| Last updated | 2026-07-29 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | Live camera-only demonstration working end to end; static renderer claim still invalidated, so no canonical static qualification exists |
-| Next milestone | Paired static requalification, then pose-to-render latency |
+| Current milestone | Audit correction: P is on the wrong side of the east wall and the occlusion proof is not bound to the composed USD actor |
+| Next milestone | Correct and independently review police geometry and visibility proof before any GPU requalification |
 
 ## Read the documentation in this order
 
@@ -18,6 +18,7 @@ increments without requiring a reader to reconstruct status from commit history.
 |---|---|---:|
 | The scenario as supplied | [Source task and diagram](ROBO_TASK.pdf) | 2 minutes |
 | What exists and what comes next | This page | 3 minutes |
+| What must be corrected before requalification | [Active implementation handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) | 8 minutes |
 | What earlier reviews found, and how each was dispositioned | [Review log](REVIEW-LOG.md) | 6 minutes |
 | Why the system is divided this way | [System design](DESIGN.md) | 8 minutes |
 | Exactly what P may consume | [Sensor-feed contract](SENSOR-FEED.md) | 6 minutes |

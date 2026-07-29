@@ -15,6 +15,8 @@ the waste this file exists to prevent.
 | 2 | Code | `b5194bf`, `55eb69e`, `dbcf57e` |
 | 3 | Closing the deferred findings | `a101b28`, `82b490d` |
 | 4 | Independent review of rounds 1–3 | `f2e2504`, `be4694f`, `1099245`, `64220a7`, `ade033e`, `7a5980a` |
+| 5 | Manifest consumers missed newly authored walls | `3bf0995` |
+| 6 | Police placement and certificate integrity | **Open** — [implementation handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) |
 
 ---
 
@@ -319,3 +321,19 @@ measured artifact, and the third time the durable fix was a test that reads the
 artifact rather than more careful editing. **Extending that test to the
 certificates is the open follow-up**, and it is the only thing that would have
 caught this.
+
+---
+
+## Round 6 — police placement and certificate integrity
+
+The owner identified that P is on the wrong side of the wall relative to the
+source drawing. Independent review confirmed that the measured source puts P
+inside/west of the east wall while the scene authors it outside/east. The same
+review found that the visibility command can pass after the actual USD P is
+moved into view because it continues aiming its rays at manifest bounds.
+
+These and the related verifier-runtime, observer/UI, calibration, documentation
+and validation findings remain open. The evidence, required regressions,
+execution order and handback contract are recorded in the
+[active implementation handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md).
+Do not record a disposition here until its behavior and regression are committed.
