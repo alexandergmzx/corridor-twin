@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from police_observer.estimator import ArucoStationEstimator, MarkerMap
 from police_observer.synthetic import SyntheticCamera
-from pxr import Usd, UsdGeom, UsdPhysics
+from pxr import Gf, Usd, UsdGeom, UsdPhysics
 from scene.build import build_scene
 from scene.geometry import (
     MARKER_BACKING_OFFSET_M,
@@ -552,24 +552,77 @@ def test_certificate_names_the_blocking_prim(generated: tuple[Path, Path]) -> No
     assert {f"/World/Environment/Corridor/{name}" for name in BUILDINGS} <= audited
 
 
-def test_visible_negative_control_fails(generated: tuple[Path, Path], tmp_path: Path) -> None:
-    """Prove the checker can still fail, so a pass means something."""
+def test_manifest_only_police_substitution_is_rejected(
+    generated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """A6-H2: a manifest-only mutation must not pass silently.
+
+    ``verify()`` used to take P's bounds straight from the manifest and never
+    checked them against ``/World/Actors/P`` in the composed stage, so editing
+    only the manifest's numbers -- without touching the USD it claims to
+    describe -- produced a certificate computed against numbers the scene
+    disagrees with. Binding the verifier to the stage turns any such
+    divergence into a rejection instead of a proof about the wrong P.
+    """
 
     stage_path, manifest_path = generated
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     selected = manifest["selected_profile"]
-    # Stand P in the clear corridor directly ahead of A.
+    # Stand P in the clear corridor directly ahead of A -- in the manifest
+    # only. The composed stage still authors the real, hidden P.
     manifest["profiles"][selected]["police_bounds_min_xyz_m"] = [7.8, -0.3, 0.0]
     manifest["profiles"][selected]["police_bounds_max_xyz_m"] = [8.4, 0.3, 1.8]
-    broken = tmp_path / "visible.manifest.json"
+    broken = tmp_path / "manifest_only_p_moved.manifest.json"
     broken.write_text(json.dumps(manifest), encoding="utf-8")
 
-    result = verify(stage_path, broken, selected)
-    assert not result.passed
-    assert result.camera_visible_intervals
-    assert not result.line_of_sight_blocked_everywhere
-    # The independent composed-mesh audit must agree, not just the analytic proof.
-    assert result.usd_audit_failures > 0
+    with pytest.raises(ValueError, match="diverged"):
+        verify(stage_path, broken, selected)
+
+    # The unmutated pair must still certify, so the rejection above is
+    # attributable to the substitution rather than to a broken verifier.
+    assert verify(stage_path, manifest_path, selected).passed
+
+
+def test_stage_only_police_substitution_is_rejected(
+    generated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """A6-H2: moving only the composed USD's P prim must not pass silently.
+
+    This is the exact substitution the audit named: before binding the
+    verifier to the stage, ``verify()`` never read ``/World/Actors/P`` at all,
+    so translating it in the USD into an open, camera-visible spot changed
+    nothing about the certificate -- the analytic proof still ran on the
+    untouched manifest bounds and passed (confirmed by running this same
+    mutation through the pre-fix verifier, which reported ``passed=True``).
+    The stage here is copied to a fresh layer identifier before mutation, so
+    the shared ``generated`` stage the other assertion below re-opens is never
+    touched.
+    """
+
+    stage_path, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selected = manifest["selected_profile"]
+
+    original = Usd.Stage.Open(str(stage_path))
+    mutated_path = tmp_path / "stage_only_p_moved.usda"
+    original.GetRootLayer().Export(str(mutated_path))
+
+    mutated = Usd.Stage.Open(str(mutated_path))
+    _variants(mutated).SetVariantSelection(selected)
+    xform = UsdGeom.Xformable(mutated.GetPrimAtPath("/World/Actors/P"))
+    translate_op = next(
+        op for op in xform.GetOrderedXformOps() if op.GetOpType() == UsdGeom.XformOp.TypeTranslate
+    )
+    # Same open-corridor spot the old manifest-only control used, this time
+    # authored directly on the USD prim instead of in the manifest.
+    translate_op.Set(Gf.Vec3d(8.1, 0.0, 0.9))
+    mutated.GetRootLayer().Save()
+
+    with pytest.raises(ValueError, match="diverged"):
+        verify(mutated_path, manifest_path, selected)
+
+    # The original stage, untouched, still certifies against its own manifest.
+    assert verify(stage_path, manifest_path, selected).passed
 
 
 def test_a_genuinely_visible_placement_fails_promptly(generated: tuple[Path, Path]) -> None:
