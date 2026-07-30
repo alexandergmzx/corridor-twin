@@ -1,5 +1,15 @@
 # Hardware and Isaac activation record
 
+> **Every GPU/VRAM figure below predates the 2026-07-29 police-placement
+> correction (ADR 0019).** The scene changed shape again: P moved to the near
+> side of the east wall and a new `CornerScreen` prim was added. None of the
+> measurements below were retaken against that geometry, and per the
+> [active handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) fresh GPU
+> evidence is deliberately deferred until independent review of the portable
+> correction closes. Treat everything in this file as historical until a new,
+> explicitly-dated re-qualification section is added the same way the
+> 2026-07-27 reconciliation entry below was.
+
 | Field | Value |
 |---|---|
 | Initial record date | 2026-07-26 |

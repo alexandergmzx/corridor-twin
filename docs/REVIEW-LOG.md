@@ -16,7 +16,7 @@ the waste this file exists to prevent.
 | 3 | Closing the deferred findings | `a101b28`, `82b490d` |
 | 4 | Independent review of rounds 1–3 | `f2e2504`, `be4694f`, `1099245`, `64220a7`, `ade033e`, `7a5980a` |
 | 5 | Manifest consumers missed newly authored walls | `3bf0995` |
-| 6 | Police placement and certificate integrity | **Open** — [implementation handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) |
+| 6 | Police placement and certificate integrity | Implemented, **pending independent review** — [implementation handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) |
 
 ---
 
@@ -333,7 +333,26 @@ review found that the visibility command can pass after the actual USD P is
 moved into view because it continues aiming its rays at manifest bounds.
 
 These and the related verifier-runtime, observer/UI, calibration, documentation
-and validation findings remain open. The evidence, required regressions,
-execution order and handback contract are recorded in the
+and validation findings are implemented on `audit/police-placement-2026-07-29`,
+pending the independent review this round's own handback requests before any
+GPU requalification. The evidence, required regressions, execution order and
+handback contract are recorded in the
 [active implementation handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md).
+
+| ID | Sev | Finding | Disposition |
+|---|---|---|---|
+| A6-H1 | High | P authored east of the east wall, opposite the measured source | Fixed. P moved to the wall's inner face; `test_p_stands_on_the_source_drawing_side_of_the_east_wall` derives the regression from the measured source pixels, independent of the placement code. [ADR 0019](adr/0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md) `f28d321` |
+| A6-H2 | High | `verify()` took P's bounds from the manifest and never checked them against the composed stage | Fixed `1f8a08f`. Reproduced first: the pre-fix verifier reported `passed=True` for a stage-only P translation into an open, camera-visible spot, confirmed by running that exact mutation against the old code. `stage_police_bounds()`/`stage_camera_facts()` bind the proof to the stage; `test_stage_only_police_substitution_is_rejected` and `test_manifest_only_police_substitution_is_rejected` cover both directions |
+| A6-M1 | Med | An in-channel/visible P drove recursive certification into pathological subdivision | Fixed `6c638f1`. Measured before the fix: 40.7 s and 327,719 coverage entries for one profile's negative control. A total `call_budget` across the whole search (not just per-branch depth) bounds it; the same control now resolves in a fraction of a second. `test_a_genuinely_visible_placement_fails_promptly` pins the timing budget |
+| A6-M2 | Med | RViz cleared a violation on raw speed while the detector rearmed on the conservative speed | Fixed `d99c18d`. `conservative_speed_mps()`/`is_conservatively_compliant()` in `estimator.py` are the one place this is computed; both the detector and the display call through them. `test_a_boundary_measurement_rearms_the_display_like_the_detector` drives a measurement that is raw-over-limit but conservatively compliant |
+| A6-M3 | Med | The sensor contract said a changed CameraInfo resets the estimator; nothing detected the change | Fixed `22589e4`. `calibration_materially_changed()` compares K, D, dimensions, distortion model, and frame; `Calibration` carries no timestamp so a stamp-only change cannot trigger it. `test_a_distortion_model_change_resets_the_observation_window` keeps K/D numerically identical to isolate the reset from PnP accuracy |
+| A6-M4 | Med | `CLAUDE.md`, the documentation map, and release document carried stale/conflicting state | Fixed. `docs/README.md`'s status header and capability matrix, `docs/DESIGN.md`'s prim tree and measured-figures section, and `docs/RELEASE-v1.0-interview.md`/`docs/ACTIVATION.md` (marked paused/pending-refresh rather than rewritten, since neither can be re-measured without a GPU) all updated in the documentation commits on this branch |
+| A6-L1 | Low | Lane-width and finite-dimension validation failed late or with misleading errors | Fixed `75f0581`. Reproduced first: a NaN `corridor_length_m` built cleanly through `load_scenario()` and only failed inside `validate_layout()` with an unrelated "B does not stand in the next street" message. `_require_finite()` checks every numeric scenario field before any sign/range check; `resolve_profiles()` gets the equivalent guard for `--m`/`--n` |
+
+A6-M2 and A6-M3's regressions (`test_a_boundary_measurement_rearms_the_display_like_the_detector`,
+`test_a_distortion_model_change_resets_the_observation_window`,
+`test_a_timestamp_only_change_does_not_reset`) need the colcon-generated
+`corridor_interfaces` package and are skipped under a bare `pytest` run, the
+same way the rest of `test_enforcement_view.py` always has been; run
+`colcon test` to execute them.
 Do not record a disposition here until its behavior and regression are committed.

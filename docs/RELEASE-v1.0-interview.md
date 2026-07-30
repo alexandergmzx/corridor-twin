@@ -1,5 +1,17 @@
 # Release plan: `v1.0-interview`
 
+> **Paused.** A 2026-07-29 independent audit found P placed on the wrong side
+> of the next street's east wall and the occlusion verifier not bound to the
+> composed USD. Both are corrected on `audit/police-placement-2026-07-29`
+> (ADR 0019), but every geometry-derived figure in this plan — the occlusion
+> certificate counts and nearest-blocking distances in section 5's measured
+> table, and every GPU/VRAM figure implicitly carried forward from
+> `ACTIVATION.md` — describes the *pre-correction* geometry and must not be
+> published. Do not execute this plan, tag a release, or requalify on GPU
+> until the [active handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md)'s
+> independent review closes and this plan's measured figures are re-taken on
+> the corrected geometry. See `CLAUDE.md`'s "Active handoff" section.
+
 A plan, not a release. Nothing here has been published. Every decision is taken
 and recorded in section 1, D10 superseding D1; what remains is execution.
 
