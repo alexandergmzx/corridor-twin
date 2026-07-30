@@ -21,8 +21,9 @@ supersedes the old record.
 | [0014](0014-violation-episode-semantics.md) | Accepted | Emit one violation per continuous speeding episode |
 | [0015](0015-reference-fiducials-for-corner-coverage.md) | Accepted | Restore corner enforcement coverage with reference fiducials |
 | [0016](0016-corner-enforcement-policy-boundary.md) | Accepted | Move the strict speed zone to 4.0 m clear width |
-| [0017](0017-relocate-p-to-diagram-east-corner.md) | Accepted | Relocate P to the junction's east corner, behind the east wall |
+| [0017](0017-relocate-p-to-diagram-east-corner.md) | Superseded by [0019](0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md) | Relocate P to the junction's east corner, behind the east wall |
 | [0018](0018-model-the-east-wall-stub.md) | Accepted | Model the east-wall stub, recess B behind it, extend the route |
+| [0019](0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md) | Accepted | Relocate P inside the east wall, behind a purpose-built corner screen |
 
 ## Decision map
 
@@ -92,3 +93,10 @@ position because A would see it; that reasoning stands. 0017 takes the third
 option 0011 did not consider — the diagram's *side*, with the body behind the
 east wall — which satisfies the same visibility gate that rejection was
 protecting.
+
+ADR 0019 **supersedes ADR 0017's placement decision itself**, on new evidence:
+a 2026-07-29 audit found the measured source places P on the wall's inner
+side, not its outer one. ADR 0017's own reasoning — the written requirement
+outranks an unscaled drawing's literal position — is not disturbed; only the
+specific alternative it chose is replaced with one that keeps the correct
+side. ADR 0011 and ADR 0010 remain accepted in full.
