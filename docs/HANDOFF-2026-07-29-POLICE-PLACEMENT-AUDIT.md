@@ -8,9 +8,11 @@ Status: **implemented, pending independent review; release and GPU requalificati
 
 All blocking and related findings (A6-H1, A6-H2, A6-M1–A6-M4, A6-L1) have a
 commit and a regression; see [`REVIEW-LOG.md`](REVIEW-LOG.md)'s Round 6 table
-for the disposition of each. This document's requirements and rationale below
-are unchanged and remain the checklist a reviewer should check the
-implementation against — they are not rewritten to describe what was done,
+for the disposition of each, or
+[`POLICE-PLACEMENT-AUDIT-RESOLUTION.md`](POLICE-PLACEMENT-AUDIT-RESOLUTION.md)
+for the full walkthrough with diagrams. This document's requirements and
+rationale below are unchanged and remain the checklist a reviewer should check
+the implementation against — they are not rewritten to describe what was done,
 only marked once here as done.
 
 This is the active implementation handoff. It supersedes the older instruction
