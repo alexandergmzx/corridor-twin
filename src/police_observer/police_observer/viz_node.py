@@ -239,7 +239,7 @@ class EnforcementViewNode(Node):
         return markers
 
     def _actor_markers(self) -> list[Marker]:
-        """P behind the corner mass, and B down the next street."""
+        """P behind the corner screen, and B down the next street."""
 
         low = self.profile["police_bounds_min_xyz_m"]
         high = self.profile["police_bounds_max_xyz_m"]
@@ -258,7 +258,7 @@ class EnforcementViewNode(Node):
         label.pose.position = _point(
             (low[0] + high[0]) / 2.0, (low[1] + high[1]) / 2.0, float(high[2]) + 0.5
         )
-        label.text = "P (hidden by the corner mass)"
+        label.text = "P (hidden by the corner screen)"
 
         bx, by, _ = self.manifest["actors"]["b_xyz_m"]
         person = self._marker("actors", 2, Marker.CYLINDER)
