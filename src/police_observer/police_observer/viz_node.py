@@ -34,6 +34,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from corridor_interfaces.msg import SpeedEstimate, SpeedViolation
 
+from .estimator import is_conservatively_compliant
+
 # Static geometry is latched so RViz shows the scene even when it connects long
 # after the node started, which it always does when a human opens it mid-run.
 LATCHED_QOS = QoSProfile(
@@ -83,6 +85,7 @@ class EnforcementViewNode(Node):
         if self.profile_name not in self.manifest["profiles"]:
             raise ValueError(f"manifest has no profile {self.profile_name!r}")
         self.profile = self.manifest["profiles"][self.profile_name]
+        self.confidence_sigma = float(self.manifest["speed_policy"]["confidence_sigma"])
 
         # Reuse the authored trajectory rather than re-deriving the route here;
         # a second geometry model is exactly what drifts out of agreement.
@@ -116,9 +119,17 @@ class EnforcementViewNode(Node):
 
     def _on_estimate(self, message: SpeedEstimate) -> None:
         self.latest_estimate = message
-        # A compliant measurement closes the displayed episode, matching the
-        # detector's own rearm rule rather than inventing a second one.
-        if message.valid and message.speed_mps <= message.speed_limit_mps:
+        # A conservatively compliant measurement closes the displayed episode,
+        # through the same shared function ViolationDetector.update() rearms
+        # on -- not a raw-speed comparison invented separately here, which
+        # could clear the display on a measurement the detector's own episode
+        # was still open for near the confidence margin (A6-M2).
+        if message.valid and is_conservatively_compliant(
+            message.speed_mps,
+            message.speed_stddev_mps,
+            message.speed_limit_mps,
+            self.confidence_sigma,
+        ):
             self.latest_violation = None
         self._publish()
 

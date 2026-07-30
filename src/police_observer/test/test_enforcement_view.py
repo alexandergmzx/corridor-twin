@@ -142,6 +142,31 @@ def test_violation_turns_the_display_red_and_a_compliant_estimate_clears_it(node
     assert _published(node)["readout"][0].color.g > 0.5
 
 
+def test_a_boundary_measurement_rearms_the_display_like_the_detector(node) -> None:
+    """A6-M2: the display and the detector must rearm on the same measurement.
+
+    RViz used to clear a displayed violation on raw speed <= limit, while
+    ``ViolationDetector`` rearms on the conservative, confidence-discounted
+    speed. A measurement between those two thresholds -- over the limit raw,
+    but conservatively compliant -- used to leave the display red after the
+    detector's own episode had already closed. ``_estimate`` fixes
+    ``speed_stddev_mps`` at 0.04; with the manifest's ``confidence_sigma`` of
+    2.0 that is an 0.08 m/s margin, so 0.85 m/s against a 0.8 limit is
+    raw-over-limit (0.85 > 0.8) but conservatively compliant (0.85-0.08=0.77).
+    """
+
+    node._on_estimate(_estimate(station_m=10.0, speed_mps=1.02, limit_mps=0.8))
+    violation = SpeedViolation()
+    violation.event_id = 1
+    violation.exceedance_mps = 0.22
+    node._on_violation(violation)
+    assert _published(node)["readout"][0].color.r > 0.8  # violating red
+
+    node._on_estimate(_estimate(station_m=12.0, speed_mps=0.85, limit_mps=0.8))
+    readout = _published(node)["readout"][0]
+    assert readout.color.g > 0.5, "a conservatively compliant measurement must clear the display"
+
+
 def test_scene_is_drawn_before_any_estimate_arrives(node, manifest: Path) -> None:
     """An interviewer opening RViz early must still see the corridor and P."""
 
