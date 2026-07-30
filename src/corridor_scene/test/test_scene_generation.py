@@ -16,6 +16,7 @@ from scene.geometry import (
     MARKER_BACKING_SCALE,
     MARKER_WALL_CLEARANCE_M,
     building_footprints,
+    corner_screen_bounds,
     corridor_faces,
     is_clear,
     police_bounds,
@@ -37,6 +38,7 @@ BUILDINGS = (
     "CornerBuilding",
     "EastBuilding",
     "EastWallStub",
+    "CornerScreen",
 )
 
 
@@ -191,30 +193,64 @@ def test_p_is_derived_from_the_geometry_and_not_frozen(tmp_path: Path) -> None:
 
 
 def test_actor_topology_matches_the_supplied_diagram() -> None:
-    """A approaches down the corridor, B is along the next street, P is outside both.
+    """A approaches down the corridor, B is along the next street, P is inside it.
 
-    Since ADR 0017 P stands at the junction's *east* corner, matching the side
-    the supplied diagram draws it on, behind the next street's east wall.
+    Since ADR 0019 P stands inside the next street's east side, on the near
+    (inner) face of its east wall -- the side the supplied diagram measures
+    P's label on -- shielded by the corner screen rather than by standing
+    beyond the wall's far face.
     """
 
     scenario = load_scenario()
     length = scenario.corridor_length_m
     for profile in scenario.profiles:
         police_min, police_max = police_bounds(scenario, profile)
-        # P stays east of the east wall that hides it.
-        assert police_min[0] > scenario.street_east_m + scenario.wall_thickness_m
+        # P stays west of the east wall's inner face, inside the channel.
+        assert police_max[0] < scenario.street_east_m
         # P stays within the span of that wall, so it is covered end to end.
         north_face = corridor_faces(profile, 0.0, length)[0]
         assert police_max[1] < north_face
         assert police_min[1] > scenario.street_south_m
-        # P's body enters no drivable space at any footprint corner.
-        for corner_x in (police_min[0], police_max[0]):
-            for corner_y in (police_min[1], police_max[1]):
-                assert not is_clear(scenario, profile, corner_x, corner_y)
+        # P's body does not overlap the corner screen that hides it.
+        screen_x_min, screen_x_max, screen_y_low, screen_y_high = corner_screen_bounds(
+            scenario, profile
+        )
+        overlaps_screen = (
+            police_min[0] < screen_x_max
+            and police_max[1] > screen_y_low
+            and police_min[1] < screen_y_high
+        )
+        assert not overlaps_screen
         # B stands down the next street, past the corner.
         b_y = -scenario.next_street.b_distance_m
         assert is_clear(scenario, profile, scenario.street_center_x_m, b_y)
         assert b_y < corridor_faces(profile, length, length)[1]
+
+
+def test_p_stands_on_the_source_drawing_side_of_the_east_wall() -> None:
+    """A6-H1: P's body must sit inside/west of the east wall's inner face.
+
+    Measured in docs/evidence/source-diagram/NOTES.md: the next street's east
+    wall spans x=1786-1850 px in the 300 dpi render, and P's label sits at
+    x=1651-1758 px -- entirely inside the clear channel, 28 px west of the
+    wall's near face. ADR 0017 placed P's body on the wall's *far* (outer,
+    east) side, which is the opposite side from the one the source measures.
+
+    This is a topology test, derived from the measured pixels, independent of
+    ADR 0017's placement code: it fails against the ADR 0017 geometry (P east
+    of ``street_east_m``) and must pass for every profile once P moves to the
+    source-faithful side.
+    """
+
+    scenario = load_scenario()
+    for profile in scenario.profiles:
+        _, police_max = police_bounds(scenario, profile)
+        assert police_max[0] <= scenario.street_east_m, (
+            f"profile {profile.name}: P's body reaches x={police_max[0]:.3f}, east of the "
+            f"street's east kerb at x={scenario.street_east_m:.3f}. The source measures P's "
+            "label 28 px west of the east wall, inside the channel -- not beyond the wall's "
+            "outer face."
+        )
 
 
 def test_requested_dimensions_become_selected_variant(tmp_path: Path) -> None:
@@ -274,10 +310,18 @@ def test_reference_backings_stay_inside_their_host_face(tmp_path: Path, m: float
 
 
 def test_a_profile_too_narrow_for_its_reference_plates_is_rejected(tmp_path: Path) -> None:
-    """The check is a real gate, not a bound so loose nothing can trip it."""
+    """The check is a real gate, not a bound so loose nothing can trip it.
+
+    ADR 0019 moved the east-face plates much lower (via the same band-floor
+    clamp that already protects them from the corner mass), so they now fit
+    comfortably inside the east face down to a much narrower entry width than
+    m=4.0 was. m=2.0 is well below the declared m>=5.0 support floor either
+    way, so this remains a check on an unsupported profile, just a more
+    unsupported one.
+    """
 
     with pytest.raises(ValueError, match="leaves the east face"):
-        build_scene(None, tmp_path / "narrow.usda", 4.0, 3.0)
+        build_scene(None, tmp_path / "narrow.usda", 2.0, 1.0)
 
 
 def test_east_face_plates_must_clear_the_corner_mass(tmp_path: Path) -> None:
@@ -520,15 +564,33 @@ def test_manifest_records_diagram_provenance(generated: tuple[Path, Path]) -> No
 
 
 def test_camera_cannot_see_police_anywhere_on_the_route(generated: tuple[Path, Path]) -> None:
+    """The written requirement -- A cannot see P, anywhere -- must hold outright.
+
+    The stronger reciprocal claim (a wall does *all* of the hiding) is
+    reported but no longer required end to end since ADR 0019: the corner
+    screen covers the approach and the risky part of the turn, where P is
+    genuinely in frustum, but departure, delivery-arc and delivery are
+    excluded by camera frustum instead -- A is driving away from P with its
+    camera facing forward, a materially different and much wider-margin way
+    of not being seen, not a shortcut standing in for a missing wall.
+    """
+
     stage_path, manifest_path = generated
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     for name in manifest["profiles"]:
         result = verify(stage_path, manifest_path, name)
         assert result.passed, f"profile {name}: {result.camera_visible_intervals}"
         assert result.camera_visible_intervals == ()
-        # The stronger, reciprocal claim: an opaque wall does the hiding.
-        assert result.line_of_sight_blocked_everywhere
-        assert result.frustum_only_intervals == ()
+        # Frustum-only coverage is expected once A has turned enough to be
+        # driving away from P -- the tail of the turn and everything after.
+        # It must not appear on the approach, where nothing but the corner
+        # screen stands between A's camera and P for the whole leg.
+        assert {label for label, _, _ in result.frustum_only_intervals} <= {
+            "arc",
+            "departure",
+            "delivery_arc",
+            "delivery",
+        }
         assert result.usd_audit_rays > 0
         assert result.usd_audit_failures == 0
         assert result.nearest_blocking_distance_m is not None
@@ -539,15 +601,19 @@ def test_certificate_names_the_blocking_prim(generated: tuple[Path, Path]) -> No
 
     stage_path, manifest_path = generated
     result = verify(stage_path, manifest_path)
-    prims = {item.blocking_prim for item in result.coverage}
+    wall_blocked = [item for item in result.coverage if item.wall_blocked]
+    assert wall_blocked
+    prims = {item.blocking_prim for item in wall_blocked}
     assert prims
     assert all(prim is not None and prim.startswith("/World/Environment/") for prim in prims)
-    assert all(item.witness_axis in {"x", "y"} for item in result.coverage)
-    assert all(item.witness_coordinate_m is not None for item in result.coverage)
-    # Since ADR 0017 the default scene is separated entirely by the east wall,
-    # a single plane of constant X, so it no longer exercises both orientations.
-    # `test_a_crosswise_witness_is_still_required` keeps that machinery covered.
-    assert {item.witness_axis for item in result.coverage} == {"x"}
+    assert all(item.witness_axis in {"x", "y"} for item in wall_blocked)
+    assert all(item.witness_coordinate_m is not None for item in wall_blocked)
+    # Since ADR 0019 the approach and the turn are separated by the corner
+    # screen, a single plane of constant X, so the default scene no longer
+    # exercises both orientations. `test_a_crosswise_witness_is_still_required`
+    # keeps that machinery covered.
+    assert {item.witness_axis for item in wall_blocked} == {"x"}
+    assert prims == {"/World/Environment/Corridor/CornerScreen"}
     audited = set(result.usd_audit_prims)
     assert {f"/World/Environment/Corridor/{name}" for name in BUILDINGS} <= audited
 
@@ -656,22 +722,22 @@ def test_a_genuinely_visible_placement_fails_promptly(generated: tuple[Path, Pat
     assert not result.line_of_sight_blocked_everywhere
 
 
-def test_removing_the_east_wall_fails_the_certificate(
+def test_removing_the_corner_screen_fails_the_certificate(
     generated: tuple[Path, Path], tmp_path: Path
 ) -> None:
     """The wall that hides P must be load-bearing, not incidentally present.
 
-    Under ADR 0017 P stands east of the junction and the next street's east wall
-    is what blocks A's line of sight to it. `occluders()` excluded that building
-    for years on the argument that it sat on the far side of both A's route and
-    P -- true of the old west placement, false of this one. If the exclusion
-    came back, the analytic certificate would have no witness at all.
+    Under ADR 0019 P stands inside the channel, on the near side of the next
+    street's east wall, so that wall no longer separates it from A's route --
+    the corner screen does, for the approach and the risky part of the turn.
+    `occluders()` keeps the east wall in the list anyway, now incidentally
+    rather than because the proof leans on it; removing the corner screen
+    instead is what must fail the proof.
 
-    Deleting it from the slab list must therefore fail the proof. Note the mesh
-    audit still passes: it discovers prims from the composed stage by collision
-    schema, so it does not care what the manifest lists. That the two halves
-    disagree here is the point -- they are independent, and this exercises the
-    analytic one.
+    Note the mesh audit still passes: it discovers prims from the composed
+    stage by collision schema, so it does not care what the manifest lists.
+    That the two halves disagree here is the point -- they are independent,
+    and this exercises the analytic one.
     """
 
     stage_path, manifest_path = generated
@@ -680,27 +746,22 @@ def test_removing_the_east_wall_fails_the_certificate(
     block = manifest["profiles"][selected]
 
     kept = [
-        slab for slab in block["occluders"] if not slab["prim_path"].endswith("EastBuilding")
+        slab for slab in block["occluders"] if not slab["prim_path"].endswith("CornerScreen")
     ]
-    assert len(kept) == len(block["occluders"]) - 1, "the east wall must be in the slab list"
+    assert len(kept) == len(block["occluders"]) - 1, "the corner screen must be in the slab list"
     block["occluders"] = kept
-    mutated = tmp_path / "no_east_wall.manifest.json"
+    mutated = tmp_path / "no_corner_screen.manifest.json"
     mutated.write_text(json.dumps(manifest), encoding="utf-8")
 
     result = verify(stage_path, mutated, selected)
     assert not result.passed
-    assert not result.line_of_sight_blocked_everywhere
 
     # Fail for the right reason. A mutation test that passes because the code
     # crashed is a false green, so require the specific symptom: P becomes
     # genuinely camera-visible, over named route intervals, rather than the
     # proof merely failing to find a witness.
     assert result.camera_visible_intervals, "P should be exposed once its wall is gone"
-    assert {label for label, _, _ in result.camera_visible_intervals} <= {
-        "approach",
-        "arc",
-        "departure",
-    }
+    assert {label for label, _, _ in result.camera_visible_intervals} <= {"approach", "arc"}
 
     # And the mesh audit must still pass. It discovers prims from the composed
     # stage, which the mutation did not touch, so a failure here would mean
@@ -708,14 +769,14 @@ def test_removing_the_east_wall_fails_the_certificate(
     # witness -- exactly the confusion this assertion exists to prevent.
     assert result.usd_audit_rays > 0
     assert result.usd_audit_failures == 0
-    assert any("EastBuilding" in prim for prim in result.usd_audit_prims)
+    assert any("CornerScreen" in prim for prim in result.usd_audit_prims)
 
     # And the unmutated manifest passes with that wall doing the work, so the
     # failure above is attributable to the removal rather than to anything else.
     intact = verify(stage_path, manifest_path, selected)
     assert intact.passed
-    assert {item.blocking_prim for item in intact.coverage} == {
-        "/World/Environment/Corridor/EastBuilding"
+    assert {item.blocking_prim for item in intact.coverage if item.wall_blocked} == {
+        "/World/Environment/Corridor/CornerScreen"
     }
 
 
@@ -918,36 +979,44 @@ def test_generated_manifests_declare_the_new_schema(generated: tuple[Path, Path]
 # to the visible band. The clamp was only safe to make because it provably moves
 # no profile that has published accuracy figures; this is that proof, and it
 # fails loudly if a future placement change quietly invalidates a measured run.
-EAST_FACE_SURVEY_BEFORE_BAND_CLAMP = {
-    "83": (17.983, 2.3, 2.1),
-    "84": (17.983, 1.05, 0.7),
+# ADR 0019 baseline. Both plates now use a deliberately low, even negative,
+# nominal `along_m` (see corridor.yaml) so the existing band-floor clamp --
+# `max(along_m, band_floor)` -- places them, rather than a value tuned to one
+# profile's corner screen. wide_corner and uniform share a result because
+# neither's floor is high enough to bind against the requested value; nominal's
+# floor (0.673) does bind, which is why it differs from the other two.
+EAST_FACE_SURVEY_AFTER_ADR_0019 = {
+    "nominal_m6_n3": {"83": (17.983, 1.172857, 2.1), "84": (17.983, 0.715714, 0.7)},
+    "wide_corner_m6_n4_5": {"83": (17.983, -0.1, 2.1), "84": (17.983, 0.35, 0.7)},
+    "uniform_m6_n6": {"83": (17.983, -0.1, 2.1), "84": (17.983, 0.35, 0.7)},
 }
 
 
 def test_the_band_clamp_moved_no_configured_profile(generated: tuple[Path, Path]) -> None:
-    """Every profile carrying a measured figure must be untouched by the clamp.
+    """Pin where the band-floor clamp actually places each configured profile.
 
-    The three configured profiles all have entry width 6.0, so their band floors
-    sit below the configured coordinate -- two of them negative -- and the clamp
-    does not bind. That is what let the envelope widen without owing a
-    re-measurement of the live run or the synthetic report.
+    Every configured profile carrying a measured figure must land at a known,
+    checked position -- clamped or not -- so a future change to the clamp, the
+    corner screen, or these plates' own `along_m` cannot silently invalidate a
+    published accuracy figure without a test noticing.
     """
 
     _, manifest_path = generated
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     checked = 0
     for name, block in manifest["profiles"].items():
+        expected_by_id = EAST_FACE_SURVEY_AFTER_ADR_0019[name]
         for marker in block["markers"]:
             if marker["side"] != "east_face":
                 continue
-            expected = EAST_FACE_SURVEY_BEFORE_BAND_CLAMP[str(marker["id"])]
+            expected = expected_by_id[str(marker["id"])]
             first_corner = tuple(round(value, 6) for value in marker["corners_xyz_m"][0])
             assert first_corner == pytest.approx(expected, abs=1e-6), (
                 f"{name}: marker {marker['id']} moved to {first_corner}; a configured "
                 "profile shifting invalidates its published accuracy figures"
             )
             checked += 1
-    assert checked == len(manifest["profiles"]) * len(EAST_FACE_SURVEY_BEFORE_BAND_CLAMP)
+    assert checked == sum(len(v) for v in EAST_FACE_SURVEY_AFTER_ADR_0019.values())
 
 
 def test_a_crosswise_witness_is_still_required(generated: tuple[Path, Path]) -> None:

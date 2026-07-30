@@ -557,8 +557,15 @@ def continuous_certificate(
         if not item.wall_blocked
     )
     merged_visible = _merge_intervals(visible)
+    # passed is the written requirement alone: no interval where the camera
+    # can actually see P. line_of_sight_blocked_everywhere is the separate,
+    # stronger reciprocal claim that a wall does all of the hiding -- reported
+    # alongside passed, not folded into it. Conflating the two would make a
+    # scene that is legitimately, robustly frustum-excluded over some interval
+    # (for example where A drives away from P with its camera facing forward)
+    # indistinguishable from one where P is genuinely visible.
     return Certificate(
-        passed=not merged_visible and not frustum_only,
+        passed=not merged_visible,
         profile=profile_name,
         camera_visible_intervals=merged_visible,
         line_of_sight_blocked_everywhere=not frustum_only and not merged_visible,

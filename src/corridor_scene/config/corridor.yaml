@@ -105,8 +105,19 @@ fiducials:
     plates:
       - {surface: north_wall, along_m: 13.0, height_m: 0.9, size_m: 0.60, cant_deg: 35.0}
       - {surface: north_wall, along_m: 15.0, height_m: 2.0, size_m: 0.60, cant_deg: 35.0}
-      - {surface: north_wall, along_m: 17.0, height_m: 3.1, size_m: 0.60, cant_deg: 35.0}
-      - {surface: east_face,  along_m: 1.8,  height_m: 2.6, size_m: 1.00, cant_deg: 0.0}
+      # Moved from 17.0 by ADR 0019: the corner screen that hides P now
+      # occupies x=[16.5, 16.9] at this same wall height band, and 17.0 sat
+      # inside its shadow from the approach. 15.9 keeps this plate's backing
+      # clear of both the screen and the previous plate's backing.
+      - {surface: north_wall, along_m: 15.9, height_m: 3.1, size_m: 0.60, cant_deg: 35.0}
+      # Lowered from 1.8 by ADR 0019, for the same reason as the north-wall
+      # plate above: at 1.8 the backing's top edge (2.443) sat inside the
+      # corner screen's height band on every profile, deepest on the least
+      # tapered ones. `max(along_m, band_floor)` already clamps this per
+      # profile to clear the corner mass, so a low, even negative, nominal
+      # value here lets that existing mechanism place it, rather than pinning
+      # a value that only clears one specific profile's screen.
+      - {surface: east_face,  along_m: -0.6, height_m: 2.6, size_m: 1.00, cant_deg: 0.0}
       # The lower east plate must also clear the corner mass, whose north edge
       # sits at m/2 - n: exactly y = 0.0 on the default profile. Centred there,
       # half of it was behind the corner building -- invisible to a
@@ -114,22 +125,31 @@ fiducials:
       # Moved to 0.75 and shrunk to 0.60 m, which measured strictly better than
       # the occluded original on every metric: zero occluded frames, and worst
       # station and speed error both lower across all three profiles.
-      - {surface: east_face,  along_m: 0.75, height_m: 1.0, size_m: 0.60, cant_deg: 0.0}
+      #
+      # Lowered again from 0.75 by ADR 0019, for the same corner-screen
+      # conflict as the plate above -- at 0.75 its top edge sat inside the
+      # screen's height band on the least tapered profiles. The band-floor
+      # clamp keeps it clear of the corner mass exactly as before.
+      - {surface: east_face,  along_m: 0.05, height_m: 1.0, size_m: 0.60, cant_deg: 0.0}
 
 police:
-  # P stands at the junction's east corner, on the far side of the next
-  # street's east wall, which is the surface that hides P from A. The supplied
-  # diagram puts P on this side; ADR 0017 records why the body sits behind the
-  # wall rather than in the street channel where the drawing's label is.
+  # P stands inside the next street's east side, on the near (inner) side of
+  # its east wall -- the side the supplied diagram measures P's label on, 28
+  # of a 358 px clear channel west of the wall. ADR 0019 supersedes ADR 0017,
+  # which had placed P beyond that wall's outer face.
   #
   # The placement stays expressed as offsets from wall faces rather than as
   # absolute coordinates, per ADR 0010, so selecting a different (m,n) profile
   # moves P with the geometry instead of stranding it inside a wall.
   body_size_xyz_m: [0.6, 0.6, 1.8]
-  # East of EastBuilding's outer face.
-  east_offset_m: 0.60
-  # South of the north wall's inner face, which is m/2.
-  north_offset_m: 1.20
+  # West of the east wall's inner face, so P stands inside the channel.
+  east_wall_clearance_m: 0.25
+  # South of the north wall's inner face, which is m/2. Closer to that face
+  # than ADR 0017's 1.20 m, both because it matches the drawing more closely
+  # (P's box sits only 20 px south of the wall's inner line) and because the
+  # corner screen (ADR 0019) needs P's whole body north of where A's own path
+  # ever reaches, which a larger offset would not leave room for.
+  north_offset_m: 0.60
   minimum_clearance_m: 0.25
 
 speed_policy:

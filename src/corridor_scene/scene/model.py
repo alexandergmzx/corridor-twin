@@ -102,18 +102,20 @@ class NextStreetSpec:
 
 @dataclass(frozen=True)
 class PoliceSpec:
-    """P's body and its standoff from the wall that hides it.
+    """P's body and its standoff from the walls that hide it.
 
     Offsets are measured from wall faces rather than stored as absolute
     coordinates so that P follows the geometry when a different corridor
-    profile is selected. ``east_offset_m`` is measured east from the next
-    street's east wall — the outer face, so the offset is clear air between the
-    wall and the body — and ``north_offset_m`` south from the north wall's
-    inner face at ``m/2``. See ADR 0017.
+    profile is selected. ``east_wall_clearance_m`` is measured west from the
+    next street's east wall's **inner** face, so P stands inside the clear
+    channel rather than beyond the wall's outer face, and
+    ``north_offset_m`` south from the north wall's inner face at ``m/2``. See
+    ADR 0019, which supersedes ADR 0017's placement on the opposite side of
+    that same wall.
     """
 
     body_size_xyz_m: Vec3
-    east_offset_m: float
+    east_wall_clearance_m: float
     north_offset_m: float
     minimum_clearance_m: float
 
@@ -252,7 +254,7 @@ def load_scenario(path: Path | None = None) -> Scenario:
     police_raw = raw["police"]
     police = PoliceSpec(
         body_size_xyz_m=_xyz(police_raw["body_size_xyz_m"], "police.body_size_xyz_m"),
-        east_offset_m=float(police_raw["east_offset_m"]),
+        east_wall_clearance_m=float(police_raw["east_wall_clearance_m"]),
         north_offset_m=float(police_raw["north_offset_m"]),
         minimum_clearance_m=float(police_raw["minimum_clearance_m"]),
     )
@@ -399,8 +401,8 @@ def validate_scenario(scenario: Scenario) -> None:
         raise ValueError("P must have a positive body volume")
     if police.minimum_clearance_m <= 0.0:
         raise ValueError("P needs a positive clearance margin from occluders")
-    if police.east_offset_m < police.minimum_clearance_m:
-        raise ValueError("P's east offset is inside its own clearance margin")
+    if police.east_wall_clearance_m < police.minimum_clearance_m:
+        raise ValueError("P's east wall clearance is inside its own clearance margin")
     # The north offset is measured from a face P stands *below* rather than
     # behind, so the body must clear that face by its own half-depth as well as
     # the margin, or it would overlap the wall it is measured from.
