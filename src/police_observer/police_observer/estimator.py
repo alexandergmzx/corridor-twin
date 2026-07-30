@@ -20,6 +20,29 @@ class Calibration:
     matrix: np.ndarray
     distortion: np.ndarray
     frame_id: str
+    distortion_model: str
+
+
+def calibration_materially_changed(previous: Calibration | None, current: Calibration) -> bool:
+    """Return whether a new frame's calibration invalidates the observation window.
+
+    A changed K, D, dimensions, distortion model, or frame reinterprets every
+    pixel against a different model, so differencing a station computed under
+    the old calibration against one computed under the new one would silently
+    mix two pixel models into one speed. ``Calibration`` carries no timestamp,
+    so a stamp-only change can never trigger this (A6-M3).
+    """
+
+    if previous is None:
+        return False
+    return (
+        previous.width != current.width
+        or previous.height != current.height
+        or previous.frame_id != current.frame_id
+        or previous.distortion_model != current.distortion_model
+        or not np.array_equal(previous.matrix, current.matrix)
+        or not np.array_equal(previous.distortion, current.distortion)
+    )
 
 
 @dataclass(frozen=True)

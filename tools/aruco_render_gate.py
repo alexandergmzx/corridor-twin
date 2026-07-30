@@ -56,6 +56,7 @@ def _calibration(frame: dict[str, Any]) -> Calibration:
         matrix=np.asarray(frame["k"], dtype=np.float64).reshape(3, 3),
         distortion=np.asarray(frame["d"], dtype=np.float64),
         frame_id=str(frame["frame_id"]),
+        distortion_model=str(frame["distortion_model"]),
     )
 
 
