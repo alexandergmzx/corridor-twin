@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import re
 from pathlib import Path
 
@@ -23,6 +24,13 @@ def resolve_profiles(
 ) -> tuple[tuple[CorridorProfile, ...], str]:
     """Select a matching profile or append the requested finite profile."""
 
+    # Checked before the sign comparisons below: `inf <= 0.0` and `nan <= 0.0`
+    # are both False, so a non-finite --m/--n would otherwise reach USD
+    # authoring and fail there instead of at this boundary.
+    if not math.isfinite(m):
+        raise ValueError(f"--m must be finite, got {m}")
+    if not math.isfinite(n):
+        raise ValueError(f"--n must be finite, got {n}")
     if m <= 0.0 or n <= 0.0:
         raise ValueError("m and n must be positive")
     if n > m:

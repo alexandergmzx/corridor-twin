@@ -330,12 +330,74 @@ def _validate_speed_policy(scenario: Scenario) -> None:
         )
 
 
+def _require_finite(value: float, name: str) -> None:
+    """Reject NaN and +/-inf before any sign or range check sees them.
+
+    ``nan <= 0`` and ``inf <= 0`` are both ``False``, so a sign or range test
+    alone accepts either where it means to reject a non-positive value, and a
+    non-finite dimension then reaches USD authoring or the trajectory solve,
+    which fail late with an error that does not name the field responsible
+    (A6-L1). YAML spells both directly as ``.nan`` and ``.inf``.
+    """
+
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}")
+
+
 def validate_scenario(scenario: Scenario) -> None:
     """Reject geometry that cannot satisfy the project contract.
 
     These are the profile-independent checks. Layout checks that depend on a
     selected corridor profile live in ``geometry.validate_layout``.
+
+    Every numeric field is checked finite before anything else about it is
+    checked, so a NaN or infinity fails here by name rather than reaching USD
+    authoring or the trajectory solve and failing there with a message that
+    does not point back at the field responsible.
     """
+
+    _require_finite(scenario.corridor_length_m, "geometry.corridor_length_m")
+    _require_finite(scenario.building_height_m, "geometry.building_height_m")
+    _require_finite(scenario.wall_thickness_m, "geometry.wall_thickness_m")
+    _require_finite(scenario.west_margin_m, "geometry.west_margin_m")
+
+    street = scenario.next_street
+    _require_finite(street.clear_width_m, "geometry.next_street.clear_width_m")
+    _require_finite(street.length_m, "geometry.next_street.length_m")
+    _require_finite(street.turn_radius_m, "geometry.next_street.turn_radius_m")
+    _require_finite(street.b_distance_m, "geometry.next_street.b_distance_m")
+    _require_finite(street.b_lateral_fraction, "geometry.next_street.b_lateral_fraction")
+    stub = street.east_wall_stub
+    _require_finite(stub.depth_fraction, "geometry.next_street.east_wall_stub.depth_fraction")
+    _require_finite(stub.length_m, "geometry.next_street.east_wall_stub.length_m")
+    _require_finite(
+        stub.gap_north_of_b_m, "geometry.next_street.east_wall_stub.gap_north_of_b_m"
+    )
+
+    _require_finite(scenario.camera.rate_hz, "camera.rate_hz")
+    _require_finite(scenario.camera.horizontal_fov_deg, "camera.horizontal_fov_deg")
+    _require_finite(scenario.camera.mount_height_m, "camera.mount_height_m")
+
+    _require_finite(scenario.fiducials.marker_size_m, "fiducials.marker_size_m")
+    _require_finite(scenario.fiducials.first_station_m, "fiducials.first_station_m")
+    _require_finite(scenario.fiducials.spacing_m, "fiducials.spacing_m")
+    _require_finite(scenario.fiducials.wall_plate_cant_deg, "fiducials.wall_plate_cant_deg")
+    for index, plate in enumerate(scenario.fiducials.references.plates):
+        _require_finite(plate.along_m, f"fiducials.references.plates[{index}].along_m")
+        _require_finite(plate.height_m, f"fiducials.references.plates[{index}].height_m")
+        _require_finite(plate.size_m, f"fiducials.references.plates[{index}].size_m")
+        _require_finite(plate.cant_deg, f"fiducials.references.plates[{index}].cant_deg")
+
+    police = scenario.police
+    for axis, extent in zip("xyz", police.body_size_xyz_m, strict=True):
+        _require_finite(extent, f"police.body_size_xyz_m.{axis}")
+    _require_finite(police.east_wall_clearance_m, "police.east_wall_clearance_m")
+    _require_finite(police.north_offset_m, "police.north_offset_m")
+    _require_finite(police.minimum_clearance_m, "police.minimum_clearance_m")
+
+    for profile in scenario.profiles:
+        _require_finite(profile.entry_width_m, f"profile {profile.name}.entry_width_m")
+        _require_finite(profile.corner_width_m, f"profile {profile.name}.corner_width_m")
 
     if scenario.taper_mode != "one_sided_south":
         raise ValueError(
