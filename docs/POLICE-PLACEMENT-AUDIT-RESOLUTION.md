@@ -17,6 +17,16 @@ disposition ledger. This page is the walkthrough that ties them together.
 | Findings closed | 7 (2 High, 4 Medium, 1 Low) |
 | Attribution | none — sole author, no AI trailers, per `CLAUDE.md` |
 
+> **This page describes the round 6 work above the table only.** Independent
+> review of that work found five further issues in the implementation itself
+> (camera orientation unbound from the certificate, an unreachable validation
+> check, a display/detector rearm inconsistency, an incomplete documentation
+> fix, and a cosmetic geometry gap) — all fixed; see
+> [`REVIEW-LOG.md`](REVIEW-LOG.md)'s Round 7 table for the disposition of
+> each. The diagrams and figures below were re-checked against the round 7
+> commits and are unaffected by them, except where a round 7 commit is cited
+> directly.
+
 ## What was wrong
 
 Two defects were severe enough to pause release and GPU work:

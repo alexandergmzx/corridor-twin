@@ -15,6 +15,14 @@ rationale below are unchanged and remain the checklist a reviewer should check
 the implementation against — they are not rewritten to describe what was done,
 only marked once here as done.
 
+A subsequent independent review of that round 6 implementation itself found
+five further issues (camera orientation unbound from the proof, an
+unreachable validation check, a display/detector rearm inconsistency, an
+incomplete documentation fix, and a cosmetic geometry gap) — see
+[`REVIEW-LOG.md`](REVIEW-LOG.md)'s Round 7 table. All five are fixed as of
+`e79b63c`; the pending-independent-review and paused-GPU-requalification
+status below is unchanged.
+
 This is the active implementation handoff. It supersedes the older instruction
 to requalify the static render immediately. That evidence would describe a
 scene whose police placement does not match the supplied drawing, and the
