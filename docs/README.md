@@ -12,6 +12,15 @@ increments without requiring a reader to reconstruct status from commit history.
 | Current milestone | Audit correction landed: P relocated to the source-faithful side of the east wall behind a new corner screen (ADR 0019), and the occlusion verifier is now bound to the composed USD actor and bounded against pathological recursion |
 | Next milestone | Independent review of the portable correction, then fresh GPU requalification on the corrected geometry — see the [active handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) |
 
+> Every Isaac Sim and GPU/VRAM figure in the capability matrix and resource
+> envelope below predates the 2026-07-29 police-placement correction (ADR
+> 0019): the scene P and the camera looked at has since changed shape. None of
+> those measurements were retaken against the corrected geometry, matching
+> [`ACTIVATION.md`](ACTIVATION.md)'s and
+> [`RELEASE-v1.0-interview.md`](RELEASE-v1.0-interview.md)'s own pending-refresh
+> banners. Portable, geometry-independent facts (topology, trajectory
+> continuity, occlusion certificate results) are current.
+
 ## Read the documentation in this order
 
 | If you need to understand… | Start here | Typical reading time |
@@ -107,7 +116,7 @@ truth is available only to evaluation code.
 | Resolution and rate | 640×360 at 15 Hz | Increase only after live estimator accuracy is measured |
 | Renderer | Real-time `RaytracedLighting` | No interactive path tracing |
 | Sensors | RGB only | No depth, LiDAR, radar, or segmentation in the interview scope |
-| Current one-product GPU memory | 3,486 MiB headless in the live demonstration on the corrected geometry; the viewport measured +136 MiB before that correction and was not repeated | Remain below the 14,336 MiB soft ceiling |
+| Current one-product GPU memory | 3,354 MiB headless, the live demonstration's own recorded figure (see the banner above: this predates ADR 0019 and needs a fresh capture). A later R17 plate relocation measured 3,486 MiB headless on the *pre-ADR-0019* geometry only; that number describes neither the live-demo run cited elsewhere on this page nor the corrected geometry, and is not carried here to avoid implying either | Remain below the 14,336 MiB soft ceiling |
 | Clock sources | Exactly 1 per time mode | Never run competing `/clock` publishers |
 
 ## Keeping this map current
