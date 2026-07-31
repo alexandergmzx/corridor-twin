@@ -577,12 +577,15 @@ def corner_screen_bounds(
     ``CORNER_SCREEN_NORTH_MARGIN_M``), and its east face stops just short of
     P's own body.
 
-    The top face stops at P's own ceiling rather than reaching the north wall.
-    Occlusion does not need it any higher, and going higher would instead
-    reach the north-wall reference plates mounted near ``m/2`` inside this
-    same x-range, occluding the coverage they exist to provide. Leaving a gap
-    up to the true wall also reads as a deliberate screen rather than a
-    structural wall segment, which matches what it is.
+    Its north face reaches the true north wall, so it reads as an attached
+    partition rather than a floating panel. An earlier revision stopped 0.3 m
+    short, at P's own north edge, to keep clear of the north-wall reference
+    plates surveyed in this same x-range; those plates were relocated west of
+    this screen's x-range entirely as part of the same ADR, so that clearance
+    stopped doing any work and the gap to the wall was cosmetic debt rather
+    than a live constraint. Confirmed empirically before closing it: every
+    authored profile's occlusion certificate and reference-plate coverage are
+    unaffected by reaching the wall.
 
     It does not need to reach the whole way to the east wall either: once A
     turns onto the lane it drives with its back to the corner, so the
@@ -593,13 +596,14 @@ def corner_screen_bounds(
 
     length = scenario.corridor_length_m
     centerline_at_corner = corridor_centerline(profile, length, length)
-    police_min, police_max = police_bounds(scenario, profile)
+    north_face, _ = corridor_faces(profile, 0.0, length)
+    police_min, _ = police_bounds(scenario, profile)
     x_max = police_min[0] - scenario.police.minimum_clearance_m
     return (
         max(0.0, x_max - CORNER_SCREEN_WIDTH_M),
         x_max,
         centerline_at_corner + CORNER_SCREEN_NORTH_MARGIN_M,
-        police_max[1],
+        north_face,
     )
 
 
