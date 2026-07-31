@@ -526,17 +526,33 @@ The adapter is deliberately a version-specific executable under `tools/`, not a
 dependency of `corridor_scene` or `police_observer`. Its OmniGraph uses the node
 type names verified in the installed Isaac Sim 5.1.0 extension:
 
-- `isaacsim.core.nodes.IsaacCreateRenderProduct`;
-- `isaacsim.ros2.bridge.ROS2CameraHelper`;
-- `isaacsim.ros2.bridge.ROS2CameraInfoHelper`;
-- `isaacsim.core.nodes.IsaacReadSimulationTime`;
-- `isaacsim.ros2.bridge.ROS2PublishClock`.
+```mermaid
+flowchart LR
+    Camera["/World/Actors/A/CameraMount/<br/>FrontCamera"] --> RP["IsaacCreateRenderProduct<br/><i>isaacsim.core.nodes</i><br/>640&times;360, one product"]
+    RP --> CamHelper["ROS2CameraHelper<br/><i>isaacsim.ros2.bridge</i>"]
+    RP --> InfoHelper["ROS2CameraInfoHelper<br/><i>isaacsim.ros2.bridge</i>"]
+    SimTime["IsaacReadSimulationTime<br/><i>isaacsim.core.nodes</i>"] --> ClockPub["ROS2PublishClock<br/><i>isaacsim.ros2.bridge</i>"]
+
+    CamHelper --> Image["/camera/image_raw<br/>rgb8 at 15 Hz"]
+    InfoHelper --> Info["/camera/camera_info"]
+    ClockPub --> Clock["/clock"]
+
+    Forbidden["Pose &middot; odometry &middot; TF<br/>depth &middot; segmentation &middot; truth"]:::blocked
+    Forbidden -. "no such node<br/>exists in the graph" .-> RP
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+```
+
+Five node types, one render product, three published endpoints. The dotted red
+relationship is a prohibition rather than a data path: the graph contains no
+pose, odometry, transform, TF, depth, segmentation, or truth publisher at all,
+which is what makes "one camera" a structural property of the adapter instead
+of a convention the observer is trusted to respect.
 
 It creates one 640×360 render product, publishes RGB and calibration at 15 Hz
 from a 60 Hz fixed simulation timeline, and publishes `/clock`. Camera and clock
-endpoints use explicit best-effort, volatile QoS. The graph contains no pose,
-odometry, transform, TF, depth, segmentation, or truth publisher. The camera is
-configured with the current 5.1 OpenCV pinhole schema rather than the deprecated
+endpoints use explicit best-effort, volatile QoS. The camera is configured with
+the current 5.1 OpenCV pinhole schema rather than the deprecated
 physical-distortion schema.
 
 The installed real-time renderer reports anti-aliasing/super-resolution enum 3
@@ -699,37 +715,14 @@ Phase 1 packages. The version-specific tools are isolated in
 
 ## Version history
 
-- **0.8.1 — 2026-07-28:** Recorded what the supplied source actually states.
-  Quoted its four sentences verbatim, pinned the PDF by digest, measured the
-  drawing at 300 dpi, and separated what it fixes from what the scene
-  deliberately does not follow. Documentation and one pin test only; no
-  interface, geometry, or decision changed.
-- **0.6.0 — 2026-07-27:** Qualified the production Isaac/ROS pixels at five
-  static approach dwells. Increased the surveyed code to 0.40 m, added physical
-  white quiet-zone plates, and solved canted bracket standoff against the real
-  wall normals after GPU evidence exposed tags intersecting the building mesh.
-  Recorded the post-create DLSS enum, 3,024 MiB VRAM, 0.010563 m maximum station
-  error, and a passing mirror negative control.
-- **0.5.0 — 2026-07-27:** Reconciled the scene with the supplied
-  [`ROBO_TASK.pdf`](ROBO_TASK.pdf): one-sided taper, authored next street and
-  corner mass, P derived from the occluding faces, and a continuous five-piece
-  delivery trajectory. Strengthened the visibility gate to cover P's full volume
-  across a swept yaw range and to report wall occlusion separately from frustum
-  exclusion. Corrected an 0.8% speed under-report caused by measuring station
-  along X, and rejected single-marker frames whose planar PnP pose is ambiguous.
-- **0.4.1 — 2026-07-26:** Added visual component and runtime-environment maps;
-  no interface or architecture decision changed.
-- **0.4.0 — 2026-07-26:** Added and live-validated the installed Isaac 5.1
-  camera/clock adapter in headless and visible modes. The external ROS probe
-  measured 15 Hz synchronized 640×360 RGB/calibration streams, simulation time,
-  one publisher per endpoint, and 2,494/2,591 MiB total GPU memory.
-- **0.3.0 — 2026-07-26:** Qualified the installed RTX 5070 Ti and driver with
-  the Isaac 5.1 checker, fresh occlusion proof, headless stage validation, visible
-  real-time viewport, and measured VRAM snapshots. Mint remains unsupported.
-- **0.2.1 — 2026-07-26:** Added repeatable local environment isolation and
-  verified the explicit Jazzy `/clock` QoS in a live simulated-time ROS run.
-- **0.2.0 — 2026-07-26:** Implemented USD/variants/colliders, continuous
-  occlusion certificate, synthetic ArUco observer, live ROS 2 validation, and an
-  installed-API Isaac 5.1 smoke on the RTX 5060.
-- **0.1.0 — 2026-07-24:** Initial source-only architecture, RTX 5070 Ti budget,
-  interface contract, and activation gates.
+| Version | Date | Change | Interface or decision changed? |
+|---|---|---|---|
+| **0.8.1** | 2026-07-28 | Recorded what the supplied source actually states: its four sentences quoted verbatim, the PDF pinned by digest, the drawing measured at 300 dpi, and what it fixes separated from what the scene deliberately does not follow | No — documentation and one pin test only |
+| **0.6.0** | 2026-07-27 | Qualified the production Isaac/ROS pixels at five static approach dwells. Surveyed code increased to 0.40 m, physical white quiet-zone plates added, canted bracket standoff solved against real wall normals after GPU evidence exposed tags intersecting the building mesh. Recorded the post-create DLSS enum, 3,024 MiB VRAM, 0.010563 m maximum station error, and a passing mirror negative control | Yes — fiducial geometry |
+| **0.5.0** | 2026-07-27 | Reconciled the scene with [`ROBO_TASK.pdf`](ROBO_TASK.pdf): one-sided taper, authored next street and corner mass, P derived from the occluding faces, continuous five-piece delivery trajectory. Visibility gate strengthened to cover P's full volume across a swept yaw range and to report wall occlusion separately from frustum exclusion. Corrected an 0.8% speed under-report from measuring station along X; single-marker frames with ambiguous planar PnP now rejected | Yes — geometry and visibility semantics |
+| **0.4.1** | 2026-07-26 | Added visual component and runtime-environment maps | No |
+| **0.4.0** | 2026-07-26 | Added and live-validated the installed Isaac 5.1 camera/clock adapter in headless and visible modes. External ROS probe measured 15 Hz synchronized 640×360 RGB/calibration streams, simulation time, one publisher per endpoint, and 2,494/2,591 MiB total GPU memory | Yes — Isaac adapter |
+| **0.3.0** | 2026-07-26 | Qualified the installed RTX 5070 Ti and driver with the Isaac 5.1 checker, fresh occlusion proof, headless stage validation, visible real-time viewport, and measured VRAM snapshots. Mint remains unsupported | No |
+| **0.2.1** | 2026-07-26 | Added repeatable local environment isolation and verified the explicit Jazzy `/clock` QoS in a live simulated-time ROS run | No |
+| **0.2.0** | 2026-07-26 | Implemented USD/variants/colliders, continuous occlusion certificate, synthetic ArUco observer, live ROS 2 validation, and an installed-API Isaac 5.1 smoke on the RTX 5060 | Yes — initial implementation |
+| **0.1.0** | 2026-07-24 | Initial source-only architecture, RTX 5070 Ti budget, interface contract, and activation gates | Yes — baseline |

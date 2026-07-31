@@ -114,15 +114,32 @@ The active sequence is defined by
 
 Do not conflate these in code, tests, docs, or the demo UI:
 
-| Concept | Question | Directional? |
-|---|---|---|
-| Physical line of sight | Does an opaque wall intersect the segment between A's camera and P's body? | No; normally reciprocal |
-| A-camera visibility | Is any part of P inside the camera frustum *and* unoccluded? | Yes |
-| A software awareness | Does A detect, model, or react to P, or consume police topics? | Yes |
-| P data access | Does P subscribe to A's Image/CameraInfo and surveyed scenario data? | Yes |
+| Concept | Question | Directional? | Enforced by |
+|---|---|---|---|
+| Physical line of sight | Does an opaque wall intersect the segment between A's camera and P's body? | No; normally reciprocal | `scene.occlusion`, reported separately |
+| A-camera visibility | Is any part of P inside the camera frustum *and* unoccluded? | Yes | `scene.occlusion` — the gate that must pass |
+| A software awareness | Does A detect, model, or react to P, or consume police topics? | Yes | `test_robot_side_sources_are_unaware_of_the_police` |
+| P data access | Does P subscribe to A's Image/CameraInfo and surveyed scenario data? | Yes | The sensor-feed contract; permitted by design |
 
-P reading A's camera feed is a network relationship, not a sightline. Never
-relabel an off-screen P as wall-occluded.
+```mermaid
+flowchart LR
+    subgraph Geometry["Geometric &mdash; proved, not asserted"]
+        A["A's camera"] -. "wall intersects<br/>the segment" .- P["P's body"]
+    end
+
+    A ==> |"one RGB stream<br/>over ROS 2"| P
+
+    P -. "never subscribes to" .-x Truth["Pose &middot; odometry &middot; TF<br/>simulator truth"]:::blocked
+    A -. "never detects,<br/>models or reacts to" .-x P
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+```
+
+The thick arrow is the only real data path, and it runs **from A to P**. That P
+receives A's camera feed while being invisible in it is not a contradiction:
+one is a network subscription, the other is a sightline. Never relabel an
+off-screen P as wall-occluded, and never let "A's software ignores P" stand in
+for the geometric gate — P could be plainly visible in A's pixels either way.
 
 ## Environment discipline
 
@@ -132,6 +149,29 @@ Two Python ABIs share this host and must not mix:
 |---|---|---|
 | Authoring, tests, observer | system Python 3.12 venv | system Jazzy |
 | Isaac Sim adapter | `~/isaac/env_isaaclab` Python 3.11 | bundled Jazzy |
+
+```mermaid
+flowchart LR
+    subgraph Sys["System shell &mdash; Python 3.12"]
+        Venv[".venv"] --> Author["scene.build<br/>scene.occlusion<br/>pytest"]
+        Venv --> Obs["police_observer<br/>enforcement_view"]
+    end
+
+    subgraph Isaac["Isaac shell &mdash; Python 3.11"]
+        IsaacEnv["~/isaac/env_isaaclab"] --> Adapter["tools/isaac_5_1_*.py"]
+    end
+
+    Adapter ==> |"Image &middot; CameraInfo &middot; /clock<br/>over DDS, not imports"| Obs
+
+    Sys -. "sourcing either into<br/>the other breaks the ABI" .-x Isaac
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+    class Isaac,Sys default;
+```
+
+The two halves meet over DDS, never in one interpreter. That is why the adapter
+re-executes itself with system ROS paths stripped rather than trusting the
+caller's shell.
 
 - Do not install pip `usd-core` into Isaac's Python.
 - Do not source two ROS installations into one shell.
