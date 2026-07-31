@@ -165,6 +165,13 @@ def test_a_boundary_measurement_rearms_the_display_like_the_detector(node) -> No
     node._on_estimate(_estimate(station_m=12.0, speed_mps=0.85, limit_mps=0.8))
     readout = _published(node)["readout"][0]
     assert readout.color.g > 0.5, "a conservatively compliant measurement must clear the display"
+    # The printed margin must use the same conservative speed as the rearm
+    # decision above: 0.85 - 2.0*0.04 = 0.77, an 0.8-0.77 = +0.03 m/s margin.
+    # A margin computed from the raw speed instead would print a negative
+    # number here (0.8-0.85 = -0.05) under a "compliant" label -- the exact
+    # self-contradiction A6-M2's display half left open.
+    assert "compliant   +0.03 m/s margin" in readout.text
+    assert "-0.05" not in readout.text
 
 
 def test_scene_is_drawn_before_any_estimate_arrives(node, manifest: Path) -> None:

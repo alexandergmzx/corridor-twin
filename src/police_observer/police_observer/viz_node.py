@@ -34,7 +34,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from corridor_interfaces.msg import SpeedEstimate, SpeedViolation
 
-from .estimator import is_conservatively_compliant
+from .estimator import conservative_speed_mps, is_conservatively_compliant
 
 # Static geometry is latched so RViz shows the scene even when it connects long
 # after the node started, which it always does when a human opens it mid-run.
@@ -321,7 +321,14 @@ class EnforcementViewNode(Node):
                 f"VIOLATION #{violation.event_id}   +{violation.exceedance_mps:.2f} m/s"
             )
         else:
-            margin = estimate.speed_limit_mps - estimate.speed_mps
+            # Match the rearm decision above: a margin computed from the raw
+            # speed could read "compliant +0.05 m/s margin" for a measurement
+            # the detector still considers open, once confidence is
+            # discounted (A6-M2's display half; see conservative_speed_mps).
+            conservative = conservative_speed_mps(
+                estimate.speed_mps, estimate.speed_stddev_mps, self.confidence_sigma
+            )
+            margin = estimate.speed_limit_mps - conservative
             lines.append(f"compliant   {margin:+.2f} m/s margin")
         marker.text = "\n".join(lines)
         return marker
