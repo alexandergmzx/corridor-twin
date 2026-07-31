@@ -134,7 +134,7 @@ and the scene deliberately does **not** follow:
 
 | Drawn | Authored | Why |
 |---|---|---|
-| P's label sits in the open street channel | P stands behind the street's east wall | The drawing fixes P's *side*; the written requirement fixes the standoff. [ADR 0017](adr/0017-relocate-p-to-diagram-east-corner.md) |
+| P's label sits in the open street channel, inside the east wall | P stands inside the channel too, behind a purpose-built corner screen | The drawing fixes P's *side*; the written requirement fixes the standoff and the concealment mechanism. [ADR 0019](adr/0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md) supersedes [ADR 0017](adr/0017-relocate-p-to-diagram-east-corner.md), which had placed P beyond the wall's far face |
 | `m : n` of roughly 3 : 1 | 2 : 1 on the nominal profile | A ratio is metric scale, which ADR 0010 already governs. See below |
 | An east-wall stub beside B | **Modelled** since [ADR 0018](adr/0018-model-the-east-wall-stub.md) | Depth transfers as 0.4637 of the street width; B stands in the pocket behind it, which is why the route has a delivery turn |
 
@@ -256,8 +256,9 @@ Stable prim paths:
       /NorthBuilding                    <- straight face
       /SouthBuilding                    <- tapering face
       /CornerBuilding                   <- corner mass
-      /EastBuilding                     <- next street's far kerb; hides P
+      /EastBuilding                     <- next street's far kerb; audited, not load-bearing
       /EastWallStub                     <- the drawn block B stands behind
+      /CornerScreen                     <- hides P from the approach and the turn
       /Fiducials
   /Actors
     /A
@@ -272,7 +273,10 @@ Stable prim paths:
 Renamed at design 0.5.0, because the old names described a symmetry that no
 longer exists: `LeftBuilding → NorthBuilding`, `RightBuilding → SouthBuilding`.
 `CornerBuilding`, `EastBuilding`, and `NextStreetSurface` are new, and the
-former `CrossStreet` cube is replaced by the authored street.
+former `CrossStreet` cube is replaced by the authored street. `CornerScreen`
+arrived with [ADR 0019](adr/0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md):
+P moved to the wall's near side, so `EastBuilding` alone no longer separates it
+from A's route, and the screen is the wall that now does.
 
 Buildings are closed low-poly volumes, not zero-thickness display faces. Ground
 and buildings are static colliders. Applying collision without a parent rigid
@@ -480,19 +484,30 @@ and performs segment/triangle intersections, discovering meshes by applied
 collision schema so that renaming or adding a building cannot silently shrink
 the audit. A negative test moves P into the clear corridor and must fail.
 
-Current result for the nominal profile: `passed`, line of sight blocked over the
-whole route, 5 covered intervals, 404 audit rays with 0 failures, nearest
-blocking surface 5.366 m. All five are blocked by `EastBuilding` and all five
-use constant-X witnesses. The certificate records `witness_axis` separately from
+Current result for the nominal profile, under [ADR 0019](adr/0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md):
+`passed` (`camera_visible_intervals == ()`), 396 audit rays with 0 failures,
+nearest blocking surface 4.144 m. `CornerScreen` is the sole analytic witness,
+using constant-X witnesses throughout, over the approach and the first part of
+the turn. The remaining legs — the tail of the turn, the lane, the delivery
+turn, and the run to B — are excluded by camera frustum instead, a materially
+weaker but still measured claim reported separately as `frustum_only_intervals`;
+`line_of_sight_blocked_everywhere` is `False` for this reason and no longer
+gates `passed`. The certificate records `witness_axis` separately from
 `witness_coordinate_m`.
 
-Before ADR 0017 the figures were 78 interval/sub-volume pairs, 204 rays and
+Before ADR 0019, under ADR 0017's placement (P beyond the east wall's outer
+face), the figures were 5 covered intervals, 404 audit rays, 0 failures,
+5.366 m nearest, all five blocked by `EastBuilding` on constant-X witnesses,
+and `line_of_sight_blocked_everywhere` held over the whole route. That
+placement was superseded because the source measures P on the wall's *inner*
+side; ADR 0019 records the topology defect and the corrected geometry.
+
+Before ADR 0017, the figures were 78 interval/sub-volume pairs, 204 rays and
 3.116 m, split 76/2 between `SouthBuilding` and `CornerBuilding` with 50
 constant-X and 28 constant-Y witnesses. P behind the corner mass drew level with
 A, so no single plane separated them and the general machinery was required.
-With P east of the junction one plane does, which is why the count collapsed —
-the proof got simpler, not weaker. `test_a_crosswise_witness_is_still_required`
-keeps the constant-Y solver covered against the superseded placement.
+`test_a_crosswise_witness_is_still_required` keeps the constant-Y solver
+covered against that superseded placement.
 
 ## ROS time model
 

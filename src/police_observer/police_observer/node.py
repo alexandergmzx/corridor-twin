@@ -22,6 +22,7 @@ from .estimator import (
     ObserverPipeline,
     SpeedMeasurement,
     Violation,
+    calibration_materially_changed,
 )
 
 
@@ -55,6 +56,7 @@ class PoliceObserverNode(Node):
         # violation episode together. Driving the two stages separately let an
         # episode survive a clock jump and suppress the next real offense.
         self.pipeline = ObserverPipeline(marker_map)
+        self.last_calibration: Calibration | None = None
         self.bridge = CvBridge()
 
         sensor_qos = QoSProfile(
@@ -121,7 +123,15 @@ class PoliceObserverNode(Node):
             matrix=np.asarray(info_message.k, dtype=np.float64).reshape(3, 3),
             distortion=np.asarray(info_message.d, dtype=np.float64),
             frame_id=info_message.header.frame_id,
+            distortion_model=info_message.distortion_model,
         )
+        # A changed K, D, dimensions, distortion model, or frame reframes every
+        # future measurement against a different pixel model, so the
+        # observation window has to reset before this frame's station is
+        # differenced against one computed under the old calibration (A6-M3).
+        if calibration_materially_changed(self.last_calibration, calibration):
+            self.pipeline.reset()
+        self.last_calibration = calibration
         observation = self.station_estimator.estimate(image, calibration, timestamp_s)
         if observation is None:
             return

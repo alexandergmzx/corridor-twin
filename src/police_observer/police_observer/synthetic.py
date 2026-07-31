@@ -51,6 +51,10 @@ class SyntheticCamera:
             matrix=matrix,
             distortion=np.zeros(5, dtype=np.float64),
             frame_id=str(camera["frame_id"]),
+            # Matches the delivered Isaac CameraInfo convention this synthetic
+            # camera mirrors elsewhere in this class (see the cx/cy comment
+            # above); the adapter publishes "plumb_bob" for an undistorted feed.
+            distortion_model="plumb_bob",
         )
         self.camera_height_m = float(camera["mount_height_m"])
         self.rate_hz = float(camera["rate_hz"])

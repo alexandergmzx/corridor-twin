@@ -66,6 +66,26 @@ def test_visual_documentation_local_links_resolve() -> None:
     assert missing == []
 
 
+def test_docs_readme_gpu_figures_stay_labelled_pending_refresh() -> None:
+    """A6-M4 (Round 7): live-Isaac and VRAM figures need an explicit caveat.
+
+    docs/README.md once described the R17 plate-relocation's 3,486 MiB
+    measurement -- taken weeks before P moved sides under ADR 0019 -- as "the
+    live demonstration on the corrected geometry": both the wrong run and the
+    wrong side of the correction. ACTIVATION.md and RELEASE-v1.0-interview.md
+    already carry an explicit pending-refresh banner for exactly this
+    situation; docs/README.md must too, so a reader does not have to compare
+    three documents to notice one disagrees.
+    """
+
+    content = (ROOT / "docs/README.md").read_text(encoding="utf-8")
+    assert "predates the 2026-07-29 police-placement correction" in content
+    # The exact wrong claim: a past-tense measurement asserted to already
+    # describe the corrected geometry. "fresh GPU requalification on the
+    # corrected geometry" (future work, still pending) is fine and expected.
+    assert "in the live demonstration on the corrected geometry" not in content
+
+
 def test_versioned_evidence_topics_have_provenance() -> None:
     evidence_root = ROOT / "docs/evidence"
     missing = [

@@ -15,6 +15,9 @@ the waste this file exists to prevent.
 | 2 | Code | `b5194bf`, `55eb69e`, `dbcf57e` |
 | 3 | Closing the deferred findings | `a101b28`, `82b490d` |
 | 4 | Independent review of rounds 1–3 | `f2e2504`, `be4694f`, `1099245`, `64220a7`, `ade033e`, `7a5980a` |
+| 5 | Manifest consumers missed newly authored walls | `3bf0995` |
+| 6 | Police placement and certificate integrity | Implemented; independent review found 5 further issues in the fix itself — see round 7 |
+| 7 | Independent review of round 6's own fixes | `ab6c787`, `d115e0e`, `01527b7`, `b867536`, `e79b63c` — Implemented, **pending independent review** |
 
 ---
 
@@ -319,3 +322,61 @@ measured artifact, and the third time the durable fix was a test that reads the
 artifact rather than more careful editing. **Extending that test to the
 certificates is the open follow-up**, and it is the only thing that would have
 caught this.
+
+---
+
+## Round 6 — police placement and certificate integrity
+
+The owner identified that P is on the wrong side of the wall relative to the
+source drawing. Independent review confirmed that the measured source puts P
+inside/west of the east wall while the scene authors it outside/east. The same
+review found that the visibility command can pass after the actual USD P is
+moved into view because it continues aiming its rays at manifest bounds.
+
+These and the related verifier-runtime, observer/UI, calibration, documentation
+and validation findings are implemented on `audit/police-placement-2026-07-29`,
+pending the independent review this round's own handback requests before any
+GPU requalification. The evidence, required regressions, execution order and
+handback contract are recorded in the
+[active implementation handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md).
+
+| ID | Sev | Finding | Disposition |
+|---|---|---|---|
+| A6-H1 | High | P authored east of the east wall, opposite the measured source | Fixed. P moved to the wall's inner face; `test_p_stands_on_the_source_drawing_side_of_the_east_wall` derives the regression from the measured source pixels, independent of the placement code. [ADR 0019](adr/0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md) `f28d321` |
+| A6-H2 | High | `verify()` took P's bounds from the manifest and never checked them against the composed stage | Fixed `1f8a08f`. Reproduced first: the pre-fix verifier reported `passed=True` for a stage-only P translation into an open, camera-visible spot, confirmed by running that exact mutation against the old code. `stage_police_bounds()`/`stage_camera_facts()` bind the proof to the stage; `test_stage_only_police_substitution_is_rejected` and `test_manifest_only_police_substitution_is_rejected` cover both directions |
+| A6-M1 | Med | An in-channel/visible P drove recursive certification into pathological subdivision | Fixed `6c638f1`. Measured before the fix: 40.7 s and 327,719 coverage entries for one profile's negative control. A total `call_budget` across the whole search (not just per-branch depth) bounds it; the same control now resolves in a fraction of a second. `test_a_genuinely_visible_placement_fails_promptly` pins the timing budget |
+| A6-M2 | Med | RViz cleared a violation on raw speed while the detector rearmed on the conservative speed | Fixed `d99c18d`. `conservative_speed_mps()`/`is_conservatively_compliant()` in `estimator.py` are the one place this is computed; both the detector and the display call through them. `test_a_boundary_measurement_rearms_the_display_like_the_detector` drives a measurement that is raw-over-limit but conservatively compliant |
+| A6-M3 | Med | The sensor contract said a changed CameraInfo resets the estimator; nothing detected the change | Fixed `22589e4`. `calibration_materially_changed()` compares K, D, dimensions, distortion model, and frame; `Calibration` carries no timestamp so a stamp-only change cannot trigger it. `test_a_distortion_model_change_resets_the_observation_window` keeps K/D numerically identical to isolate the reset from PnP accuracy |
+| A6-M4 | Med | `CLAUDE.md`, the documentation map, and release document carried stale/conflicting state | Fixed. `docs/README.md`'s status header and capability matrix, `docs/DESIGN.md`'s prim tree and measured-figures section, and `docs/RELEASE-v1.0-interview.md`/`docs/ACTIVATION.md` (marked paused/pending-refresh rather than rewritten, since neither can be re-measured without a GPU) all updated in the documentation commits on this branch. **This disposition overclaimed — see round 7** |
+| A6-L1 | Low | Lane-width and finite-dimension validation failed late or with misleading errors | Fixed `75f0581`. Reproduced first: a NaN `corridor_length_m` built cleanly through `load_scenario()` and only failed inside `validate_layout()` with an unrelated "B does not stand in the next street" message. `_require_finite()` checks every numeric scenario field before any sign/range check; `resolve_profiles()` gets the equivalent guard for `--m`/`--n` |
+
+A6-M2 and A6-M3's regressions (`test_a_boundary_measurement_rearms_the_display_like_the_detector`,
+`test_a_distortion_model_change_resets_the_observation_window`,
+`test_a_timestamp_only_change_does_not_reset`) need the colcon-generated
+`corridor_interfaces` package and are skipped under a bare `pytest` run, the
+same way the rest of `test_enforcement_view.py` always has been; run
+`colcon test` to execute them.
+Do not record a disposition here until its behavior and regression are committed.
+
+## Round 7 — independent review of round 6's own fixes
+
+Round 6 fixed the police-placement and verifier-binding defects and asked for
+independent review before GPU requalification. That review found five further
+issues in round 6's own implementation — one High, three Medium, one Low — all
+confirmed by reproduction before being fixed here.
+
+| ID | Sev | Finding | Disposition |
+|---|---|---|---|
+| A7-H1 | High | `stage_camera_facts()` derived the camera's world position and FOV from the composed stage but never its rotation, so the analytic certificate and the mesh raycast audit both computed every heading along the route from the manifest-derived trajectory alone. Reproduced first: rolling the stage camera 180° about its own local Z axis (same position, same aperture, same forward axis — only the up axis flips) left `verify()` reporting `passed=True` with 396 mesh-audit rays and 0 failures, unchanged from the unmutated stage | Fixed `ab6c787`. Forward and up are now read from the stage's actual local-to-world rotation via `TransformDir` and checked against the manifest-implied route-start heading, the same way position already was. `test_stage_only_camera_rotation_is_rejected` reproduces the exact roll; a second, unmerged manual check confirmed a 180° yaw (camera facing backward) is rejected too |
+| A7-M1 | Med | The lane-width check (`lane_width <= 2*turn_radius_m - clear_width_m`, added for A6-L1) could not fire at the scenario's own default turn radius: with `clear_width_m=6.0` and `turn_radius_m=2.0` the right-hand side is already −2.0, and `lane_width` is never negative. The A6-L1 regression only exercised it by also widening `turn_radius_m` to 4.0, which its own docstring admitted was necessary | Fixed `d115e0e`. Swept `depth_fraction` and `turn_radius_m` against the real downstream route-fits-in-drivable-space check to confirm the true boundary is not a closed form these three fields alone can reproduce exactly (it also depends on the corridor taper heading, a per-profile fact this scenario-level check does not have). Replaced the formula with a deliberately conservative, profile-independent sufficient condition — `lane_width <= turn_radius_m` — documented as a coarse pre-check, not the tight bound. The regression now widens only `depth_fraction`, leaving the default turn radius untouched |
+| A7-M2 | Med | RViz's `_readout_marker()` computed the printed compliance margin from the raw speed while `_on_estimate()` already rearmed the marker's color on the shared conservative-speed path (A6-M2's own fix). A measurement over the limit raw but conservatively compliant therefore turned the display green while printing a negative margin under a "compliant" label | Fixed `01527b7`. The margin now goes through the same `conservative_speed_mps()` the color decision uses. Reproduced first, then fixed: at `speed_mps=0.85`, `speed_stddev_mps=0.04`, `confidence_sigma=2.0`, `limit_mps=0.8`, the old code printed "compliant −0.05 m/s margin"; the regression now asserts the literal text "compliant +0.03 m/s margin" and that "-0.05" is absent, not just marker color |
+| A7-M3 | Med | A6-M4's disposition claimed `docs/README.md` was fully reconciled. It was not: the resource-envelope table described the R17 plate-relocation's 3,486 MiB figure — measured weeks before ADR 0019 moved P — as "the live demonstration on the corrected geometry", which misattributed the number and contradicted the pending-refresh banners `ACTIVATION.md`/`RELEASE-v1.0-interview.md` already carried. No mechanical test tied any of this to the canonical evidence | Fixed `b867536`. Added the same pending-refresh banner to `docs/README.md` and corrected the resource-envelope row to cite the live-demo's own 3,354 MiB figure with an honest predates-ADR-0019 caveat. `test_docs_readme_gpu_figures_stay_labelled_pending_refresh` in `test/test_repository_contract.py` pins both, closing the "nothing extended the contract tests" half of the finding |
+| A7-L1 | Low | `corner_screen_bounds()` set the screen's north (Y) face to P's own north edge — 0.3 m short of the true north wall — while `building_footprints()` and `validate_layout()` both described the screen as hanging from that wall | Fixed `e79b63c`. The 0.3 m gap was originally load-bearing (avoiding occlusion of north-wall reference plates surveyed in the screen's x-range); those plates were relocated west of the screen's x-range entirely earlier in this same audit, so the gap had become stale, undocumented debt. Confirmed empirically before closing it — extending the screen to the true wall face left every authored profile's certificate (ray count, failures, nearest-blocking distance) byte-identical, since no marker's x-range overlaps the screen's — then closed it rather than only correcting the prose |
+
+All five fixes are additive commits on `audit/police-placement-2026-07-29`;
+none touch GPU/Isaac evidence, which stays paused pending this round's own
+independent review. Full workspace check after all five:
+`env ROS_LOG_DIR=/tmp/corridor-twin-ros-log bash tools/check_workspace.sh` —
+ruff clean, 187 portable tests passed / 1 skipped (up from 185/1), 128 colcon
+tests / 0 failures (up from 127; the new repository-contract test lives
+outside any ROS package and does not add to the colcon count).

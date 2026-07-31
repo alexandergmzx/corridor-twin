@@ -102,18 +102,20 @@ class NextStreetSpec:
 
 @dataclass(frozen=True)
 class PoliceSpec:
-    """P's body and its standoff from the wall that hides it.
+    """P's body and its standoff from the walls that hide it.
 
     Offsets are measured from wall faces rather than stored as absolute
     coordinates so that P follows the geometry when a different corridor
-    profile is selected. ``east_offset_m`` is measured east from the next
-    street's east wall — the outer face, so the offset is clear air between the
-    wall and the body — and ``north_offset_m`` south from the north wall's
-    inner face at ``m/2``. See ADR 0017.
+    profile is selected. ``east_wall_clearance_m`` is measured west from the
+    next street's east wall's **inner** face, so P stands inside the clear
+    channel rather than beyond the wall's outer face, and
+    ``north_offset_m`` south from the north wall's inner face at ``m/2``. See
+    ADR 0019, which supersedes ADR 0017's placement on the opposite side of
+    that same wall.
     """
 
     body_size_xyz_m: Vec3
-    east_offset_m: float
+    east_wall_clearance_m: float
     north_offset_m: float
     minimum_clearance_m: float
 
@@ -252,7 +254,7 @@ def load_scenario(path: Path | None = None) -> Scenario:
     police_raw = raw["police"]
     police = PoliceSpec(
         body_size_xyz_m=_xyz(police_raw["body_size_xyz_m"], "police.body_size_xyz_m"),
-        east_offset_m=float(police_raw["east_offset_m"]),
+        east_wall_clearance_m=float(police_raw["east_wall_clearance_m"]),
         north_offset_m=float(police_raw["north_offset_m"]),
         minimum_clearance_m=float(police_raw["minimum_clearance_m"]),
     )
@@ -328,12 +330,74 @@ def _validate_speed_policy(scenario: Scenario) -> None:
         )
 
 
+def _require_finite(value: float, name: str) -> None:
+    """Reject NaN and +/-inf before any sign or range check sees them.
+
+    ``nan <= 0`` and ``inf <= 0`` are both ``False``, so a sign or range test
+    alone accepts either where it means to reject a non-positive value, and a
+    non-finite dimension then reaches USD authoring or the trajectory solve,
+    which fail late with an error that does not name the field responsible
+    (A6-L1). YAML spells both directly as ``.nan`` and ``.inf``.
+    """
+
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}")
+
+
 def validate_scenario(scenario: Scenario) -> None:
     """Reject geometry that cannot satisfy the project contract.
 
     These are the profile-independent checks. Layout checks that depend on a
     selected corridor profile live in ``geometry.validate_layout``.
+
+    Every numeric field is checked finite before anything else about it is
+    checked, so a NaN or infinity fails here by name rather than reaching USD
+    authoring or the trajectory solve and failing there with a message that
+    does not point back at the field responsible.
     """
+
+    _require_finite(scenario.corridor_length_m, "geometry.corridor_length_m")
+    _require_finite(scenario.building_height_m, "geometry.building_height_m")
+    _require_finite(scenario.wall_thickness_m, "geometry.wall_thickness_m")
+    _require_finite(scenario.west_margin_m, "geometry.west_margin_m")
+
+    street = scenario.next_street
+    _require_finite(street.clear_width_m, "geometry.next_street.clear_width_m")
+    _require_finite(street.length_m, "geometry.next_street.length_m")
+    _require_finite(street.turn_radius_m, "geometry.next_street.turn_radius_m")
+    _require_finite(street.b_distance_m, "geometry.next_street.b_distance_m")
+    _require_finite(street.b_lateral_fraction, "geometry.next_street.b_lateral_fraction")
+    stub = street.east_wall_stub
+    _require_finite(stub.depth_fraction, "geometry.next_street.east_wall_stub.depth_fraction")
+    _require_finite(stub.length_m, "geometry.next_street.east_wall_stub.length_m")
+    _require_finite(
+        stub.gap_north_of_b_m, "geometry.next_street.east_wall_stub.gap_north_of_b_m"
+    )
+
+    _require_finite(scenario.camera.rate_hz, "camera.rate_hz")
+    _require_finite(scenario.camera.horizontal_fov_deg, "camera.horizontal_fov_deg")
+    _require_finite(scenario.camera.mount_height_m, "camera.mount_height_m")
+
+    _require_finite(scenario.fiducials.marker_size_m, "fiducials.marker_size_m")
+    _require_finite(scenario.fiducials.first_station_m, "fiducials.first_station_m")
+    _require_finite(scenario.fiducials.spacing_m, "fiducials.spacing_m")
+    _require_finite(scenario.fiducials.wall_plate_cant_deg, "fiducials.wall_plate_cant_deg")
+    for index, plate in enumerate(scenario.fiducials.references.plates):
+        _require_finite(plate.along_m, f"fiducials.references.plates[{index}].along_m")
+        _require_finite(plate.height_m, f"fiducials.references.plates[{index}].height_m")
+        _require_finite(plate.size_m, f"fiducials.references.plates[{index}].size_m")
+        _require_finite(plate.cant_deg, f"fiducials.references.plates[{index}].cant_deg")
+
+    police = scenario.police
+    for axis, extent in zip("xyz", police.body_size_xyz_m, strict=True):
+        _require_finite(extent, f"police.body_size_xyz_m.{axis}")
+    _require_finite(police.east_wall_clearance_m, "police.east_wall_clearance_m")
+    _require_finite(police.north_offset_m, "police.north_offset_m")
+    _require_finite(police.minimum_clearance_m, "police.minimum_clearance_m")
+
+    for profile in scenario.profiles:
+        _require_finite(profile.entry_width_m, f"profile {profile.name}.entry_width_m")
+        _require_finite(profile.corner_width_m, f"profile {profile.name}.corner_width_m")
 
     if scenario.taper_mode != "one_sided_south":
         raise ValueError(
@@ -399,8 +463,8 @@ def validate_scenario(scenario: Scenario) -> None:
         raise ValueError("P must have a positive body volume")
     if police.minimum_clearance_m <= 0.0:
         raise ValueError("P needs a positive clearance margin from occluders")
-    if police.east_offset_m < police.minimum_clearance_m:
-        raise ValueError("P's east offset is inside its own clearance margin")
+    if police.east_wall_clearance_m < police.minimum_clearance_m:
+        raise ValueError("P's east wall clearance is inside its own clearance margin")
     # The north offset is measured from a face P stands *below* rather than
     # behind, so the body must clear that face by its own half-depth as well as
     # the margin, or it would overlap the wall it is measured from.
@@ -411,6 +475,16 @@ def validate_scenario(scenario: Scenario) -> None:
     # fits through. A lane thinner than the robot plus the trajectory margin
     # would fail validate_trajectory later with a message about the *route*,
     # which sends a reader looking in the wrong file.
+    #
+    # The arc's exact fit also depends on the corridor taper's heading (an
+    # authored (m, n) profile, not a scenario-level fact this function has),
+    # so no closed form here can be the tight bound -- validate_trajectory's
+    # sampled check stays authoritative for that. This is instead a
+    # deliberately conservative, profile-independent sufficient condition: a
+    # turn cannot be driven through a lane no wider than its own radius. It
+    # may reject a handful of configurations that a full route solve would
+    # still have accepted; it exists to catch the unambiguous case early and
+    # by name, not to replace the numeric check.
     street = scenario.next_street
     stub = street.east_wall_stub
     if not 0.0 < stub.depth_fraction < 1.0:
@@ -418,7 +492,7 @@ def validate_scenario(scenario: Scenario) -> None:
     if stub.length_m <= 0.0 or stub.gap_north_of_b_m <= 0.0:
         raise ValueError("the east-wall stub needs a positive length and gap north of B")
     lane_width = street.clear_width_m * (1.0 - stub.depth_fraction)
-    if lane_width <= 2.0 * street.turn_radius_m - street.clear_width_m:
+    if lane_width <= street.turn_radius_m:
         raise ValueError(
             f"the east-wall stub leaves a {lane_width:.3f} m lane, too narrow for the "
             f"{street.turn_radius_m} m turn radius"

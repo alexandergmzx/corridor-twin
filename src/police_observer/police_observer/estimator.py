@@ -20,6 +20,29 @@ class Calibration:
     matrix: np.ndarray
     distortion: np.ndarray
     frame_id: str
+    distortion_model: str
+
+
+def calibration_materially_changed(previous: Calibration | None, current: Calibration) -> bool:
+    """Return whether a new frame's calibration invalidates the observation window.
+
+    A changed K, D, dimensions, distortion model, or frame reinterprets every
+    pixel against a different model, so differencing a station computed under
+    the old calibration against one computed under the new one would silently
+    mix two pixel models into one speed. ``Calibration`` carries no timestamp,
+    so a stamp-only change can never trigger this (A6-M3).
+    """
+
+    if previous is None:
+        return False
+    return (
+        previous.width != current.width
+        or previous.height != current.height
+        or previous.frame_id != current.frame_id
+        or previous.distortion_model != current.distortion_model
+        or not np.array_equal(previous.matrix, current.matrix)
+        or not np.array_equal(previous.distortion, current.distortion)
+    )
 
 
 @dataclass(frozen=True)
@@ -458,6 +481,32 @@ class GateSpeedEstimator:
         return results
 
 
+def conservative_speed_mps(
+    speed_mps: float, speed_stddev_mps: float, confidence_sigma: float
+) -> float:
+    """Return the confidence-discounted speed that compliance decisions use.
+
+    Subtracting a confidence margin from the raw measurement is what makes a
+    "this was over the limit" claim defensible under uncertainty; it is also
+    what makes the reverse claim -- "this cleared the limit" -- defensible.
+    Exactly one function computes it so a rearm/compliance decision made
+    anywhere in the system uses the same number. RViz used to clear a
+    displayed violation on the raw speed while ``ViolationDetector`` rearmed on
+    this conservative one, which could leave the display green after the
+    detector's own episode was still open, or vice versa near the margin (A6-M2).
+    """
+
+    return speed_mps - confidence_sigma * speed_stddev_mps
+
+
+def is_conservatively_compliant(
+    speed_mps: float, speed_stddev_mps: float, speed_limit_mps: float, confidence_sigma: float
+) -> bool:
+    """Return whether a measurement is compliant once confidence is discounted."""
+
+    return conservative_speed_mps(speed_mps, speed_stddev_mps, confidence_sigma) <= speed_limit_mps
+
+
 class ViolationDetector:
     """Emit one event per continuous speeding episode.
 
@@ -491,8 +540,8 @@ class ViolationDetector:
         self.episode_open = False
 
     def update(self, measurement: SpeedMeasurement) -> Violation | None:
-        conservative_speed = (
-            measurement.speed_mps - self.marker_map.confidence_sigma * measurement.speed_stddev_mps
+        conservative_speed = conservative_speed_mps(
+            measurement.speed_mps, measurement.speed_stddev_mps, self.marker_map.confidence_sigma
         )
         if conservative_speed <= measurement.speed_limit_mps:
             # Compliance is the only thing that rearms.

@@ -36,6 +36,16 @@ Vec3 = tuple[float, float, float]
 
 MAX_DEPTH = 18
 
+# A genuinely visible (or genuinely in-frustum-but-unresolved) region can never
+# be resolved by subdividing further -- no witness or exclusion appears no
+# matter how small the pieces get, so the search would otherwise run every
+# such region to MAX_DEPTH. At binary branching that is up to 2**18 leaf calls
+# per region; measured against the visible negative control this took 40.7 s
+# and 327,719 coverage entries. A genuine scene resolves in a handful of calls
+# (the default profile needs zero subdivision at all), so this budget is slack
+# for real geometry and a hard backstop for a region with nothing to find.
+DEFAULT_CALL_BUDGET = 4096
+
 
 @dataclass(frozen=True)
 class Coverage:
@@ -446,12 +456,24 @@ def continuous_certificate(
     slabs: tuple[Occluder, ...],
     horizontal_fov_deg: float,
     profile_name: str,
+    call_budget: int = DEFAULT_CALL_BUDGET,
 ) -> Certificate:
-    """Cover every trajectory interval using conservative enclosures."""
+    """Cover every trajectory interval using conservative enclosures.
+
+    ``call_budget`` bounds the total number of ``cover`` invocations across the
+    whole search, not just the depth of any one branch. A region that is
+    genuinely visible (or genuinely unresolved) never gains a witness or a
+    frustum exclusion no matter how far it is subdivided, so without a total
+    budget every such region would recurse to ``MAX_DEPTH`` on its own -- up to
+    ``2**MAX_DEPTH`` leaves for that region alone. Exhausting the budget is
+    treated the same as reaching maximum depth: conservatively unresolved, so
+    it counts as visible rather than silently passing.
+    """
 
     tan_half = math.tan(math.radians(horizontal_fov_deg) / 2.0)
     coverage: list[Coverage] = []
     visible: list[tuple[str, float, float]] = []
+    calls = 0
 
     def cover(
         kind: str,
@@ -461,6 +483,8 @@ def continuous_certificate(
         target_max: Vec3,
         depth: int,
     ) -> None:
+        nonlocal calls
+        calls += 1
         sources = _camera_source_vertices(trajectory, kind, start_s, end_s)
         yaw_min, yaw_max = trajectory.yaw_range(start_s, end_s)
         targets = _target_vertices(target_min, target_max)
@@ -487,11 +511,17 @@ def continuous_certificate(
         # Pursue the wall witness even when P is already off-screen. Frustum
         # exclusion alone would satisfy the written requirement, but the
         # stronger reciprocal claim is what makes the scene explainable, so
-        # settling for off-screen is a last resort rather than a shortcut.
+        # settling for off-screen is a last resort rather than a shortcut:
+        # frustum exclusion is only *acted on* once subdivision stops, exactly
+        # as before. Stopping on it early once seemed like a safe speedup and
+        # was not: it let a region that a little more subdivision would have
+        # found a wall witness for settle for the weaker frustum-only answer
+        # instead, which fails the stronger bar this certificate holds the
+        # default scene to. The call budget below is the actual fix.
         if wall is not None:
             record(wall)
             return
-        if depth >= MAX_DEPTH:
+        if depth >= MAX_DEPTH or calls >= call_budget:
             if frustum:
                 record(None)
             else:
@@ -527,8 +557,15 @@ def continuous_certificate(
         if not item.wall_blocked
     )
     merged_visible = _merge_intervals(visible)
+    # passed is the written requirement alone: no interval where the camera
+    # can actually see P. line_of_sight_blocked_everywhere is the separate,
+    # stronger reciprocal claim that a wall does all of the hiding -- reported
+    # alongside passed, not folded into it. Conflating the two would make a
+    # scene that is legitimately, robustly frustum-excluded over some interval
+    # (for example where A drives away from P with its camera facing forward)
+    # indistinguishable from one where P is genuinely visible.
     return Certificate(
-        passed=not merged_visible and not frustum_only,
+        passed=not merged_visible,
         profile=profile_name,
         camera_visible_intervals=merged_visible,
         line_of_sight_blocked_everywhere=not frustum_only and not merged_visible,
@@ -647,37 +684,164 @@ def usd_raycast_audit(
     return tested, failures, tuple(str(prim.GetPath()) for prim in prims), nearest
 
 
+POLICE_PRIM_PATH = "/World/Actors/P"
+CAMERA_PRIM_PATH = "/World/Actors/A/CameraMount/FrontCamera"
+# Loose enough to absorb the float32 scale-op rounding a Cube's authored size
+# picks up (order 1e-7 on these coordinates), tight enough that a substitution
+# measured in centimetres cannot slip through.
+BOUNDS_TOLERANCE_M = 1e-4
+FOV_TOLERANCE_DEG = 1e-3
+# Unit-vector component tolerance for the camera's forward/up axes. The route
+# start heading is an exact trig function of a manifest yaw, so any authored
+# rotation that does not reproduce it -- a roll, a flipped yaw, an accidental
+# re-parent -- should fail well below this.
+ORIENTATION_TOLERANCE = 1e-3
+
+
+def stage_police_bounds(stage: Usd.Stage) -> tuple[Vec3, Vec3]:
+    """Return P's world-space body bounds as actually authored in the stage.
+
+    This is the fact the certificate must be proved against. Trusting the
+    manifest's ``police_bounds_*`` alone let a stage-only translation of
+    ``/World/Actors/P`` pass certification silently: nothing ever looked at
+    where the composed USD actually put it.
+    """
+
+    prim = stage.GetPrimAtPath(POLICE_PRIM_PATH)
+    if not prim:
+        raise ValueError(f"stage has no {POLICE_PRIM_PATH} prim to certify against")
+    cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
+    box = cache.ComputeWorldBound(prim).ComputeAlignedRange()
+    minimum, maximum = box.GetMin(), box.GetMax()
+    return (
+        (float(minimum[0]), float(minimum[1]), float(minimum[2])),
+        (float(maximum[0]), float(maximum[1]), float(maximum[2])),
+    )
+
+
+def stage_camera_facts(stage: Usd.Stage) -> tuple[Vec3, float, Vec3, Vec3]:
+    """Return the front camera's world position, FOV, forward axis and up axis.
+
+    The stage authors one static pose -- A's route start -- rather than the
+    swept trajectory, so this is a start-of-route consistency check; the route
+    shape itself stays manifest-owned, per the same reasoning that keeps the
+    delivery trajectory's arcs and radii out of this comparison. Position and
+    FOV alone do not pin down which way the camera looks: a camera rolled or
+    yawed in place keeps the same position and aperture, so the certificate
+    below would otherwise prove a viewing direction the composed stage does
+    not actually author. Forward and up are read from the composed rotation
+    (via ``TransformDir``, which drops translation) so that check is real.
+    """
+
+    prim = stage.GetPrimAtPath(CAMERA_PRIM_PATH)
+    if not prim:
+        raise ValueError(f"stage has no {CAMERA_PRIM_PATH} prim to certify against")
+    matrix = UsdGeom.XformCache().GetLocalToWorldTransform(prim)
+    translation = matrix.ExtractTranslation()
+    forward = matrix.TransformDir(Gf.Vec3d(0.0, 0.0, -1.0)).GetNormalized()
+    up = matrix.TransformDir(Gf.Vec3d(0.0, 1.0, 0.0)).GetNormalized()
+    camera = UsdGeom.Camera(prim)
+    horizontal_aperture = camera.GetHorizontalApertureAttr().Get()
+    focal_length = camera.GetFocalLengthAttr().Get()
+    if not horizontal_aperture or not focal_length:
+        raise ValueError(f"{CAMERA_PRIM_PATH} has no aperture/focal length to derive FOV from")
+    fov_deg = math.degrees(2.0 * math.atan((horizontal_aperture / 2.0) / focal_length))
+    return (
+        (float(translation[0]), float(translation[1]), float(translation[2])),
+        fov_deg,
+        (float(forward[0]), float(forward[1]), float(forward[2])),
+        (float(up[0]), float(up[1]), float(up[2])),
+    )
+
+
+def _vec3_mismatch(a: Vec3, b: Vec3, tolerance: float) -> bool:
+    return any(abs(x - y) > tolerance for x, y in zip(a, b, strict=True))
+
+
 def verify(stage_path: Path, manifest_path: Path, profile_name: str | None = None) -> Certificate:
-    """Prove the visibility requirement for one corridor profile."""
+    """Prove the visibility requirement for one corridor profile.
+
+    Certifies the actual composed USD, not the manifest's description of it.
+    P's body bounds and the front camera's start pose/FOV are derived from the
+    stage and cross-checked against the manifest; either the stage or the
+    manifest changing independently of the other is a mismatch this rejects,
+    rather than a proof computed against whichever one happens to be wrong.
+    """
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     profile = profile_name or str(manifest["selected_profile"])
+    if profile not in manifest["profiles"]:
+        available = ", ".join(manifest["profiles"])
+        raise ValueError(f"manifest has no profile {profile!r}; available: {available}")
     block = manifest["profiles"][profile]
 
-    police_min = tuple(float(v) for v in block["police_bounds_min_xyz_m"])
-    police_max = tuple(float(v) for v in block["police_bounds_max_xyz_m"])
+    manifest_police_min = tuple(float(v) for v in block["police_bounds_min_xyz_m"])
+    manifest_police_max = tuple(float(v) for v in block["police_bounds_max_xyz_m"])
     slabs = tuple(Occluder(**slab) for slab in block["occluders"])
     trajectory = trajectory_from_manifest(block["delivery_trajectory"])
-    fov = float(manifest["camera"]["horizontal_fov_deg"])
-
-    certificate = continuous_certificate(
-        trajectory,
-        police_min,  # type: ignore[arg-type]
-        police_max,  # type: ignore[arg-type]
-        slabs,
-        fov,
-        profile,
-    )
+    manifest_fov = float(manifest["camera"]["horizontal_fov_deg"])
 
     stage = Usd.Stage.Open(str(stage_path))
     variants = stage.GetPrimAtPath("/World").GetVariantSets().GetVariantSet("corridorProfile")
-    variants.SetVariantSelection(profile)
+    if profile not in variants.GetVariantNames():
+        available = ", ".join(variants.GetVariantNames())
+        raise ValueError(
+            f"stage has no corridorProfile variant {profile!r}; available: {available}"
+        )
+    if not variants.SetVariantSelection(profile) or variants.GetVariantSelection() != profile:
+        raise ValueError(f"failed to select corridorProfile variant {profile!r} on the stage")
+
+    stage_police_min, stage_police_max = stage_police_bounds(stage)
+    if _vec3_mismatch(
+        stage_police_min, manifest_police_min, BOUNDS_TOLERANCE_M
+    ) or _vec3_mismatch(stage_police_max, manifest_police_max, BOUNDS_TOLERANCE_M):
+        raise ValueError(
+            f"profile {profile!r}: manifest police bounds "
+            f"[{manifest_police_min}, {manifest_police_max}] do not match the composed "
+            f"stage's {POLICE_PRIM_PATH} bounds [{stage_police_min}, {stage_police_max}]; "
+            "the stage and manifest have diverged"
+        )
+
+    stage_camera_xyz, stage_fov_deg, stage_forward, stage_up = stage_camera_facts(stage)
+    route_start = trajectory.camera_pose_at(0.0)
+    manifest_camera_xyz = (route_start.x_m, route_start.y_m, route_start.z_m)
+    if _vec3_mismatch(stage_camera_xyz, manifest_camera_xyz, BOUNDS_TOLERANCE_M):
+        raise ValueError(
+            f"profile {profile!r}: manifest route-start camera position {manifest_camera_xyz} "
+            f"does not match the composed stage's {CAMERA_PRIM_PATH} position {stage_camera_xyz}"
+        )
+    if abs(stage_fov_deg - manifest_fov) > FOV_TOLERANCE_DEG:
+        raise ValueError(
+            f"profile {profile!r}: manifest horizontal_fov_deg={manifest_fov} does not match "
+            f"the composed stage camera's derived FOV {stage_fov_deg:.4f} deg"
+        )
+    manifest_forward = (route_start.heading[0], route_start.heading[1], 0.0)
+    manifest_up = (0.0, 0.0, 1.0)
+    if _vec3_mismatch(
+        stage_forward, manifest_forward, ORIENTATION_TOLERANCE
+    ) or _vec3_mismatch(stage_up, manifest_up, ORIENTATION_TOLERANCE):
+        raise ValueError(
+            f"profile {profile!r}: manifest route-start camera orientation "
+            f"(forward={manifest_forward}, up={manifest_up}) does not match the composed "
+            f"stage's {CAMERA_PRIM_PATH} orientation (forward={stage_forward}, up={stage_up}); "
+            "the stage and manifest have diverged"
+        )
+
+    certificate = continuous_certificate(
+        trajectory,
+        stage_police_min,
+        stage_police_max,
+        slabs,
+        stage_fov_deg,
+        profile,
+    )
+
     audited, failed, prims, nearest = usd_raycast_audit(
         stage,
         trajectory,
-        police_min,  # type: ignore[arg-type]
-        police_max,  # type: ignore[arg-type]
-        fov,
+        stage_police_min,
+        stage_police_max,
+        stage_fov_deg,
     )
 
     return Certificate(

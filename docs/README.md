@@ -6,11 +6,20 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.4.2 |
-| Last updated | 2026-07-28 |
+| Map version | 1.6.0 |
+| Last updated | 2026-07-29 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | Live camera-only demonstration working end to end; static renderer claim still invalidated, so no canonical static qualification exists |
-| Next milestone | Paired static requalification, then pose-to-render latency |
+| Current milestone | Audit correction landed: P relocated to the source-faithful side of the east wall behind a new corner screen (ADR 0019), and the occlusion verifier is now bound to the composed USD actor and bounded against pathological recursion |
+| Next milestone | Independent review of the portable correction, then fresh GPU requalification on the corrected geometry — see the [active handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) |
+
+> Every Isaac Sim and GPU/VRAM figure in the capability matrix and resource
+> envelope below predates the 2026-07-29 police-placement correction (ADR
+> 0019): the scene P and the camera looked at has since changed shape. None of
+> those measurements were retaken against the corrected geometry, matching
+> [`ACTIVATION.md`](ACTIVATION.md)'s and
+> [`RELEASE-v1.0-interview.md`](RELEASE-v1.0-interview.md)'s own pending-refresh
+> banners. Portable, geometry-independent facts (topology, trajectory
+> continuity, occlusion certificate results) are current.
 
 ## Read the documentation in this order
 
@@ -18,6 +27,7 @@ increments without requiring a reader to reconstruct status from commit history.
 |---|---|---:|
 | The scenario as supplied | [Source task and diagram](ROBO_TASK.pdf) | 2 minutes |
 | What exists and what comes next | This page | 3 minutes |
+| What must be corrected before requalification | [Active implementation handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) | 8 minutes |
 | What earlier reviews found, and how each was dispositioned | [Review log](REVIEW-LOG.md) | 6 minutes |
 | Why the system is divided this way | [System design](DESIGN.md) | 8 minutes |
 | Exactly what P may consume | [Sensor-feed contract](SENSOR-FEED.md) | 6 minutes |
@@ -55,11 +65,11 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Capability | State | Evidence now | Next proof needed |
 |---|---|---|---|
 | Parametric tapered corridor | Working; topology reconciled | One-sided taper measured from the composed stage for every USD variant | None; metric scale stays a declared demo choice |
-| Next street, junction, corner mass | Working | Convex collider prims per variant; B and P placed from the wall faces | Drive A through the junction |
+| Next street, junction, corner mass, corner screen | Working | Convex collider prims per variant; B placed from the wall faces, P from the east wall's inner face and the corner screen (ADR 0019) | Drive A through the junction |
 | Continuous delivery trajectory | Working | Position and yaw continuous at both joins; every arc sample in drivable space | Follow it in Isaac |
 | Static physics geometry | Working | Ground/building collider schema tests and Isaac smoke | Exercise motion and collision behavior |
 | Camera-only station/speed estimator | **Working on live Isaac pixels** | All four gates measured in a live run; max speed error 0.0369 m/s at 1.0 m/s truth; one violation at the corner. [Evidence](evidence/live-demo/NOTES.md) | Repeat across the other `(m,n)` profiles |
-| P occlusion | Working | Conservative arc enclosure over P's full volume, curved-source false-pass regression, 204 composed-mesh rays, and a visible control | Re-run after any geometry/path change |
+| P occlusion | Working; verifier bound to the composed USD | Conservative arc enclosure over P's full volume, curved-source false-pass regression, a bounded recursion search (A6-M1), stage/manifest substitution negative controls (A6-H2), and the corner screen closing the approach and the risky part of the turn (ADR 0019). 396 composed-mesh rays on the nominal profile, zero failures. `camera_visible_intervals == ()` on every profile; the stronger wall-only claim now holds for the approach and the turn, with the remaining legs reported separately as frustum-excluded | Independent review, then re-run after any further geometry/path change |
 | GPU and real-time scene | Conditionally qualified | Hardware gates, headless/visible stage smokes, measured VRAM | Retain Ubuntu fallback because Mint is unsupported |
 | Isaac ROS camera contract | Pixels qualified; **renderer claim invalidated** | 640×360 RGB at 15 Hz; paired calibration; five static dwells pass; mirrored actual capture fails. The run's renderer mode was requested, never read back | Fresh paired requalification with measured renderer state |
 | Corner enforcement coverage | **Confirmed on rendered Isaac pixels** | Height-staggered reference plates carry the pose through the strict zone in a real render; gates 8.0 and 10.0 both measured, so the corner rule is confirmable. [Frame](evidence/live-demo/corner-references.png) | Repeat after any geometry change |
@@ -106,7 +116,7 @@ truth is available only to evaluation code.
 | Resolution and rate | 640×360 at 15 Hz | Increase only after live estimator accuracy is measured |
 | Renderer | Real-time `RaytracedLighting` | No interactive path tracing |
 | Sensors | RGB only | No depth, LiDAR, radar, or segmentation in the interview scope |
-| Current one-product GPU memory | 3,486 MiB headless in the live demonstration on the corrected geometry; the viewport measured +136 MiB before that correction and was not repeated | Remain below the 14,336 MiB soft ceiling |
+| Current one-product GPU memory | 3,354 MiB headless, the live demonstration's own recorded figure (see the banner above: this predates ADR 0019 and needs a fresh capture). A later R17 plate relocation measured 3,486 MiB headless on the *pre-ADR-0019* geometry only; that number describes neither the live-demo run cited elsewhere on this page nor the corrected geometry, and is not carried here to avoid implying either | Remain below the 14,336 MiB soft ceiling |
 | Clock sources | Exactly 1 per time mode | Never run competing `/clock` publishers |
 
 ## Keeping this map current

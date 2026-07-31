@@ -34,6 +34,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from corridor_interfaces.msg import SpeedEstimate, SpeedViolation
 
+from .estimator import conservative_speed_mps, is_conservatively_compliant
+
 # Static geometry is latched so RViz shows the scene even when it connects long
 # after the node started, which it always does when a human opens it mid-run.
 LATCHED_QOS = QoSProfile(
@@ -83,6 +85,7 @@ class EnforcementViewNode(Node):
         if self.profile_name not in self.manifest["profiles"]:
             raise ValueError(f"manifest has no profile {self.profile_name!r}")
         self.profile = self.manifest["profiles"][self.profile_name]
+        self.confidence_sigma = float(self.manifest["speed_policy"]["confidence_sigma"])
 
         # Reuse the authored trajectory rather than re-deriving the route here;
         # a second geometry model is exactly what drifts out of agreement.
@@ -116,9 +119,17 @@ class EnforcementViewNode(Node):
 
     def _on_estimate(self, message: SpeedEstimate) -> None:
         self.latest_estimate = message
-        # A compliant measurement closes the displayed episode, matching the
-        # detector's own rearm rule rather than inventing a second one.
-        if message.valid and message.speed_mps <= message.speed_limit_mps:
+        # A conservatively compliant measurement closes the displayed episode,
+        # through the same shared function ViolationDetector.update() rearms
+        # on -- not a raw-speed comparison invented separately here, which
+        # could clear the display on a measurement the detector's own episode
+        # was still open for near the confidence margin (A6-M2).
+        if message.valid and is_conservatively_compliant(
+            message.speed_mps,
+            message.speed_stddev_mps,
+            message.speed_limit_mps,
+            self.confidence_sigma,
+        ):
             self.latest_violation = None
         self._publish()
 
@@ -228,7 +239,7 @@ class EnforcementViewNode(Node):
         return markers
 
     def _actor_markers(self) -> list[Marker]:
-        """P behind the corner mass, and B down the next street."""
+        """P behind the corner screen, and B down the next street."""
 
         low = self.profile["police_bounds_min_xyz_m"]
         high = self.profile["police_bounds_max_xyz_m"]
@@ -247,7 +258,7 @@ class EnforcementViewNode(Node):
         label.pose.position = _point(
             (low[0] + high[0]) / 2.0, (low[1] + high[1]) / 2.0, float(high[2]) + 0.5
         )
-        label.text = "P (hidden by the corner mass)"
+        label.text = "P (hidden by the corner screen)"
 
         bx, by, _ = self.manifest["actors"]["b_xyz_m"]
         person = self._marker("actors", 2, Marker.CYLINDER)
@@ -310,7 +321,14 @@ class EnforcementViewNode(Node):
                 f"VIOLATION #{violation.event_id}   +{violation.exceedance_mps:.2f} m/s"
             )
         else:
-            margin = estimate.speed_limit_mps - estimate.speed_mps
+            # Match the rearm decision above: a margin computed from the raw
+            # speed could read "compliant +0.05 m/s margin" for a measurement
+            # the detector still considers open, once confidence is
+            # discounted (A6-M2's display half; see conservative_speed_mps).
+            conservative = conservative_speed_mps(
+                estimate.speed_mps, estimate.speed_stddev_mps, self.confidence_sigma
+            )
+            margin = estimate.speed_limit_mps - conservative
             lines.append(f"compliant   {margin:+.2f} m/s margin")
         marker.text = "\n".join(lines)
         return marker
