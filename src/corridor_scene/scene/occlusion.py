@@ -691,6 +691,11 @@ CAMERA_PRIM_PATH = "/World/Actors/A/CameraMount/FrontCamera"
 # measured in centimetres cannot slip through.
 BOUNDS_TOLERANCE_M = 1e-4
 FOV_TOLERANCE_DEG = 1e-3
+# Unit-vector component tolerance for the camera's forward/up axes. The route
+# start heading is an exact trig function of a manifest yaw, so any authored
+# rotation that does not reproduce it -- a roll, a flipped yaw, an accidental
+# re-parent -- should fail well below this.
+ORIENTATION_TOLERANCE = 1e-3
 
 
 def stage_police_bounds(stage: Usd.Stage) -> tuple[Vec3, Vec3]:
@@ -714,26 +719,39 @@ def stage_police_bounds(stage: Usd.Stage) -> tuple[Vec3, Vec3]:
     )
 
 
-def stage_camera_facts(stage: Usd.Stage) -> tuple[Vec3, float]:
-    """Return the front camera's world position and horizontal FOV from the stage.
+def stage_camera_facts(stage: Usd.Stage) -> tuple[Vec3, float, Vec3, Vec3]:
+    """Return the front camera's world position, FOV, forward axis and up axis.
 
     The stage authors one static pose -- A's route start -- rather than the
     swept trajectory, so this is a start-of-route consistency check; the route
     shape itself stays manifest-owned, per the same reasoning that keeps the
-    delivery trajectory's arcs and radii out of this comparison.
+    delivery trajectory's arcs and radii out of this comparison. Position and
+    FOV alone do not pin down which way the camera looks: a camera rolled or
+    yawed in place keeps the same position and aperture, so the certificate
+    below would otherwise prove a viewing direction the composed stage does
+    not actually author. Forward and up are read from the composed rotation
+    (via ``TransformDir``, which drops translation) so that check is real.
     """
 
     prim = stage.GetPrimAtPath(CAMERA_PRIM_PATH)
     if not prim:
         raise ValueError(f"stage has no {CAMERA_PRIM_PATH} prim to certify against")
-    translation = UsdGeom.XformCache().GetLocalToWorldTransform(prim).ExtractTranslation()
+    matrix = UsdGeom.XformCache().GetLocalToWorldTransform(prim)
+    translation = matrix.ExtractTranslation()
+    forward = matrix.TransformDir(Gf.Vec3d(0.0, 0.0, -1.0)).GetNormalized()
+    up = matrix.TransformDir(Gf.Vec3d(0.0, 1.0, 0.0)).GetNormalized()
     camera = UsdGeom.Camera(prim)
     horizontal_aperture = camera.GetHorizontalApertureAttr().Get()
     focal_length = camera.GetFocalLengthAttr().Get()
     if not horizontal_aperture or not focal_length:
         raise ValueError(f"{CAMERA_PRIM_PATH} has no aperture/focal length to derive FOV from")
     fov_deg = math.degrees(2.0 * math.atan((horizontal_aperture / 2.0) / focal_length))
-    return (float(translation[0]), float(translation[1]), float(translation[2])), fov_deg
+    return (
+        (float(translation[0]), float(translation[1]), float(translation[2])),
+        fov_deg,
+        (float(forward[0]), float(forward[1]), float(forward[2])),
+        (float(up[0]), float(up[1]), float(up[2])),
+    )
 
 
 def _vec3_mismatch(a: Vec3, b: Vec3, tolerance: float) -> bool:
@@ -784,7 +802,7 @@ def verify(stage_path: Path, manifest_path: Path, profile_name: str | None = Non
             "the stage and manifest have diverged"
         )
 
-    stage_camera_xyz, stage_fov_deg = stage_camera_facts(stage)
+    stage_camera_xyz, stage_fov_deg, stage_forward, stage_up = stage_camera_facts(stage)
     route_start = trajectory.camera_pose_at(0.0)
     manifest_camera_xyz = (route_start.x_m, route_start.y_m, route_start.z_m)
     if _vec3_mismatch(stage_camera_xyz, manifest_camera_xyz, BOUNDS_TOLERANCE_M):
@@ -796,6 +814,17 @@ def verify(stage_path: Path, manifest_path: Path, profile_name: str | None = Non
         raise ValueError(
             f"profile {profile!r}: manifest horizontal_fov_deg={manifest_fov} does not match "
             f"the composed stage camera's derived FOV {stage_fov_deg:.4f} deg"
+        )
+    manifest_forward = (route_start.heading[0], route_start.heading[1], 0.0)
+    manifest_up = (0.0, 0.0, 1.0)
+    if _vec3_mismatch(
+        stage_forward, manifest_forward, ORIENTATION_TOLERANCE
+    ) or _vec3_mismatch(stage_up, manifest_up, ORIENTATION_TOLERANCE):
+        raise ValueError(
+            f"profile {profile!r}: manifest route-start camera orientation "
+            f"(forward={manifest_forward}, up={manifest_up}) does not match the composed "
+            f"stage's {CAMERA_PRIM_PATH} orientation (forward={stage_forward}, up={stage_up}); "
+            "the stage and manifest have diverged"
         )
 
     certificate = continuous_certificate(

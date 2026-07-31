@@ -23,6 +23,7 @@ from scene.geometry import (
 )
 from scene.model import CorridorProfile, load_scenario
 from scene.occlusion import (
+    CAMERA_PRIM_PATH,
     Occluder,
     _mesh_triangles,
     _segment_hits_triangle,
@@ -682,6 +683,53 @@ def test_stage_only_police_substitution_is_rejected(
     # Same open-corridor spot the old manifest-only control used, this time
     # authored directly on the USD prim instead of in the manifest.
     translate_op.Set(Gf.Vec3d(8.1, 0.0, 0.9))
+    mutated.GetRootLayer().Save()
+
+    with pytest.raises(ValueError, match="diverged"):
+        verify(mutated_path, manifest_path, selected)
+
+    # The original stage, untouched, still certifies against its own manifest.
+    assert verify(stage_path, manifest_path, selected).passed
+
+
+def test_stage_only_camera_rotation_is_rejected(
+    generated: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Camera orientation, not just position, must be bound to the stage.
+
+    Before this test, ``stage_camera_facts`` read the camera's world
+    position and FOV but never its rotation, so the analytic certificate and
+    the mesh raycast audit both computed every heading along the route from
+    the manifest-derived trajectory alone -- the composed stage's actual
+    camera orientation was never consulted. A camera rolled 180 degrees about
+    its own local Z axis keeps the same position, aperture and even the same
+    forward axis (only its up axis flips), so it reproduces the exact
+    negative control that first exposed the gap: the pre-fix verifier
+    reported ``passed=True`` with zero mesh-audit failures for a camera that
+    plainly does not author the pose the certificate assumes.
+    """
+
+    stage_path, manifest_path = generated
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selected = manifest["selected_profile"]
+
+    original = Usd.Stage.Open(str(stage_path))
+    mutated_path = tmp_path / "stage_only_camera_rolled.usda"
+    original.GetRootLayer().Export(str(mutated_path))
+
+    mutated = Usd.Stage.Open(str(mutated_path))
+    _variants(mutated).SetVariantSelection(selected)
+    xform = UsdGeom.Xformable(mutated.GetPrimAtPath(CAMERA_PRIM_PATH))
+    transform_op = next(
+        op for op in xform.GetOrderedXformOps() if op.GetOpType() == UsdGeom.XformOp.TypeTransform
+    )
+    roll_180_about_local_z = Gf.Matrix4d(
+        -1, 0, 0, 0,
+        0, -1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, 0, 1,
+    )
+    transform_op.Set(roll_180_about_local_z * transform_op.Get())
     mutated.GetRootLayer().Save()
 
     with pytest.raises(ValueError, match="diverged"):
