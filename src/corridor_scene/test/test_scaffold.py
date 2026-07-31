@@ -81,11 +81,10 @@ def test_an_impossibly_narrow_lane_is_rejected_with_a_specific_message() -> None
 
     A stub deep enough to leave less lane than the turn radius needs would
     otherwise fail inside `validate_trajectory`, with a message about the
-    *route* rather than the stub depth that actually caused it. The default
-    turn radius (2.0 m) is small enough relative to the street (6.0 m) that
-    `2*radius - clear_width` is already negative and no depth_fraction alone
-    can trip the check, so the radius widens here too -- both are needed to
-    make the bound worth testing at all.
+    *route* rather than the stub depth that actually caused it. This widens
+    only `depth_fraction`, leaving the scenario's own default turn radius
+    (2.0 m) untouched, to prove the check is reachable at a realistic radius
+    and not only once the radius is also inflated to make room for it.
     """
 
     scenario = load_scenario()
@@ -93,10 +92,10 @@ def test_an_impossibly_narrow_lane_is_rejected_with_a_specific_message() -> None
         scenario,
         next_street=replace(
             scenario.next_street,
-            turn_radius_m=4.0,
-            east_wall_stub=replace(scenario.next_street.east_wall_stub, depth_fraction=0.8),
+            east_wall_stub=replace(scenario.next_street.east_wall_stub, depth_fraction=0.75),
         ),
     )
+    assert candidate.next_street.turn_radius_m == scenario.next_street.turn_radius_m
     with pytest.raises(ValueError, match="leaves a .* m lane, too narrow"):
         validate_scenario(candidate)
 

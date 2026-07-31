@@ -475,6 +475,16 @@ def validate_scenario(scenario: Scenario) -> None:
     # fits through. A lane thinner than the robot plus the trajectory margin
     # would fail validate_trajectory later with a message about the *route*,
     # which sends a reader looking in the wrong file.
+    #
+    # The arc's exact fit also depends on the corridor taper's heading (an
+    # authored (m, n) profile, not a scenario-level fact this function has),
+    # so no closed form here can be the tight bound -- validate_trajectory's
+    # sampled check stays authoritative for that. This is instead a
+    # deliberately conservative, profile-independent sufficient condition: a
+    # turn cannot be driven through a lane no wider than its own radius. It
+    # may reject a handful of configurations that a full route solve would
+    # still have accepted; it exists to catch the unambiguous case early and
+    # by name, not to replace the numeric check.
     street = scenario.next_street
     stub = street.east_wall_stub
     if not 0.0 < stub.depth_fraction < 1.0:
@@ -482,7 +492,7 @@ def validate_scenario(scenario: Scenario) -> None:
     if stub.length_m <= 0.0 or stub.gap_north_of_b_m <= 0.0:
         raise ValueError("the east-wall stub needs a positive length and gap north of B")
     lane_width = street.clear_width_m * (1.0 - stub.depth_fraction)
-    if lane_width <= 2.0 * street.turn_radius_m - street.clear_width_m:
+    if lane_width <= street.turn_radius_m:
         raise ValueError(
             f"the east-wall stub leaves a {lane_width:.3f} m lane, too narrow for the "
             f"{street.turn_radius_m} m turn radius"
