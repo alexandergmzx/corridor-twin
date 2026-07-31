@@ -7,53 +7,29 @@ A's front-camera feed and detect speed violations from surveyed ArUco markers.
 
 ## Current status
 
-**Phase 1 baseline and first Isaac/ROS integration working — 2026-07-26.**
-Parametric USDA generation, finite width variants, static colliders, ArUco
-assets, a shared manifest, camera-only speed estimation, synthetic ROS playback,
-violation events, and continuous occlusion evidence are implemented. The RTX
-5070 Ti passes Isaac Sim 5.1's hardware checks. A version-specific adapter now
-publishes the single 640×360 RGB camera, matching `CameraInfo`, and simulation
-`/clock` through the installed Jazzy bridge. Independent ROS probes passed in
-both headless and visible modes at exactly 15 Hz.
+The demonstration runs end to end: one command drives A along the authored
+route in Isaac Sim while the police observer recovers its speed from that one
+camera alone.
 
-The checker still marks the host unsupported because it is Linux Mint. This is
-recorded as a platform risk rather than hidden by the successful hardware and
-live-stream checks.
+| Date | Milestone | State | Measured result | Evidence |
+|---|---|---|---|---|
+| 2026-07-26 | Phase 1 baseline and first Isaac/ROS integration | **Working** | One 640×360 RGB render product, matching `CameraInfo`, and simulation `/clock` through the installed Jazzy bridge. Independent ROS probes passed headless and visible at exactly 15 Hz | [Activation record](docs/ACTIVATION.md) |
+| 2026-07-27 | Geometry reconciled with the supplied diagram | **Working** | One-sided taper, a real perpendicular next street with a corner mass, and a five-piece route that turns in behind the east-wall stub to reach B in the pocket the drawing puts B in | [ADR 0010](docs/adr/0010-supplied-diagram-geometry.md), [ADR 0018](docs/adr/0018-model-the-east-wall-stub.md) |
+| 2026-07-27 | Static production-camera fiducials | **Pixels valid, renderer claim invalidated** | All 15 selected frames passed, maximum station error 0.010563 m, delivered rate 14.999999 Hz, and a mirror applied to the same capture produced zero passing frames | [Static fiducials](docs/evidence/static-fiducials/NOTES.md) |
+| 2026-07-27 | Live camera-only enforcement demonstration | **Working** | All four enforcement gates measured at 1.0 m/s truth, maximum speed error 0.0369 m/s, **exactly one** violation — 0.191 m/s over the 0.80 m/s corner rule at station 10.0 m — and 3354 MiB of the RTX 5070 Ti with one render product | [Live demo](docs/evidence/live-demo/NOTES.md) |
+| 2026-07-31 | Police placement audit and correction | **Merged** | P moved inside the east wall behind a purpose-built corner screen; the occlusion verifier bound to the composed USD; twelve findings closed across two review rounds | [ADR 0019](docs/adr/0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md), [Review log](docs/REVIEW-LOG.md) |
 
-**Geometry reconciled with the supplied diagram — 2026-07-27.** The corridor now
-carries the drawing's one-sided taper, a real perpendicular next street with a
-corner mass, and a continuous delivery trajectory. P is placed from the
-occluding wall faces, so it follows the geometry when a different `(m,n)`
-profile is selected. Since ADR 0018 the route has five pieces: it turns in
-behind the east-wall stub to reach B in the pocket the drawing puts B in.
+### What is deliberately not claimed
 
-**Static production-camera fiducials — historical run, renderer unqualified.**
-On 2026-07-27 the one-product Isaac ROS graph recovered surveyed station at five
-nominal approach dwells: all 15 selected frames passed, maximum station error
-0.010563 m, delivered rate 14.999999 Hz, and a mirror applied to the same
-capture produced zero passing frames. Those pixel, calibration, rate and control
-results remain valid. The run's **renderer mode was requested, never read back**,
-so it is not a current qualification; its summary is preserved unmodified as
-`qualification-summary-v1-request-echo-invalidated.json`. **There is no canonical
-static qualification until the planned requalification passes.**
+Each of these is open on purpose and recorded rather than hidden. None is a
+known failure; each is a measurement that has not been taken.
 
-The gate did expose and correct buried, undersampled marker plates.
-
-**Live camera-only enforcement demonstration working — 2026-07-27.** One
-command drives A along the authored route in Isaac Sim while the police
-observer recovers speed from that camera alone. At a constant 1.0 m/s the run
-measured all four enforcement gates with a maximum speed error of 0.0369 m/s,
-stayed compliant on the wide approach, and raised **exactly one** violation once
-the corridor narrowed and the limit tightened — 0.191 m/s over the 0.80 m/s
-corner rule, at station 10.0 m. A completed the 24.601 m route in 24.617 s of
-simulation time using 3354 MiB of the RTX 5070 Ti and one render product, with
-the renderer mode read back rather than requested. See the
-[measured evidence](docs/evidence/live-demo/NOTES.md).
-
-Two things are still outstanding and are not claimed: there is no canonical
-**static** qualification until the planned paired requalification passes, and
-the pose-to-render latency has not been characterised, so no offset compensates
-for it.
+| Open item | Why it is not claimed | Consequence |
+|---|---|---|
+| No canonical **static** qualification | The recorded dwell run reported a *requested* renderer mode as measured. Its summary is preserved unmodified as `qualification-summary-v1-request-echo-invalidated.json` | Its pixel, calibration, rate and mirror-control results stand; its renderer claim does not. A fresh paired capture is required |
+| Pose-to-render latency uncharacterised | Whether a pose written before `app.update()` lands in that frame or the next was never measured | One camera period is 0.066 m at 1.0 m/s, which bounds but does not measure the effect. No offset compensates for it |
+| Every GPU figure predates ADR 0019 | The scene changed shape after the last capture: P moved sides and a `CornerScreen` was added | The figures above describe the pre-correction geometry and are pending refresh, not withdrawn |
+| Host is unsupported | NVIDIA's checker rejects Linux Mint regardless of the passing hardware and live-stream gates | Recorded as a platform risk; Ubuntu 24.04 remains the fallback |
 
 ## Architecture at a glance
 

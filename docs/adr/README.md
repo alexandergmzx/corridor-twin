@@ -3,6 +3,18 @@
 ADRs are immutable once accepted. A changed decision receives a new ADR that
 supersedes the old record.
 
+Immutability covers the **decision text**. Several ADRs carry an illustrative
+diagram added after acceptance; those diagrams restate what the record already
+decided and never introduce, soften, or re-argue a conclusion. If a diagram and
+the prose above it ever disagree, the prose is the record.
+
+Two status strings differ between a file and this index, both deliberately:
+
+| ADR | In the file | In this index | Why |
+|---|---|---|---|
+| 0007 | `Accepted for demonstration policy` | `Demo accepted` | Same status, abbreviated to fit the column |
+| 0017 | `Accepted` | `Superseded by 0019` | The file is immutable, so its own header is never rewritten. Supersession is recorded here and in 0019 |
+
 | ADR | Status | Decision |
 |---|---|---|
 | [0001](0001-standalone-openusd-authoring.md) | Accepted | Author USD outside Isaac Sim |
@@ -54,19 +66,32 @@ flowchart LR
     A13 --> A15["0015<br/>Reference fiducials"]
     A7 --> A16["0016<br/>Corner policy boundary"]
     A15 --> A16
+
+    A10 --> A18["0018<br/>East-wall stub"]
+    A11 --> A17["0017<br/>P at the east corner<br/><b>SUPERSEDED</b>"]:::superseded
+    A10 --> A17
+    A17 -. "superseded by, on<br/>measured source evidence" .-> A19["0019<br/>P inside the east wall,<br/>behind a corner screen"]
+    A18 --> A19
+    A12 --> A19
+    A5 --> A19
+
     A12 --> Demo["Defensible interview demo"]
     A13 --> Demo
     A16 --> Demo
     A7 --> Demo
     A9 --> Demo
+    A18 --> Demo
+    A19 --> Demo
 
     classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
+    classDef superseded fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
     class Task source;
 ```
 
-The arrows mean “constrains or enables,” not “supersedes.” For example, the live
-Isaac adapter is shaped simultaneously by the camera-only rule, clock rule,
-scenario manifest, and Python-runtime boundary.
+The solid arrows mean “constrains or enables,” not “supersedes.” For example, the
+live Isaac adapter is shaped simultaneously by the camera-only rule, clock rule,
+scenario manifest, and Python-runtime boundary. The one **dotted** arrow is the
+exception, and carries the only supersession in the set: 0017 → 0019.
 
 ADR 0011 **extends** ADR 0005 rather than replacing it: the decision to prove
 occlusion continuously and audit composed USD still stands, and 0011 carries it

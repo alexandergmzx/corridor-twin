@@ -108,6 +108,29 @@ into a stricter zone; only a conservative estimate at or below the applicable
 limit rearms the detector. A consumer may therefore read repeat events as
 genuinely separate offenses.
 
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Rearmed
+    Rearmed --> Confirming: conservative speed &gt; limit
+    Confirming --> Confirming: still over, below<br/>consecutive_estimates
+    Confirming --> EpisodeOpen: threshold met<br/><b>emit SpeedViolation</b>
+    Confirming --> Rearmed: conservative speed &le; limit
+    EpisodeOpen --> EpisodeOpen: still over &mdash; extends silently,<br/>including into a stricter zone
+    EpisodeOpen --> Rearmed: conservative speed &le; limit
+    Confirming --> Rearmed: temporal or calibration reset
+    EpisodeOpen --> Rearmed: temporal or calibration reset
+```
+
+Every comparison in that diagram is against the **conservative** speed —
+the measurement discounted by `confidence_sigma` standard deviations — never
+the raw one. One function computes it, and the detector, the violation
+exceedance, and the RViz readout all call through it, so a measurement near
+the margin cannot open an episode by one rule and clear it by another. The
+reset edges matter as much as the speeding ones: a clock discontinuity or a
+material `CameraInfo` change clears an open episode rather than carrying it
+across a gap where continuity can no longer be asserted.
+
 **Episode length is not published.** `confirmation_duration_s` is the interval
 from the first confirming estimate to the one that triggered the event — the
 confirmation latency, not the duration of the episode. The event is emitted near
