@@ -36,6 +36,7 @@ Two status strings differ between a file and this index, both deliberately:
 | [0017](0017-relocate-p-to-diagram-east-corner.md) | Superseded by [0019](0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md) | Relocate P to the junction's east corner, behind the east wall |
 | [0018](0018-model-the-east-wall-stub.md) | Accepted | Model the east-wall stub, recess B behind it, extend the route |
 | [0019](0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md) | Accepted | Relocate P inside the east wall, behind a purpose-built corner screen |
+| [0020](0020-communication-domain-isolation.md) | Accepted | Isolate A and P on separate ROS domains, bridged by one allowlist |
 
 ## Decision map
 
@@ -75,6 +76,12 @@ flowchart LR
     A12 --> A19
     A5 --> A19
 
+    Feedback["Interview feedback<br/>2026-08-04"] --> A20["0020<br/>Communication-domain<br/>isolation"]
+    A2 --> A20
+    A3 --> A20
+    A8 --> A20
+    A11 -. "one row amended by" .-> A20
+
     A12 --> Demo["Defensible interview demo"]
     A13 --> Demo
     A16 --> Demo
@@ -82,16 +89,23 @@ flowchart LR
     A9 --> Demo
     A18 --> Demo
     A19 --> Demo
+    A20 --> Demo
 
     classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
     classDef superseded fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
     class Task source;
+    class Feedback source;
 ```
 
 The solid arrows mean “constrains or enables,” not “supersedes.” For example, the
 live Isaac adapter is shaped simultaneously by the camera-only rule, clock rule,
-scenario manifest, and Python-runtime boundary. The one **dotted** arrow is the
-exception, and carries the only supersession in the set: 0017 → 0019.
+scenario manifest, and Python-runtime boundary. The two **dotted** arrows are the
+exceptions, and they mean different things:
+
+| Dotted arrow | Meaning |
+|---|---|
+| 0017 → 0019 | The only **supersession** in the set. 0019 replaces 0017's placement decision on measured source evidence |
+| 0011 → 0020 | An **amendment** to one row of 0011's concept table. 0011's binding decision is unchanged and still enforced |
 
 ADR 0011 **extends** ADR 0005 rather than replacing it: the decision to prove
 occlusion continuously and audit composed USD still stands, and 0011 carries it
@@ -125,3 +139,13 @@ side, not its outer one. ADR 0017's own reasoning — the written requirement
 outranks an unscaled drawing's literal position — is not disturbed; only the
 specific alternative it chose is replaced with one that keeps the correct
 side. ADR 0011 and ADR 0010 remain accepted in full.
+
+ADR 0020 **amends one row of ADR 0011 and supersedes nothing.** It is the only
+record in this set prompted by feedback rather than by measurement: interview
+feedback on 2026-08-04 clarified that the task's visibility constraint was meant
+as ROS communication-domain isolation, not visual occlusion. The geometric
+reading ADR 0011 chose is therefore reframed — it remains true of the scene and
+its gate still passes, but it is scenario realism rather than the assignment's
+constraint. Only ADR 0011's "P data access" row, which described P subscribing to
+A directly, is amended; under 0020 P receives a bridged copy instead. The
+occlusion chain 0005 → 0011 → 0012 → 0019 is untouched.
