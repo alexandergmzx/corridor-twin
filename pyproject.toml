@@ -1,7 +1,12 @@
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
-testpaths = ["test", "src/corridor_scene/test", "src/police_observer/test"]
-pythonpath = ["src/corridor_scene", "src/police_observer"]
+testpaths = [
+    "test",
+    "src/corridor_scene/test",
+    "src/police_observer/test",
+    "src/corridor_gateway/test",
+]
+pythonpath = ["src/corridor_scene", "src/police_observer", "src/corridor_gateway"]
 
 [tool.ruff]
 target-version = "py312"
