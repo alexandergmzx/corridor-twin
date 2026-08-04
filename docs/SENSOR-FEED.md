@@ -2,9 +2,15 @@
 
 | Field | Value |
 |---|---|
-| Contract version | 0.3.3 |
-| Status | Implemented by synthetic and Isaac 5.1 publishers; `rgb8` now gated at the wire and offline, and both publishers share the production `cx=width/2` convention |
-| Last updated | 2026-07-27 |
+| Contract version | 0.4.0 |
+| Status | Implemented by synthetic and Isaac 5.1 publishers; `rgb8` gated at the wire and offline, both publishers share the production `cx=width/2` convention, and the two actors now sit on separate ROS domains |
+| Last updated | 2026-08-04 |
+
+The minor version moved for a reason worth stating: **a consumer written against
+0.3.3 will receive nothing after this change.** Producer and consumer are no
+longer on the same communication plane, so conforming now means being on the
+right domain as well as speaking the right messages. See
+[ADR 0020](adr/0020-communication-domain-isolation.md).
 
 ## Scope
 
@@ -12,35 +18,60 @@ P may read A's front-camera image and calibration data. P has no direct line of
 sight and the `police_observer` must not consume ground-truth pose, odometry,
 simulator transforms, or test truth.
 
+Since ADR 0020, most of that sentence is enforced by the transport rather than by
+convention. A publishes on the **robot domain** (default 42) and P runs on the
+**police domain** (default 43); DDS discovery does not cross between them, so the
+forbidden topics below are not merely refused by the observer, they are not
+discoverable from P's side at all. The single exception is the gateway.
+
 Topic names in node code should be relative and remappable. The table shows the
 resolved demo names.
 
 ## Evidence access matrix
 
-| Evidence | Producer/source | `police_observer` may consume? | Test evaluator may consume? | Why |
-|---|---|:---:|:---:|---|
-| RGB image | A's camera publisher | Yes | Yes | Primary indirect observation |
-| Camera calibration | Same publisher/render product | Yes | Yes | Converts pixels into geometric rays |
-| Surveyed marker map and width policy | Versioned scenario manifest | Yes | Yes | Known infrastructure, not robot truth |
-| `/clock` in simulated-time mode | Single active harness or Isaac source | Yes | Yes | Aligns acquisition timestamps |
-| Robot ground-truth pose | Simulator/harness | **No** | Yes | Would bypass camera perception |
-| Robot odometry | Robot/simulator | **No** | Yes | Would turn the observer into a direct speed reader |
-| Simulator-derived robot TF | Simulator | **No** | Yes | Equivalent truth shortcut through another interface |
-| Harness truth speed | Synthetic publisher/test harness | **No** | Yes | Used only to quantify estimator error |
+| Evidence | Producer/source | Reaches P how? | `police_observer` may consume? | Test evaluator may consume? | Why |
+|---|---|---|:---:|:---:|---|
+| RGB image | A's camera publisher | Gateway allowlist | Yes | Yes | Primary indirect observation |
+| Camera calibration | Same publisher/render product | Gateway allowlist | Yes | Yes | Converts pixels into geometric rays |
+| Surveyed marker map and width policy | Versioned scenario manifest | Local file, no topic | Yes | Yes | Known infrastructure, not robot truth |
+| `/clock` in simulated-time mode | Single active harness or Isaac source | Gateway allowlist | Yes | Yes | Aligns acquisition timestamps |
+| Robot ground-truth pose | Simulator/harness | **Not reachable** | **No** | Yes | Would bypass camera perception |
+| Robot odometry | Robot/simulator | **Not reachable** | **No** | Yes | Would turn the observer into a direct speed reader |
+| Simulator-derived robot TF | Simulator | **Not reachable** | **No** | Yes | Equivalent truth shortcut through another interface |
+| Harness truth speed | Synthetic publisher/test harness | **Not reachable** | **No** | Yes | Used only to quantify estimator error |
 
-The observer's permission boundary is enforced in source/topic contract tests,
-not only described here.
+"Not reachable" is literal, not a policy statement: those producers live on the
+robot domain and are absent from the gateway allowlist, so they do not appear in
+P's graph at all. The observer's permission boundary is still enforced in
+source/topic contract tests as well — the two mechanisms are independent, and the
+source audits catch a mistake made on the wrong side of the boundary that the
+transport alone would not.
 
 ## Topics
 
-| Direction | Resolved topic | Type | QoS | Purpose |
-|---|---|---|---|---|
-| A → P | `/robot/front_camera/image_raw` | `sensor_msgs/msg/Image` | sensor data | Rectified or distortion-described color image |
-| A → P | `/robot/front_camera/camera_info` | `sensor_msgs/msg/CameraInfo` | sensor data | Intrinsics and distortion matching the image |
-| P → consumers | `/police/speed_estimate` | `corridor_interfaces/msg/SpeedEstimate` | reliable, volatile, depth 10 | Validity, speed, uncertainty, width, and limit |
-| P → consumers | `/police/speed_violation` | `corridor_interfaces/msg/SpeedViolation` | reliable, volatile, depth 10 | Debounced event, not a latched alarm |
-| harness only | `/test/ground_truth/speed` | `geometry_msgs/msg/TwistStamped` | reliable, volatile, depth 10 | Evaluator reference in `twist.linear.x`; forbidden to observer |
-| time source | `/clock` | `rosgraph_msgs/msg/Clock` | best effort, volatile, keep-last depth 1 | Present only in simulated-time modes |
+| Direction | Domain | Resolved topic | Type | QoS | Purpose |
+|---|---|---|---|---|---|
+| A → P | robot → police, **bridged** | `/robot/front_camera/image_raw` | `sensor_msgs/msg/Image` | sensor data | Rectified or distortion-described color image |
+| A → P | robot → police, **bridged** | `/robot/front_camera/camera_info` | `sensor_msgs/msg/CameraInfo` | sensor data | Intrinsics and distortion matching the image |
+| P → consumers | police only | `/police/speed_estimate` | `corridor_interfaces/msg/SpeedEstimate` | reliable, volatile, depth 10 | Validity, speed, uncertainty, width, and limit |
+| P → consumers | police only | `/police/speed_violation` | `corridor_interfaces/msg/SpeedViolation` | reliable, volatile, depth 10 | Debounced event, not a latched alarm |
+| harness only | **robot only** | `/test/ground_truth/speed` | `geometry_msgs/msg/TwistStamped` | reliable, volatile, depth 10 | Evaluator reference in `twist.linear.x`; not on the allowlist, so unreachable from P |
+| time source | robot → police, **bridged** | `/clock` | `rosgraph_msgs/msg/Clock` | best effort, volatile, keep-last depth 1 | Present only in simulated-time modes |
+
+The three bridged rows are the entire sanctioned surface between the two actors.
+Nothing returns from police to robot: the gateway declares no `reversed` or
+`bidirectional` entry, and `test_no_topic_is_bridged_back_toward_the_robot`
+fails if one appears.
+
+`/clock` is on that list for a reason that is easy to miss. Under `use_sim_time`
+rclpy's `TimeSource` subscribes to it internally, so no observer source line
+constructs it and no source audit can see the dependency. Remove it from the
+allowlist and the observer's clock never advances, its pipeline resets on every
+frame, and the run publishes no estimates while appearing entirely healthy.
+
+ADR 0003 requires exactly one `/clock` publisher. That now reads *per domain*:
+the Isaac adapter on the robot domain, the gateway on the police domain,
+republishing the same source.
 
 The initial local demo uses raw images. A compressed transport may be added only
 after measuring bandwidth and confirming installed Isaac/ROS support; lossy
@@ -214,6 +245,19 @@ Production observer code and launch files must not subscribe to:
 - pose or model-state topics from a simulator;
 - odometry used as a speed shortcut;
 - a TF transform whose source is simulated robot truth.
+
+Since ADR 0020 there is a second, independent barrier: every one of those
+producers is on the robot domain and none is on the gateway allowlist, so an
+observer that tried to subscribe would find nothing to subscribe to. The rules
+above are kept rather than replaced. They still catch the case the transport
+cannot — code added on the *wrong side* of the boundary, where the topic is
+reachable — and a boundary defended one way is a boundary that fails silently
+when that one way is misconfigured.
+
+Adding a topic to the allowlist is therefore a contract change, not a
+configuration tweak: it widens what P can observe, and
+`src/corridor_gateway/test/test_gateway_config.py` fails until the change is
+made deliberately in both the configuration and the restated expectation.
 
 TF may eventually express a surveyed static marker map only if an ADR and test
 make that distinction explicit. Phase 1 uses the versioned manifest directly.

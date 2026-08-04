@@ -56,17 +56,19 @@ flowchart TB
     Isaac --> CameraContract
     Isaac --> Clock["/clock"]
 
-    subgraph Observation["Permitted police observation"]
-        CameraContract --> Observer["police_observer"]
+    CameraContract ==> Gateway["<b>corridor_gateway</b><br/>allowlist &middot; one way<br/>domain 42 &rarr; 43"]
+    Clock ==> Gateway
+
+    subgraph Observation["Permitted police observation &mdash; domain 43"]
+        Gateway ==> Observer["police_observer"]
         Manifest --> Observer
-        Clock --> Observer
         Observer --> Detect["Fiducial detections"]
         Detect --> Station["Camera station observations"]
         Station --> Speed["Gate-crossing speed estimates"]
         Speed --> Violation["Debounced violation events"]
     end
 
-    Truth["Synthetic/simulator truth"] -. "test harness only" .-> Evaluation["Accuracy evaluator"]
+    Truth["Synthetic/simulator truth<br/>domain 42"] -. "test harness only" .-> Evaluation["Accuracy evaluator"]
     Speed --> Evaluation
 ```
 
@@ -212,21 +214,32 @@ described as continuous numeric parameters.
 
 ## Visibility semantics
 
-The task states that A cannot see P. That is a hard geometric gate, not an
-assertion, and four concepts stay distinct
-([ADR 0011](adr/0011-visibility-semantics.md)):
+The task states that A cannot see P. Interview feedback on 2026-08-04 clarified
+that this was meant as **ROS communication-domain isolation**
+([ADR 0020](adr/0020-communication-domain-isolation.md)). The geometric gate that
+[ADR 0011](adr/0011-visibility-semantics.md) built is retained as scenario
+realism and still passes; it is no longer the sole reading of the requirement.
+Five concepts stay distinct:
 
 | Concept | Question | Directional? |
 |---|---|---|
 | Physical line of sight | Does an opaque wall intersect the camera-to-P segment? | No; normally reciprocal |
 | A-camera visibility | Is any part of P inside the frustum *and* unoccluded? | Yes |
 | A software awareness | Does A detect, model, or react to P? | Yes |
-| P data access | Does P subscribe to A's Image, CameraInfo, and the survey? | Yes |
+| **Communication-domain isolation** | Can P discover or subscribe to any topic A publishes, other than through the gateway? | Yes |
+| P data access | Does P **receive a bridged copy** of A's Image and CameraInfo, and hold the survey? | Yes |
 
-P reading A's camera feed is a network relationship, not a sightline. The
+P reading A's camera feed is a network relationship, not a sightline — and since
+ADR 0020 it is a *relayed* one: P cannot subscribe to A directly, because the two
+are on different ROS domains and DDS discovery does not cross between them. The
 software-awareness rule is enforced by a source contract and is **additive**: P
 could be plainly visible in A's pixels even if A's code ignored them, so it can
 never stand in for the geometric gate.
+
+The two mechanisms are deliberately independent. The transport makes forbidden
+producers unreachable; the source audits catch code added on the wrong side of
+the boundary, where they would be reachable. A boundary defended one way fails
+silently when that one way is misconfigured.
 
 ## Generated artifacts
 

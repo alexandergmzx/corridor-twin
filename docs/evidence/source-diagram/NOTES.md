@@ -154,3 +154,12 @@ rule that A's software consumes nothing about P is additive and repo-added; it
 is not in the source and can never stand in for the gate. See
 [ADR 0011](../../adr/0011-visibility-semantics.md) for the four distinct
 visibility concepts and why collapsing them is a defect.
+
+> **Amended 2026-08-04.** The paragraph above records what this repository
+> understood the prose to bind when the diagram was measured, and the reading is
+> left unedited for that reason. Interview feedback has since clarified that the
+> sentence was intended to mean ROS communication-domain isolation, not a
+> sightline. The occlusion gate it describes still exists and still passes, but
+> it is scenario realism rather than the constraint the task was asking for, and
+> the concept list is now five rather than four. See
+> [ADR 0020](../../adr/0020-communication-domain-isolation.md).
