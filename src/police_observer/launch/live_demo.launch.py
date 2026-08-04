@@ -10,9 +10,19 @@ description would drag system ROS paths into a process that rejects them.
 Sim time is the default. The adapter publishes ``/clock`` and stamps camera
 messages from the simulation clock, and the observer differentiates those
 stamps; running this side on wall time would mix two clocks in one speed
-measurement.
+measurement. Under domain isolation that ``/clock`` reaches this side only
+because ``corridor_gateway`` relays it; see ADR 0020.
+
+Every node here is police-side and is pinned to the police domain, so none of
+them can discover, list, or subscribe to anything A publishes. The domain is set
+per node with ``additional_env`` rather than once for the whole launch
+description: a launch-wide ``SetEnvironmentVariable`` applies to whatever is
+visited after it, which makes the domain a property of action *ordering*. Pinning
+each node states the intent where the node is declared and cannot be broken by
+moving a line.
 """
 
+from corridor_gateway.domains import POLICE_DOMAIN_ID
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, SetEnvironmentVariable
 from launch.conditions import IfCondition
@@ -26,6 +36,8 @@ def generate_launch_description() -> LaunchDescription:
     manifest = LaunchConfiguration("manifest")
     profile = LaunchConfiguration("corridor_profile")
     use_sim_time = ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool)
+    police_domain = LaunchConfiguration("police_domain_id")
+    police_side = {"ROS_DOMAIN_ID": police_domain}
     rviz_config = PathJoinSubstitution(
         [FindPackageShare("police_observer"), "rviz", "corridor_twin.rviz"]
     )
@@ -38,6 +50,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("corridor_profile", default_value=""),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument("rviz", default_value="true"),
+            DeclareLaunchArgument("police_domain_id", default_value=str(POLICE_DOMAIN_ID)),
             Node(
                 package="police_observer",
                 executable="police-observer",
@@ -49,6 +62,7 @@ def generate_launch_description() -> LaunchDescription:
                         "use_sim_time": use_sim_time,
                     }
                 ],
+                additional_env=police_side,
                 output="screen",
             ),
             Node(
@@ -62,6 +76,7 @@ def generate_launch_description() -> LaunchDescription:
                         "use_sim_time": use_sim_time,
                     }
                 ],
+                additional_env=police_side,
                 output="screen",
             ),
             Node(
@@ -69,6 +84,7 @@ def generate_launch_description() -> LaunchDescription:
                 executable="rviz2",
                 name="rviz2",
                 arguments=["-d", rviz_config],
+                additional_env=police_side,
                 condition=IfCondition(LaunchConfiguration("rviz")),
             ),
         ]

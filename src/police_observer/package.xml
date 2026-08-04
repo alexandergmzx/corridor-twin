@@ -8,6 +8,7 @@
   <license>Apache-2.0</license>
 
   <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>corridor_gateway</exec_depend>
   <exec_depend>corridor_interfaces</exec_depend>
   <exec_depend>corridor_scene</exec_depend>
   <exec_depend>cv_bridge</exec_depend>

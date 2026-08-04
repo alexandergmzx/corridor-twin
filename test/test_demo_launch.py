@@ -35,10 +35,19 @@ def test_isaac_process_is_started_without_system_ros_on_its_path() -> None:
     Sourcing system ROS in that shell does not merge two ROS installations, it
     aborts the run -- and mixing the two ABIs is exactly what the environment
     discipline in CLAUDE.md exists to prevent.
+
+    The section marker below is the anchor, and it is asserted before it is used:
+    when ADR 0020 retitled the section, `rsplit` silently returned the whole file
+    instead of the adapter's block, which swept the observer's own `source
+    /opt/ros/jazzy/setup.bash` into the text being audited. That failed loudly
+    here, but only by luck -- a rename in the other direction would have widened
+    the slice to nothing and passed.
     """
 
     text = DEMO.read_text(encoding="utf-8")
-    isaac_invocation = text.split("isaac_5_1_ros_camera.py")[0].rsplit("# --- Isaac side", 1)[-1]
+    marker = "# --- A's side: Isaac"
+    assert marker in text, "the anchor moved; this guard would audit the wrong lines"
+    isaac_invocation = text.split("isaac_5_1_ros_camera.py")[0].rsplit(marker, 1)[-1]
     for leaked in ("AMENT_PREFIX_PATH", "PYTHONPATH", "ROS_DISTRO", "CMAKE_PREFIX_PATH"):
         assert f"-u {leaked}" in isaac_invocation, f"{leaked} must be unset for the Isaac process"
     assert "source /opt/ros/jazzy/setup.bash" not in isaac_invocation
@@ -126,3 +135,96 @@ def test_the_simulator_free_fallback_is_still_available() -> None:
     assert "police-observer" in text
     # run_demo.sh points at it when Isaac is unavailable.
     assert "synthetic_demo.launch.py" in DEMO.read_text(encoding="utf-8")
+
+
+def _node_domains(path: Path) -> dict[str, str]:
+    """Map each launched node's name to the ``additional_env`` it is pinned with.
+
+    A node with no ``additional_env`` is reported as ``"<unpinned>"`` rather than
+    skipped: an unpinned node inherits the ambient domain, which is the exact
+    failure this guard exists to catch, and a silent skip would let it pass.
+    """
+
+    found: dict[str, str] = {}
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id != "Node":
+            continue
+        keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+        name = keywords.get("name")
+        label = name.value if isinstance(name, ast.Constant) else "<unnamed>"
+        environment = keywords.get("additional_env")
+        if environment is None:
+            found[label] = "<unpinned>"
+        elif isinstance(environment, ast.Name):
+            found[label] = environment.id
+        else:
+            # An inline dict or a call the walk cannot resolve is not evidence
+            # of correct pinning; name it so the assertion reports it.
+            found[label] = ast.dump(environment)
+    return found
+
+
+def test_every_police_node_is_pinned_to_the_police_domain() -> None:
+    """ADR 0020: P's processes must not be able to discover A's topics.
+
+    Pinned per node rather than once per launch file on purpose. A launch-wide
+    SetEnvironmentVariable applies to whatever is visited after it, so the domain
+    would become a property of where a line sits in the action list -- and moving
+    a Node above it would silently return that node to the ambient domain.
+    """
+
+    assert set(_node_domains(LIVE_LAUNCH).values()) == {"police_side"}
+
+
+def test_the_fallback_splits_the_two_actors_across_the_two_domains() -> None:
+    """The GPU-free path runs the same topology, or it demonstrates a lie.
+
+    This is the only end-to-end run most machines can do, so if it quietly
+    collapsed to one domain the isolation would be untested everywhere it can
+    actually be observed.
+    """
+
+    assert _node_domains(SYNTHETIC_LAUNCH) == {
+        "synthetic_camera_publisher": "robot_side",
+        "police_observer": "police_side",
+        "enforcement_view": "police_side",
+        "rviz2": "police_side",
+    }
+    # The fallback has to carry the crossing too, or P receives nothing at all.
+    assert "corridor_gateway" in SYNTHETIC_LAUNCH.read_text(encoding="utf-8")
+
+
+def test_the_demonstration_refuses_to_run_both_halves_on_one_domain() -> None:
+    """Equal domain ids would restore exactly the topology ADR 0020 removed.
+
+    Left unchecked this is silent: everything starts, every topic flows, and the
+    isolation claim is simply false while the demonstration looks perfect.
+    """
+
+    text = DEMO.read_text(encoding="utf-8")
+    assert 'robot_domain="${ROBOT_DOMAIN_ID:-42}"' in text
+    assert 'police_domain="${POLICE_DOMAIN_ID:-43}"' in text
+    assert '[[ "$robot_domain" == "$police_domain" ]]' in text, (
+        "run_demo.sh must reject equal domains rather than silently reuniting the halves"
+    )
+    # Neither default may be the domain an unconfigured ROS process joins.
+    assert ":-0}" not in text
+
+    # Each half is pinned, and the gateway is started to bridge them.
+    assert 'export ROS_DOMAIN_ID="$police_domain"' in text
+    assert 'ROS_DOMAIN_ID="$robot_domain"' in text
+    assert "gateway.launch.py" in text
+
+
+def test_the_gateway_is_not_confined_to_either_domain() -> None:
+    """It is the one participant legitimately in both, so it must stay unpinned.
+
+    Exporting a domain in the gateway's subshell would make it a member of that
+    side instead of the boundary between them.
+    """
+
+    text = DEMO.read_text(encoding="utf-8")
+    gateway_block = text.split("gateway.launch.py")[0].rsplit("# --- The gateway", 1)[-1]
+    assert "export ROS_DOMAIN_ID" not in gateway_block
