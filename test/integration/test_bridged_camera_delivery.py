@@ -85,10 +85,23 @@ def test_the_shipped_gateway_config_delivers_the_camera_across_the_boundary() ->
         executor = SingleThreadedExecutor(context=police_context)
         executor.add_node(observer)
 
+        # The positive control, on A's own domain. Without it this test reports a
+        # closed crossing in any environment where DDS simply does not work --
+        # a container without multicast, a misconfigured RMW -- because "nothing
+        # arrived" is equally consistent with a broken bridge and a broken
+        # network. test_domain_isolation.py holds every negative to this same
+        # rule; the crossing is held to it too.
+        control_node = Node("robot_side_control", context=robot_context)
+        control: list[Image] = []
+        control_node.create_subscription(Image, TOPIC, lambda m: control.append(m), SENSOR_QOS)
+        control_executor = SingleThreadedExecutor(context=robot_context)
+        control_executor.add_node(control_node)
+
         def pump(seconds: float) -> None:
             deadline = time.monotonic() + seconds
             while time.monotonic() < deadline:
                 publisher.publish(_image())
+                control_executor.spin_once(timeout_sec=0.05)
                 executor.spin_once(timeout_sec=0.05)
                 time.sleep(0.05)
 
@@ -97,6 +110,11 @@ def test_the_shipped_gateway_config_delivers_the_camera_across_the_boundary() ->
             # Negative first: the publisher is already live, so anything that
             # arrives later cannot be blamed on it starting late.
             pump(3.0)
+            if not control:
+                pytest.skip(
+                    "the publisher's own domain received nothing, so DDS delivery is "
+                    "unavailable here and a closed-crossing result would be vacuous"
+                )
             before_bridge = len(received)
 
             bridge = subprocess.Popen(  # noqa: S603
@@ -118,7 +136,8 @@ def test_the_shipped_gateway_config_delivers_the_camera_across_the_boundary() ->
                 "the domains were not isolated to begin with"
             )
             assert after_bridge > 0, (
-                "no image crossed with the bridge running; the sanctioned crossing is closed"
+                f"no image crossed with the bridge running, though the publisher's own "
+                f"domain received {len(control)}; the sanctioned crossing is closed"
             )
         finally:
             if bridge is not None and bridge.poll() is None:
@@ -127,7 +146,9 @@ def test_the_shipped_gateway_config_delivers_the_camera_across_the_boundary() ->
                     bridge.wait(timeout=10)
                 except subprocess.TimeoutExpired:  # pragma: no cover - shutdown safety net
                     os.killpg(os.getpgid(bridge.pid), signal.SIGKILL)
+            control_executor.shutdown()
             executor.shutdown()
+            control_node.destroy_node()
             observer.destroy_node()
             publisher_node.destroy_node()
             robot_context.shutdown()
