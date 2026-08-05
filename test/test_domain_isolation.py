@@ -33,13 +33,21 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-import domain_coordinator
 import pytest
 from corridor_gateway.domains import RELAYED_TOPICS
 from rclpy.context import Context
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+
+# Declared as a test dependency of corridor_gateway, so a correctly provisioned
+# machine has it. Imported defensively anyway: a bare `import` here would turn a
+# missing package into a collection error that takes down every unrelated test in
+# the workspace, which is a much worse failure than skipping this file.
+domain_coordinator = pytest.importorskip(
+    "domain_coordinator",
+    reason="apt install ros-jazzy-domain-coordinator to run the isolation proof",
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 TOPIC = "/robot/front_camera/image_raw"
