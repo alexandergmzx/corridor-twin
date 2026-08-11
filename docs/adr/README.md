@@ -42,6 +42,12 @@ Two status strings differ between a file and this index, both deliberately:
 | [0022](0022-robot-a-selection-gate.md) | Accepted | Select robot A by a measured corridor-odometry gate |
 | [0023](0023-governed-nav2-live-slam.md) | Accepted | Autonomy is governed Nav2 on a live SLAM map, policy re-pinned to robot scale |
 | [0024](0024-learned-enforcement-perception.md) | Accepted | Synthetic-data detector with an ArUco-on-A baseline for P's camera |
+| [0025](0025-fleet-workspace-membership.md) | Accepted | Join the fleet workspace by symlink and pin; domains 42/43 stand, 44 reserved |
+
+Reserved, written only when their evidence exists: **0026** (isolation
+verification under the 0021 crossing — protocol in
+[`docs/v2-plan.md`](../v2-plan.md) §5) and **0027** (robot-A selection outcome
+and degeneracy study — protocol in [`docs/v2-plan.md`](../v2-plan.md) §6).
 
 ## Decision map
 
@@ -103,6 +109,10 @@ flowchart LR
     A2 -. "method superseded by" .-> A24
     A14 --> A24
 
+    A8 --> A25["0025<br/>Fleet workspace<br/>membership"]
+    A20 --> A25
+    A25 --> A22
+
     A12 --> Demo["Defensible interview demo"]
     A13 --> Demo
     A16 --> Demo
@@ -115,6 +125,7 @@ flowchart LR
     A22 --> Demo
     A23 --> Demo
     A24 --> Demo
+    A25 --> Demo
 
     classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
     classDef superseded fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
@@ -189,3 +200,13 @@ scenario requirement gate becomes the isolation certificate with its mutation
 test. 0020's domain split, its non-zero 42/43 defaults, truth staying on A's
 plane, and the `/clock` lesson are all retained and built on. The geometric
 program keeps passing as scenario realism; it stops gating the requirement.
+
+ADRs 0022–0025 are the v2 execution set, and every load-bearing claim in them
+was verified against fleet and corridor code before acceptance
+([`docs/v2-plan.md`](../v2-plan.md)). 0022 decides a *procedure* whose outcome
+lands as 0027 and is not edited by it; 0023 amends only the *values* of the
+0016/0007 policy table, deliberately after a measured profile run; 0024
+completes the supersession of 0002 that 0021 began; 0025 makes the fleet the
+second build home without displacing this repository's own gate, and records
+the domain allocation (42/43 standing, 44 reserved, 70 dirty) on the fleet's
+ledger.
