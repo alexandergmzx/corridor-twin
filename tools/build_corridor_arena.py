@@ -63,6 +63,15 @@ ROBOT_PRIM = "/World/Robot"
 GROUND_PRIM = "/World/Environment/Ground"
 GROUND_TRUTH_PRIM = "/World/GroundTruth"
 
+#: v1's stand-in box for robot A. The twin replaces it at the same spawn, so its
+#: visual geometry is deactivated during composition -- see the note there.
+V1_ACTOR_A_PRIM = "/World/Actors/A"
+
+#: How much room the robot needs around its spawn before the governor's
+#: stop_distance (0.35 m [estimate], fleet governor defaults) starts braking on
+#: scenery. Slightly larger, so composition fails before a gate run does.
+SPAWN_CLEARANCE_M = 0.5
+
 # C1 contract [vendor claim] -- the same figures rasptank_sim publishes and
 # build_rasptank_arena.py passes. Restated here because this is a different
 # caller, not because the numbers are re-derived.
@@ -368,6 +377,28 @@ def main() -> int:
             f"dynamic={max(0.0, args.friction - 0.1)} bound to {GROUND_PRIM}"
         )
 
+        # --- retire the v1 stand-in for A ---------------------------------
+        # scene.build authors A as a box with a camera mount on top: that WAS
+        # robot A in v1. In v2 the RaspTank twin is robot A (ADR 0022), and it
+        # is placed at exactly the same spawn -- so leaving the box there parks
+        # a solid object around the robot.
+        #
+        # This is not cosmetic. The RTX lidar sees render geometry, so the twin
+        # spent a whole gate run staring at the inside of its own stand-in: the
+        # governor reported "obstacle at 0.24 m", held the brake, and the robot
+        # travelled 0.043 m in 90 s while every other signal -- odometry, EKF,
+        # TF, map updates, covariance -- looked perfectly healthy.
+        #
+        # Only the Visual is deactivated. The Xform and CameraMount stay, so
+        # the v1 camera prim path the 0009 adapter resolves is untouched and
+        # this arena remains usable for a camera run.
+        stand_in = stage.GetPrimAtPath(f"{V1_ACTOR_A_PRIM}/Visual")
+        if stand_in.IsValid():
+            stand_in.SetActive(False)
+            say(f"  v1 stand-in: DEACTIVATED {V1_ACTOR_A_PRIM}/Visual (the twin is A now)")
+        else:
+            say(f"  v1 stand-in: none at {V1_ACTOR_A_PRIM}/Visual")
+
         # --- robot ---
         robot = UsdGeom.Xform.Define(stage, ROBOT_PRIM)
         robot.GetPrim().GetReferences().AddReference(robot_usd)
@@ -413,6 +444,38 @@ def main() -> int:
         if base_path is None:
             say("FAIL: no base_link under the robot reference")
             return 1
+
+        # --- spawn clearance ------------------------------------------------
+        # The forward-sign gate below drives the articulation directly, so it
+        # passes happily with the robot boxed inside another prim -- which is
+        # exactly what happened with the v1 stand-in. This checks what the
+        # LIDAR will see instead: any active scene geometry whose world bounds
+        # reach into the robot's spawn is a governor brake waiting to happen.
+        bounds = UsdGeom.BBoxCache(
+            Usd.TimeCode.Default(), [UsdGeom.Tokens.default_, UsdGeom.Tokens.render]
+        )
+        intruders = []
+        for actor in stage.GetPrimAtPath("/World/Actors").GetChildren():
+            if not actor.IsActive():
+                continue
+            box = bounds.ComputeWorldBound(actor).ComputeAlignedRange()
+            if box.IsEmpty():
+                continue
+            near = [
+                max(box.GetMin()[axis], min(spawn[axis], box.GetMax()[axis]))
+                for axis in range(3)
+            ]
+            gap = math.dist(near, spawn)
+            if gap < SPAWN_CLEARANCE_M:
+                intruders.append(f"{actor.GetPath()} at {gap:.3f} m")
+        if intruders:
+            say(
+                f"FAIL: scene geometry within {SPAWN_CLEARANCE_M} m of the robot spawn: "
+                + "; ".join(intruders)
+                + " -- the governor will brake on it and the robot will not move"
+            )
+            return 1
+        say(f"  spawn clearance: no active actor within {SPAWN_CLEARANCE_M} m")
 
         # --- the reuse seam ---
         from build_arena import author_lidar
