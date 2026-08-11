@@ -155,6 +155,11 @@ police:
 speed_policy:
   status: demonstration_only
   kind: piecewise_constant_by_clear_width
+  # v2 [to pin after first profile run]: ADR 0023 re-pins these limits to
+  # robot scale (the fleet robots cap at 0.22 m/s, below every tier here).
+  # The values below remain the v1 policy and keep driving the current tests
+  # until the measured profile run pins the v2 numbers, under ADR 0007's
+  # owner-approval rule and 0016's two-gate no-spare constraint.
   # The strict zone begins at 4.0 m clear width, which is x >= 8 on the nominal
   # taper, so gates 8 and 10 both fall inside it. At the previous 3.5 m only
   # gate 10 did, leaving exactly one measurement in the zone; with a two-estimate

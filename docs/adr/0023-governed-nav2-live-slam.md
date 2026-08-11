@@ -10,10 +10,11 @@
   (zone *structure* unchanged), and
   [ADR 0010](0010-supplied-diagram-geometry.md), whose principle this record
   applies to a new axis.
-- Amends the *values* of the width→limit table that
-  [ADR 0007](0007-speed-policy-and-violation.md) and ADR 0016 pinned for v1;
-  the semantics of both records — explicit demonstration policy, owner
-  approval, conservative confirmation, episode rules — are untouched.
+- Amends the *values* of the width→limit table that ADR 0016 pinned under
+  [ADR 0007](0007-speed-policy-and-violation.md)'s policy rule; the semantics
+  of both records — explicit demonstration policy, owner approval,
+  conservative confirmation, episode rules, and 0016's two-gate-minimum
+  consequence — are untouched.
 
 ## Context
 
@@ -28,9 +29,11 @@ One v1 assumption does not survive contact with the fleet's numbers. The v1
 speed policy (0.8 / 1.2 / 1.5 m/s by clear width) was scaled to a v1 robot
 commanded at 1.0 m/s. The fleet robots cannot reach the *lowest* of those
 limits: robot2's Nav2 caps are 0.22 m/s, deliberately set under the governor's
-0.35 m/s safety ceiling, and the governor's ceiling has measured lineage. A
-"violation from the robot's own profile" is arithmetically impossible against
-the v1 table.
+0.35 m/s safety ceiling. The governor's defaults are carried as
+`[estimate]`-tagged Yahboom-measured priors — braking on the RaspTank chassis
+has never been measured, and the fleet's P2 program exists to replace each
+number with one earned on this robot. A "violation from the robot's own
+profile" is arithmetically impossible against the v1 table.
 
 ## Decision
 
@@ -41,27 +44,37 @@ the v1 table.
 2. **Live `slam_toolbox` map, no prior map, no AMCL.** A starts with no
    knowledge of the corridor and builds its map while delivering. This is the
    stronger autonomy claim, it is the configuration proven in session 6, and
-   it keeps scene truth out of A's plane entirely — the same purity ADR
-   0020/0021 impose on P. It holds for either ADR 0022 outcome (robot1's
-   encoder EKF slots under the same stack).
+   it keeps *prior scene knowledge* out of A's navigation stack — the
+   simulator truth topic itself stays on A's domain per 0020 decision 4
+   (retained by 0021), unbridged, consumed only by the offline evaluator. It
+   holds for either ADR 0022 outcome (robot1's encoder EKF slots under the
+   same stack).
 3. **The speed policy re-pins to robot scale; neither ceiling moves.** This
    is ADR 0010's own principle applied to the velocity axis: topology from
    the task, scale a project choice. The governor cap (0.35 m/s) is a safety
-   envelope with measured lineage — untouchable; the Nav2 cap (0.22 m/s) is
-   the profile generator and needs no raising once policy re-pins. Policy
-   values live on the evaluation/P side only — A never reads them — so
-   re-pinning touches zero of A's stack.
+   envelope carried as an `[estimate]` Yahboom prior pending the fleet's P2
+   braking measurements on this chassis — not this scenario's to raise; the
+   Nav2 cap (0.22 m/s) is the profile generator and needs no raising once
+   policy re-pins. Policy values live on the evaluation/P side only — A
+   never reads them — so re-pinning touches zero of A's stack.
 4. **The violation is produced by A's own autonomous profile,** not a
    scripted override. Final limit values are pinned **after** measuring A's
    natural profile through the corridor, because the numbers select the
    episode's shape: a strict limit below cruise across the whole narrow
    stretch yields one long episode (per ADR 0014's semantics), while a strict
-   limit set between cruise speed and the measured throat speed yields a
+   limit set between cruise speed and the measured throat speed can yield a
    short, boundary-localized episode as Nav2 decelerates through the taper.
-   Either is defensible; the choice is made deliberately from the measured
-   profile. Until that run exists the table reads
-   `[to pin after first profile run]`, and ADR 0007's owner-approval rule
-   applies to the final values.
+   One structural constraint binds the choice: 0016's no-spare consequence —
+   both strict-zone gates (8.0 and 10.0 on the nominal taper) must measure
+   over-limit or the two-estimate confirmation cannot fire at all. A limit
+   the measured profile undercuts at gate 10.0 is therefore not pinnable
+   under the retained zone structure; if the measured profile leaves no
+   limit satisfying both the short-episode shape and the two-gate floor, the
+   long-episode shape is the remaining choice, and changing the zone
+   structure instead would be a new record amending 0016, not an edit here.
+   Until that run exists the policy table carries a
+   `[to pin after first profile run]` marker beside its v1 values, and ADR
+   0007's owner-approval rule applies to the final numbers.
 5. **Throat passability is measured, not assumed:** footprint radius,
    inflation radius, and costmap resolution recorded with the tuning evidence
    for whichever robot ADR 0022 selects. (For robot2 today those read
@@ -101,6 +114,8 @@ the v1 table.
   reintroduces exactly the "fixed line" character v1 was corrected for, one
   layer up.
 - **Raise the robot's velocity caps to meet the v1 policy table.** Rejected:
-  the governor ceiling is a measured safety envelope, the Nav2 caps were
-  chosen under it deliberately, and the policy table is the demonstration
-  variable ADR 0007 designed to be re-pinned — the robot is not.
+  the governor ceiling is a safety envelope whose numbers await this
+  chassis's own braking measurements (raising an `[estimate]` prior is the
+  worst direction to guess in), the Nav2 caps were chosen under it
+  deliberately, and the policy table is the demonstration variable ADR 0007
+  designed to be re-pinned — the robot is not.

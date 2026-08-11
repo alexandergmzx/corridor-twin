@@ -13,10 +13,14 @@
   is camera pixels only; truth is an evaluation input) is retained by both
   pipelines below.
 - **Inverts the placement decision of
-  [ADR 0013](0013-size-fiducials-from-delivered-camera.md)**: the fiducial
-  moves from the walls to robot A's body, sized by the same delivered-camera
-  method, now for P's camera. 0013's sizing method is reused; its
-  second-camera rejection was superseded by 0021, not by this record.
+  [ADR 0013](0013-size-fiducials-from-delivered-camera.md) and supersedes its
+  render-product contract**: the fiducial moves from the walls to robot A's
+  body, sized by the same delivered-camera method, now for P's camera; and
+  0013's decision to keep one 640×360 render product at 15 Hz — including its
+  rejection of a resolution increase — is superseded by decision 5 below,
+  which makes resolution a measured parameter. 0013's sizing method is
+  retained, and its rejection of a *second* camera is upheld (0021 keeps
+  exactly one render product).
 - Extends [ADR 0007](0007-speed-policy-and-violation.md) /
   [ADR 0014](0014-violation-episode-semantics.md): evidence and episode
   semantics unchanged.
@@ -45,7 +49,9 @@ whose synthetic-data tooling is the target team's stated stack.
    Isaac Sim 5.1 documentation and examples, per the repository's
    installed-version rule; the verified source is recorded with the scripts.
 2. **Permissive licensing only.** Detector family from YOLOX / RT-DETR /
-   NVIDIA TAO `[to pin at training spike]`. Ultralytics-YOLO is rejected for
+   NVIDIA TAO `[to pin at training spike]` — and because this record is
+   immutable once accepted, the pin lands as its own short record with the
+   spike evidence, never as an edit here. Ultralytics-YOLO is rejected for
    this artifact on AGPL grounds.
 3. **Classical baseline retained for A/B.** An ArUco plate mounted on robot
    A, sized from P's delivered camera intrinsics by the ADR 0013 method; pose

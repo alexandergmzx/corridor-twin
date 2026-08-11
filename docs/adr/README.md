@@ -8,7 +8,7 @@ diagram added after acceptance; those diagrams restate what the record already
 decided and never introduce, soften, or re-argue a conclusion. If a diagram and
 the prose above it ever disagree, the prose is the record.
 
-Two status strings differ between a file and this index, both deliberately:
+Three status strings differ between a file and this index, each deliberately:
 
 | ADR | In the file | In this index | Why |
 |---|---|---|---|
@@ -96,17 +96,21 @@ flowchart LR
     Feedback --> A21["0021<br/>P-owned sensing,<br/>isolation gate"]
     A20 -. "three clauses<br/>superseded by" .-> A21
     A2 -. "camera ownership<br/>superseded by" .-> A21
+    A11 -. "requirement reading<br/>superseded by" .-> A21
 
     Feedback --> A22["0022<br/>Robot-A selection gate"]
     A4 --> A22
 
     A22 --> A23["0023<br/>Governed Nav2,<br/>live SLAM"]
     A3 --> A23
+    A10 --> A23
+    A7 --> A23
     A16 -. "policy values<br/>re-pinned by" .-> A23
 
     A21 --> A24["0024<br/>Learned enforcement<br/>perception"]
     A13 -. "placement inverted by" .-> A24
     A2 -. "method superseded by" .-> A24
+    A7 --> A24
     A14 --> A24
 
     A8 --> A25["0025<br/>Fleet workspace<br/>membership"]
@@ -135,7 +139,7 @@ flowchart LR
 
 The solid arrows mean “constrains or enables,” not “supersedes.” For example, the
 live Isaac adapter is shaped simultaneously by the camera-only rule, clock rule,
-scenario manifest, and Python-runtime boundary. The two **dotted** arrows are the
+scenario manifest, and Python-runtime boundary. The **dotted** arrows are the
 exceptions, and they mean different things:
 
 | Dotted arrow | Meaning |
@@ -144,9 +148,10 @@ exceptions, and they mean different things:
 | 0011 → 0020 | An **amendment** to one row of 0011's concept table. 0011's binding decision is unchanged and still enforced |
 | 0020 → 0021 | A **partial supersession**: 0021 replaces 0020's crossing contents, its camera-ownership stance, and the gating status of the geometric program. 0020's domain split, 42/43 defaults, truth placement, and `/clock` discipline are extended, not replaced |
 | 0002 → 0021 | 0021 moves camera **ownership** to P. 0002's camera-only evidence discipline carries onto P's camera; its estimation method is addressed by 0024 |
-| 0016 → 0023 | An **amendment of values**: 0023 re-pins the width→limit numbers to robot scale (`[to pin after first profile run]`). 0016's zone structure and 0007's policy semantics are unchanged |
+| 0011 → 0021 | 0021 supersedes 0011's **requirement reading** (as amended by 0020): the isolation certificate is the assignment's constraint. 0011's index status stays Accepted because its geometric gate remains computed, reported, and asserted for the authored scene — demoted to scenario realism, not deleted |
+| 0016 → 0023 | An **amendment of values**: 0023 re-pins the width→limit numbers to robot scale; final numbers land with the first measured profile run under ADR 0007's owner-approval rule and 0016's two-gate no-spare constraint. Zone structure and policy semantics are unchanged |
 | 0002 → 0024 | Completes the supersession 0021 began: 0024 replaces the surveyed-wall-marker estimation method with a detector plus an ArUco-on-A baseline. Camera-only evidence and truth isolation are retained by both pipelines |
-| 0013 → 0024 | An **inversion of placement**: the fiducial moves from the walls to A's body, sized by 0013's own delivered-camera method, now for P's camera |
+| 0013 → 0024 | An **inversion of placement and supersession of the render-product contract**: the fiducial moves from the walls to A's body, sized by 0013's own delivered-camera method, and 0013's 640×360/15 Hz keep-decision (with its resolution-increase rejection) gives way to a measured resolution. The second-camera rejection is upheld |
 
 ADR 0011 **extends** ADR 0005 rather than replacing it: the decision to prove
 occlusion continuously and audit composed USD still stands, and 0011 carries it
@@ -200,6 +205,9 @@ scenario requirement gate becomes the isolation certificate with its mutation
 test. 0020's domain split, its non-zero 42/43 defaults, truth staying on A's
 plane, and the `/clock` lesson are all retained and built on. The geometric
 program keeps passing as scenario realism; it stops gating the requirement.
+ADR 0011's index status stays Accepted for the same reason 0020's does: its
+gate is still computed and asserted for the authored scene; only the claim
+that it implements the assignment's constraint is superseded.
 
 ADRs 0022–0025 are the v2 execution set, and every load-bearing claim in them
 was verified against fleet and corridor code before acceptance

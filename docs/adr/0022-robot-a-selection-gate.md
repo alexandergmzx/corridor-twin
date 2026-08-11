@@ -86,7 +86,8 @@ opinion.
   `bond_timeout: 0.0`).
 - Route length, duration, and violation numbers become emergent properties of
   an autonomy stack, not scripted constants; the v2 requalification table
-  replaces the v1 invariants wholesale.
+  skeleton in [`docs/v2-plan.md`](../v2-plan.md) §8 replaces the v1
+  invariants wholesale.
 - A failed gate is a publishable negative result, in the fleet's
   negative-results-in-bold tradition, not a discarded run.
 - The gate runs contend for the machine-wide single Isaac slot, which is an

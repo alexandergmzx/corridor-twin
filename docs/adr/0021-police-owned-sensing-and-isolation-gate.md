@@ -29,8 +29,10 @@
   P's, not A's. 0002's discipline (evidence is camera pixels only; simulator
   pose, odometry, and TF are forbidden shortcuts) carries over to P's camera
   unchanged. The estimation *method* is decided in ADR 0024.
-- Amends CLAUDE.md architectural invariant 3 in the same change: **one render
-  product = P's enforcement instrument.**
+- Amends CLAUDE.md architectural invariants 2 and 3 in the same change:
+  invariant 2's geometric gate is demoted from the assignment's constraint to
+  scenario realism, and invariant 3 becomes **one render product = P's
+  enforcement instrument.**
 
 ## Context
 
@@ -58,8 +60,11 @@ configuration rather than a concession:
    simplification.
 3. The detector of correction 3 must watch A from outside. A's own camera is
    useless to it.
-4. It makes the isolation story airtight: zero image topics exist in A's
-   plane, so there is nothing tempting to bridge back.
+4. It sharpens the isolation story: A neither owns nor consumes any image
+   topic. The only image topic on A's plane is P's instrument in transit
+   through the Isaac process, and the airtightness claim rests on certificate
+   equality — P's observed graph equals the declared allowlist exactly — not
+   on the plane being image-free.
 
 ## Decision
 
@@ -82,10 +87,12 @@ configuration rather than a concession:
    The enforceable phrasing is certificate equality — not "no A-side topic in
    P's plane", which the relay architecture cannot literally satisfy, since
    P's camera originates in the Isaac process on A's plane.
-4. **The geometric program is retained as scenario realism and stops
-   gating.** `camera_visible_intervals` remains computable and reportable for
-   the authored scene; P's concealment, the CornerScreen, and the ray proofs
-   stand as true properties worth demonstrating. Where P's *camera* must
+4. **The geometric program is retained as scenario realism and stops gating
+   the requirement.** `camera_visible_intervals` remains computed, reported,
+   and asserted by the scene-generation suite as a property of the authored
+   scene — demoted from requirement gate to scene property, not deleted.
+   P's concealment, the CornerScreen, and the ray proofs stand as true
+   properties worth demonstrating. Where P's *camera* must
    stand to see every enforcement gate — body move or mast — is a measured
    scene change recorded in its own ADR; ADR 0019's placement is retained as
    authored scenery until then.
@@ -121,9 +128,10 @@ flowchart LR
 
 ## Consequences
 
-- A's plane contains no image topic at all. The strongest statement of the
-  boundary is now structural: there is nothing camera-shaped on A's side to
-  leak.
+- A neither owns nor consumes any image topic. The `/p_cam/*` topics do
+  originate on A's plane — the Isaac process publishes them there before the
+  relay — so the boundary statement is the certificate's equality check, and
+  the source audits keep proving that no A-side node subscribes to them.
 - `police_observer` consumes `/p_cam/*` in P's plane; the stamp-pairing
   discipline of ADR 0003 carries over unchanged, read as one `/clock`
   publisher *per domain* exactly as the 0020-era contract documented.
@@ -132,7 +140,9 @@ flowchart LR
   ADR 0024's baseline decision, which moves the fiducial to A's body.
 - All v1 occlusion and live-demo evidence is relabeled historical
   (pre-correction reading); no v1 figure is quotable for v2. The v2
-  requalification table in the pack replaces the v1 invariants wholesale.
+  requalification table skeleton in [`docs/v2-plan.md`](../v2-plan.md) §8
+  replaces the v1 invariants wholesale, populated only by 0026/0027
+  evidence.
 - P's camera resolution becomes a measured parameter (ADR 0024), and the VRAM
   budget is re-measured at the chosen setting; the crossing's throughput
   ceiling is measured in the ADR 0026 session.
