@@ -1,0 +1,31 @@
+profile      : nominal_m6_n3
+fleet src    : /home/alexmint/Development/robot-fleet/src
+yahboom tools: /home/alexmint/Development/robot-fleet/src/yahboomcar-ros2/tools
+robot asset  : /home/alexmint/Development/robot-fleet/src/rasptank-ros2/rasptank_twin/usd/rasptank/rasptank.usd
+stage        : /home/alexmint/Development/robot-fleet/src/corridor-twin/out/corridor.usda
+  variant selected: nominal_m6_n3  (of ['nominal_m6_n3', 'uniform_m6_n6', 'wide_corner_m6_n4_5'])
+  physics scene: present (from scene.build)
+  dome light   : present (/World/Lighting/DomeLight)
+  friction     : ADDED static=0.6 dynamic=0.5 bound to /World/Environment/Ground
+  robot        : /World/Robot at (0.000, 0.000, 0.055) yaw +7.13 deg  (read back from the composed transform)
+  lidar: /World/Robot/base_link/World_Robot_base_link_c1_lidar
+    500 beams at 0.720 deg, 0.05-12.0 m, 10 Hz  (all 15 parameters read back)
+  lidar params : independent readback of the load-bearing values:
+    scanRateBaseHz                     = 10
+    reportRateBaseHz                   = 5000
+    nearRangeM                         = 0.05000000074505806
+    farRangeM                          = 12.0
+    minDistBetweenEchosM               = 0.05000000074505806
+    numberOfChannels                   = 1
+    numberOfEmitters                   = 1
+    emitterState:s001:elevationDeg     = [0]
+    emitterState:s001:channelId        = [1]
+  C1 contract  : 7 values verified against this repo's constants
+  truth hook   : /World/GroundTruth (inert; paths only, no graph)
+arena written: /home/alexmint/Development/robot-fleet/src/corridor-twin/out/arena_corridor_nominal_m6_n3.usd
+RASPTANK_ARENA_USD=/home/alexmint/Development/robot-fleet/src/corridor-twin/out/arena_corridor_nominal_m6_n3.usd
+=== verify: settle + forward-sign gate ===
+  dof: ['wheel_l_1_joint', 'wheel_l_2_joint', 'wheel_l_3_joint', 'wheel_l_4_joint', 'wheel_r_1_joint', 'wheel_r_2_joint', 'wheel_r_3_joint', 'wheel_r_4_joint']
+  settled at z=0.050 m (expect ~0.055 ride height [estimate])
+  forward-sign gate: commanded +0.2 m/s x 2 s -> along-heading +0.797 m (dx +0.791, dy +0.098)
+RESULT: PASS
