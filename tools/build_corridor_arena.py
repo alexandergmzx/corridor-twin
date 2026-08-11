@@ -182,6 +182,56 @@ def rasptank_usd(start: str | None = None) -> str:
 # --- composition -------------------------------------------------------------
 
 
+#: How far the composed robot may sit from the profile's spawn before the
+#: composition is wrong. Tight, because nothing here should move it at all --
+#: these are authoring tolerances, not physics ones.
+POSITION_TOLERANCE_M = 1e-6
+YAW_TOLERANCE_DEG = 1e-3
+
+
+def placement_error(
+    expected_xyz: tuple[float, float, float],
+    expected_yaw_rad: float,
+    observed_xyz: object,
+    observed_rotation: object,
+) -> tuple[float, float]:
+    """Position and yaw error of a composed robot against its expected spawn.
+
+    Split out of the composer so it can be tested without a GPU session, and
+    because the drive gate alone cannot catch a wrong yaw: the first live
+    composition placed the robot at yaw 0 (XformCommonAPI silently refused the
+    referenced prim's op stack) and the forward-sign gate passed anyway, since
+    the corridor's approach heading is within 8 degrees of +x.
+
+    `observed_rotation` is a USD rotation matrix, indexed as rows; for a Z
+    rotation its first row is (cos, sin, 0), which is where the yaw is read
+    from. The yaw error is wrapped into +/-180 degrees: subtracting two angles
+    and taking the magnitude reports +179.9 against -179.9 as 359.8 degrees
+    apart when they are 0.2, and a gate that can be fooled by the seam is not a
+    gate.
+    """
+
+    position_error_m = max(
+        abs(float(observed_xyz[index]) - expected_xyz[index]) for index in range(3)
+    )
+    observed_yaw_rad = math.atan2(observed_rotation[0][1], observed_rotation[0][0])
+    difference_deg = math.degrees(observed_yaw_rad - expected_yaw_rad)
+    wrapped_deg = abs((difference_deg + 180.0) % 360.0 - 180.0)
+    return position_error_m, wrapped_deg
+
+
+def placement_is_correct(
+    expected_xyz: tuple[float, float, float],
+    expected_yaw_rad: float,
+    observed_xyz: object,
+    observed_rotation: object,
+) -> bool:
+    position_error_m, yaw_error_deg = placement_error(
+        expected_xyz, expected_yaw_rad, observed_xyz, observed_rotation
+    )
+    return position_error_m <= POSITION_TOLERANCE_M and yaw_error_deg <= YAW_TOLERANCE_DEG
+
+
 def profile_pose(manifest: dict, profile: str) -> tuple[tuple[float, float, float], float]:
     """A's start position and heading for a profile, read from the manifest.
 
@@ -338,14 +388,15 @@ def main() -> int:
         placed = UsdGeom.XformCache().GetLocalToWorldTransform(robot.GetPrim())
         got_translation = placed.ExtractTranslation()
         rotation = placed.ExtractRotationMatrix()
-        got_yaw = math.atan2(rotation[0][1], rotation[0][0])
-        offset = max(abs(got_translation[i] - spawn[i]) for i in range(3))
-        if offset > 1e-6 or abs(math.degrees(got_yaw - yaw)) > 1e-3:
+        position_error_m, yaw_error_deg = placement_error(spawn, yaw, got_translation, rotation)
+        if not placement_is_correct(spawn, yaw, got_translation, rotation):
+            got_yaw = math.atan2(rotation[0][1], rotation[0][0])
             say(
                 f"FAIL: robot placement did not stick -- wanted "
                 f"{tuple(round(v, 4) for v in spawn)} yaw {math.degrees(yaw):+.3f} deg, "
                 f"read back {tuple(round(float(v), 4) for v in got_translation)} "
-                f"yaw {math.degrees(got_yaw):+.3f} deg"
+                f"yaw {math.degrees(got_yaw):+.3f} deg "
+                f"(position error {position_error_m:.2e} m, yaw error {yaw_error_deg:.2e} deg)"
             )
             return 1
         say(
