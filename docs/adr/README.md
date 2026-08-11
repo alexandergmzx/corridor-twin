@@ -39,6 +39,7 @@ Two status strings differ between a file and this index, both deliberately:
 | [0020](0020-communication-domain-isolation.md) | Accepted | Isolate A and P on separate ROS domains, bridged by one allowlist |
 | [0021](0021-police-owned-sensing-and-isolation-gate.md) | Accepted | Move the camera to P and gate on the isolation certificate |
 | [0022](0022-robot-a-selection-gate.md) | Accepted | Select robot A by a measured corridor-odometry gate |
+| [0023](0023-governed-nav2-live-slam.md) | Accepted | Autonomy is governed Nav2 on a live SLAM map, policy re-pinned to robot scale |
 
 ## Decision map
 
@@ -91,6 +92,10 @@ flowchart LR
     Feedback --> A22["0022<br/>Robot-A selection gate"]
     A4 --> A22
 
+    A22 --> A23["0023<br/>Governed Nav2,<br/>live SLAM"]
+    A3 --> A23
+    A16 -. "policy values<br/>re-pinned by" .-> A23
+
     A12 --> Demo["Defensible interview demo"]
     A13 --> Demo
     A16 --> Demo
@@ -101,6 +106,7 @@ flowchart LR
     A20 --> Demo
     A21 --> Demo
     A22 --> Demo
+    A23 --> Demo
 
     classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
     classDef superseded fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
@@ -119,6 +125,7 @@ exceptions, and they mean different things:
 | 0011 → 0020 | An **amendment** to one row of 0011's concept table. 0011's binding decision is unchanged and still enforced |
 | 0020 → 0021 | A **partial supersession**: 0021 replaces 0020's crossing contents, its camera-ownership stance, and the gating status of the geometric program. 0020's domain split, 42/43 defaults, truth placement, and `/clock` discipline are extended, not replaced |
 | 0002 → 0021 | 0021 moves camera **ownership** to P. 0002's camera-only evidence discipline carries onto P's camera; its estimation method is addressed by 0024 |
+| 0016 → 0023 | An **amendment of values**: 0023 re-pins the width→limit numbers to robot scale (`[to pin after first profile run]`). 0016's zone structure and 0007's policy semantics are unchanged |
 
 ADR 0011 **extends** ADR 0005 rather than replacing it: the decision to prove
 occlusion continuously and audit composed USD still stands, and 0011 carries it
