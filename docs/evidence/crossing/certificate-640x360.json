@@ -20,8 +20,8 @@
     "matches_exactly": true
   },
   "clock": {
-    "messages": 296,
-    "distinct_values": 291,
+    "messages": 273,
+    "distinct_values": 269,
     "advancing": true
   },
   "positive_control": {

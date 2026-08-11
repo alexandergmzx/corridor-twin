@@ -1,10 +1,19 @@
 # Live crossing measurement and isolation certificate — v2 plan T2.2 / T2.3
 
-First live measurement of the 42 → 43 crossing under the recast v2 rules, and
-the first isolation certificate taken from inside P's plane.
+The 42 → 43 crossing under the recast v2 rules, with the delivery gate
+decomposed into a producer gate and a crossing gate, and the isolation
+certificate taken from inside P's plane.
 
-**T2.3 passed. T2.2's delivery gate did not.** ADR 0026 is therefore not
-written: the v2 plan makes it Accepted only when every T2 gate is green.
+**All four gates are green for the pinned 640×360 configuration.** 1280×720
+fails the crossing gate and is recorded as a throughput verdict, not a session
+failure.
+
+| Gate | 640×360 | 1280×720 |
+|---|---|---|
+| Producer (rendered vs declared) | **PASS** 0.9995 | **PASS** 0.9995 |
+| Crossing (delivered vs published) | **PASS** 0.954 | **FAIL** 0.926 |
+| Isolation certificate | **GREEN** | not re-run (config unchanged) |
+| Mutation control | **RED** as required | — |
 
 ## Environment
 
@@ -13,102 +22,128 @@ written: the v2 plan makes it Accepted only when every T2 gate is green.
 | Date | 2026-08-11 |
 | Isaac Sim | 5.1.0.0 (`~/isaac/env_isaaclab`, Python 3.11) |
 | GPU | NVIDIA GeForce RTX 5070 Ti, driver 580.173.02, 16303 MiB |
-| ROS | Jazzy; observer/measurement on system Python 3.12 |
+| ROS | Jazzy; measurement on system Python 3.12 |
 | Domains | A = 42, P = 43, one-way `domain_bridge` |
-| Drive | 1.0 m/s finishes the authored route in ~24 s, so 0.35 m/s was used to keep the source alive across the 60 s window |
+| Drive | 0.35 m/s, so the ~24.6 m route outlives the 60 s capture window |
 
 ```bash
 bash tools/crossing_session.sh --label 640x360
 bash tools/crossing_session.sh --label 1280x720 --camera-resolution 1280x720 --certificate no
+python3 tools/rate_basis_analysis.py --out out/evidence/crossing/rate-basis.json
 ```
 
-## T2.3 — isolation certificate: **GREEN**, mutation **RED**
+## A correction to the previous measurement
+
+The earlier capture reported "the binding constraint is the publisher, not the
+crossing", from a publisher rate of 12.93 Hz against a declared 15. **That was
+an artifact of the measuring instrument and is retracted.**
+
+`rate-basis.json` is the analysis that caught it. The real-time factor was 0.974,
+so simulation time explained ~2.5 % of a ~14 % gap — but CameraInfo and Image
+leave the same render product on the same tick, and on a simulation-time basis
+CameraInfo read 14.39 Hz while Image read 12.93 Hz. The only property separating
+the two streams is message size, and both subscribers are BEST_EFFORT out of
+necessity, because the publisher offers BEST_EFFORT and a RELIABLE subscriber
+matches nothing.
+
+Three independent measurements now agree the adapter renders on rate:
+
+| Method | DDS in the path? | 640×360 | 1280×720 |
+|---|---|---|---|
+| Adapter's own `--drive-out` schedule | no | **14.993 Hz** | **14.993 Hz** |
+| CameraInfo tap on A's plane | yes, small messages | 15.021 Hz | 15.0 Hz |
+| Image tap on A's plane | yes, ~691 kB–2.7 MB messages | 13.794 Hz | 10.8 Hz |
+
+The first two agree to 0.2 %. The third is the one that moves with resolution,
+which is what a size-dependent transport loss looks like and what a producer
+shortfall does not.
+
+## Producer gate — **PASS at both resolutions**
+
+Defined as frames the adapter rendered per simulation second, from its own
+schedule, against the declared rate. The schedule has no DDS in it: it is the
+per-update simulation-time record written by the process that owns the render
+loop, so a subscriber that drops frames cannot depress it.
+
+4219 updates over 70.3 simulation seconds, divider 4 → 1054 frames → **14.993 Hz
+against 15.0 declared, ratio 0.9995**, identical at both resolutions.
+
+It measures intent rather than emission — a graph that silently failed to
+publish a rendered frame would still appear here — which is why the CameraInfo
+crossing ratio is reported beside it and neither is quoted alone.
+
+## Crossing gate — **PASS at 640×360, FAIL at 1280×720**
+
+Defined as delivered in P's plane vs published on A's plane, with the same QoS
+and queue depth on both sides so the difference is attributable to what sits
+between them. Queue depth is 200, not the contract's 5: the subscriber is an
+instrument, and a queue overflowing while the thread services the other domain
+would be recorded as transport loss.
+
+| | 640×360 | 1280×720 |
+|---|---|---|
+| Image crossing ratio | **0.954** | **0.926** |
+| CameraInfo crossing ratio | 0.993 | 0.998 |
+| Attribution | size-dependent transport loss | size-dependent transport loss |
+
+The small stream crosses essentially intact at both resolutions while the large
+one degrades with size. **This is not the bridge declining to forward.** It is
+best-effort delivery of large messages, and it happens on both legs; the bridge
+is one of them, not the cause.
+
+## Latency, VRAM, bridge CPU
+
+| | 640×360 | 1280×720 | Ceiling |
+|---|---|---|---|
+| Added latency, median | 1.34 ms | 4.92 ms | — |
+| Added latency, p95 | 3.31 ms | 8.05 ms | — |
+| Added latency, max | 6.65 ms | **23.86 ms** | 66.7 ms — pass |
+| VRAM peak during capture | 2874 MiB | 2915 MiB | of 16303 |
+| Bridge CPU, max | 4.0 % | 8.0 % | — |
+
+Added latency is a difference and is measured as one: the same topic is
+subscribed on both domains in one process and frames matched by header stamp, so
+the delta is the bridge's contribution against a single wall clock. Comparing a
+header stamp to wall time would instead have measured Isaac's real-time factor.
+
+Stamps were monotonic in P's plane at both resolutions (0 violations), and
+`/clock` advanced in P's plane throughout.
+
+## Isolation certificate — **GREEN**, mutation **RED**
 
 | Artifact | Verdict | Unexpected topics in P's plane |
 |---|---|---|
 | `certificate-640x360.json` | **GREEN** | none |
 | `certificate-640x360-mutated.json` | **RED** | `/test/ground_truth/speed` |
 
-P's observed graph equalled the declared allowlist exactly —
-`/p_cam/image_raw`, `/p_cam/camera_info`, `/clock` — with `/clock` present and
-advancing. The mutation relayed one extra A-plane topic and the certificate
-went red naming it, so the instrument is shown to detect a leak rather than
-merely never having seen one.
+P's observed graph equalled the declared allowlist exactly, with `/clock`
+present and advancing. The mutation relayed one extra A-plane topic and the
+certificate went red naming it.
 
-**The green only counts because something was available to leak.** The first
-attempt returned `INCONCLUSIVE`: an adapter-only session publishes nothing on
-A's plane except the allowlist itself, so "P sees exactly the allowlist" was
-trivially true with nothing to hide. `tools/truth_source.py` now publishes
-`/test/ground_truth/speed` on A's plane, unbridged, for the whole certificate
-phase — simulator truth, the thing truth-isolation forbids reaching P. The
-certificate records that it was live on 42 and absent from 43.
+The green counts only because something was available to leak:
+`tools/truth_source.py` publishes `/test/ground_truth/speed` on A's plane,
+unbridged, throughout the certificate phase. Without it an adapter-only session
+publishes nothing on A's plane except the allowlist itself, and the first
+attempt certified `INCONCLUSIVE` for exactly that reason.
 
-## T2.2 — crossing measurement: **FAIL on delivery**, pass on everything else
+## The 1280×720 verdict
 
-| Measure | 640×360 | 1280×720 | Gate |
-|---|---|---|---|
-| Publisher rate while alive | **12.93 Hz** | **9.39 Hz** | 15 Hz declared |
-| Delivered / nominal | **0.790** | **0.576** | ≥ 0.95 — **FAIL** |
-| Delivered / published | **0.941** | **0.940** | ≥ 0.95 — **FAIL** |
-| Added latency, median | 1.34 ms | 5.26 ms | — |
-| Added latency, p95 | 3.31 ms | 8.41 ms | — |
-| Added latency, max | 6.65 ms | 17.5 ms | < 66.7 ms — **pass** |
-| Stamp monotonicity (P's plane) | 0 violations | 0 violations | pass |
-| `/clock` advancing in P's plane | yes, 58.5 s span | yes, 58.8 s span | pass |
-| VRAM peak during capture | 2874 MiB | 2934 MiB | of 16303 |
-| Bridge CPU, max | 4.0 % | 8.0 % | — |
+**The ceiling is the transport, not the renderer.** The adapter rendered 720p at
+the same 14.993 Hz, VRAM rose only 41 MiB, and latency stayed far under one
+camera period — but the image crossing ratio fell to 0.926, below the 0.95
+floor, while CameraInfo crossed at 0.998.
 
-Added latency is a *difference*, so it is measured as one: the tool subscribes
-to the same topic on both domains in one process and matches frames by header
-stamp, so the delta is the bridge's contribution against a single wall clock.
-Comparing a header stamp to wall time would instead have measured Isaac's
-real-time factor and reported it as transport delay.
-
-### Why delivery fails, and where it does not fail
-
-**The binding constraint is the publisher, not the crossing.** At 640×360 the
-adapter emitted 12.93 Hz against a declared 15 Hz — 86 % of nominal — so
-`delivered / nominal` is capped at 0.86 before any transport is involved and
-cannot reach 0.95 no matter what the bridge does.
-
-The bridge's own fidelity is 94.0–94.1 % at both resolutions, just under the
-same floor. **That figure is a lower bound, not a measurement of bridge loss.**
-Both measurement subscribers are BEST_EFFORT — forced, since the publisher
-offers BEST_EFFORT and a RELIABLE subscriber would match nothing — so frames
-dropped by the measuring node are indistinguishable from frames dropped by the
-bridge. Corroborating detail: small `CameraInfo` messages arrived 843–844 times
-while large `Image` messages arrived 518–747 times in the same windows, which is
-the signature of large-message loss somewhere on the path, not of a bridge that
-refuses to forward.
-
-Separating the two needs an instrument that cannot drop, which this one is not.
-**No claim is made here that the bridge loses 6 % of frames.**
-
-### The 1280×720 trial
-
-The throughput ceiling is **the renderer, not the crossing**. At 720p the
-publisher fell from 12.93 to 9.39 Hz while bridge fidelity was unchanged
-(0.940 vs 0.941) and latency, though ~4× worse, stayed far under one camera
-period. VRAM rose only 60 MiB; bridge CPU doubled from 4 % to 8 %.
-
-Per the plan, a 720p shortfall is not a session failure and no resolution is
-chosen here. 640×360 stays pinned for the crossing. ADR 0024 decides the v2
-resolution.
-
-**The first 720p attempt was invalid and is not published.** It was run by
-building a stage with a 1280×720 camera block, but the adapter takes its
-resolution from a hardcoded `ADAPTER_CONTRACT`, not from the manifest, so it
-published 640×360 under a `1280x720` label. It was caught by checking the
-delivered frame sizes rather than the label. `--camera-resolution` was added to
-the adapter so a trial resolution can be measured without editing the contract;
-the numbers above are from a run whose delivered frames really are 1280×720.
+640×360 stays pinned for the crossing. No resolution is chosen here; ADR 0024
+decides the v2 resolution, and if it wants 720p the transport question has to be
+answered first (larger DDS buffers, a compressed transport, or a reliability
+change — none of which is attempted here).
 
 ## What this does not show
 
 - Nothing about P's camera **placement**. The camera still sits on A's old mount
-  and aim; only naming and ownership moved. Placement is a later task.
-- No resolution or rate decision. The 720p row is a ceiling input for ADR 0024.
-- Nothing about the estimator, autonomy, or the learned detector.
-- The isolation certificate was taken with the adapter and one truth publisher
-  live. A fuller A-plane (lidar, odometry, TF, Nav2) is a stronger test and has
-  not been run.
+  and aim; only naming and ownership moved.
+- No estimator, autonomy, or detector claim.
+- The certificate ran with the adapter and one truth publisher live. A fuller
+  A-plane (lidar, odometry, TF, Nav2) is a stronger test and has not been run.
+- The producer gate measures render-loop intent; a graph-level publish failure
+  would need the CameraInfo ratio to catch it.
