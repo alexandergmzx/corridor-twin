@@ -47,6 +47,25 @@ A violation event represents **one continuous speeding episode**.
   rest of the estimator state, because continuity can no longer be asserted
   across the discontinuity.
 
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Rearmed
+    Rearmed --> Confirming: conservative speed &gt; limit
+    Confirming --> Confirming: still over, below<br/>consecutive_estimates
+    Confirming --> EpisodeOpen: threshold met<br/><b>emit one event</b>
+    Confirming --> Rearmed: conservative speed &le; limit
+    EpisodeOpen --> EpisodeOpen: still over, or the zone<br/>tightened &mdash; emits nothing
+    EpisodeOpen --> Rearmed: conservative speed &le; limit
+    Confirming --> Rearmed: temporal reset
+    EpisodeOpen --> Rearmed: temporal reset
+```
+
+The self-loop on `EpisodeOpen` is the decision this record exists to make: the
+old code rearmed on the line before returning the event, which turned one
+continuous offense into an event count that tracked gate density rather than
+the robot's behaviour.
+
 ## Consequences
 
 > **Correction, 2026-07-27.** As first written, this section claimed a longer

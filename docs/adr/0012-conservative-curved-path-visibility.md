@@ -46,6 +46,30 @@ an occlusion that the real motion lacks.
 Serialize a witness as `witness_axis` plus `witness_coordinate_m`. The axis is
 part of the evidence, not an implementation detail.
 
+```mermaid
+flowchart TD
+    Interval["One trajectory interval"] --> Kind{"Straight or<br/>circular?"}
+    Kind -->|"straight"| Seg["Exact segment<br/>endpoints are the vertices"]
+    Kind -->|"turn"| Rect["Axis-aligned rectangle from<br/>endpoint angles + every<br/>cardinal angle contained"]
+
+    Seg --> Wall{"Wall witness at a<br/>separating plane?"}
+    Rect --> Wall
+    Wall -->|"yes"| Blocked["Wall-blocked<br/><b>strongest result</b>"]
+    Wall -->|"no"| Frustum{"Outside the frustum<br/>over the whole yaw range?"}
+    Frustum -->|"yes"| Excluded["Frustum-excluded<br/>reported separately"]
+    Frustum -->|"no"| Split["Subdivide and retry"]
+    Split --> Interval
+    Split -.->|"budget exhausted"| Unresolved["Visible or unresolved<br/><b>FAILS</b>"]:::blocked
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+```
+
+The rectangle's extrema are closed form, not samples — that is the whole point
+of the record. Because the ray crossing is linear-fractional in the source and
+target coordinates with a fixed-sign denominator, checking the enclosure's
+vertices proves the claim for every interior point, which no amount of sampling
+can do.
+
 ## Consequences
 
 - The curved-source fixture is a mandatory negative regression and no longer

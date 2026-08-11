@@ -39,6 +39,32 @@ Five plates, with every parameter measured rather than chosen:
 | east face | 1.8 | 2.6 m | 1.00 m |
 | east face | 0.0 | 1.0 m | 1.00 m |
 
+```mermaid
+flowchart LR
+    Cam["A's camera<br/>in the strict zone"] --> NW["North wall<br/>extends east past the corner<br/>three plates, staggered heights"]
+    Cam --> EF["East building face<br/>two plates, staggered heights"]
+    NW --> Rank["Correspondences from<br/><b>two perpendicular planes</b>"]
+    EF --> Rank
+    Rank --> Ok["Centred matrix rank 3<br/>pose accepted"]
+
+    Coplanar["One plane only"]:::blocked --> Ambiguous["Rank &lt; 3 &mdash; planar-PnP<br/>ambiguity, rejected"]:::blocked
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+```
+
+The perpendicularity is the load-bearing property, not the plate count: the
+estimator rejects any correspondence set whose centred matrix has rank below 3
+rather than inferring safety from how many markers were seen. The staggered
+heights exist for a different reason — plates level with each other telescope
+in the image and paint over each other's quiet zones.
+
+The diagram deliberately omits the `along_m` coordinates in the table above:
+[ADR 0019](0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md)
+later relocated three of these plates to clear the corner screen, so the
+surveyed values live in `config/corridor.yaml` and the table above records
+what *this* decision chose. The structure the diagram shows — two
+perpendicular host planes — is what survived unchanged.
+
 Four properties are load-bearing.
 
 **The heights are staggered because level plates destroy each other.** Plates

@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # One command for the live corridor-twin demonstration.
 #
-# The demonstration needs two processes that must not share a shell. The
+# The demonstration needs three processes that must not share a shell. The
 # observer side runs on system Jazzy under Python 3.12; the Isaac adapter runs
 # on Isaac's bundled Jazzy under Python 3.11 and re-execs itself into an
 # isolated environment that rejects leaked system ROS paths. They meet over
 # DDS, which docs/ACTIVATION.md records working: an external system-Jazzy
 # consumer received synchronized 640x360 rgb8 frames from this adapter.
+#
+# Since ADR 0020 they no longer meet on the same DDS domain. A runs on
+# ROBOT_DOMAIN_ID, P runs on POLICE_DOMAIN_ID, and discovery does not cross
+# between them, so P cannot see, list, or subscribe to anything A publishes.
+# The third process is the gateway, which relays exactly the camera contract
+# and /clock one way, A to P. Kill it mid-run and P goes blind -- that is the
+# negative control for the isolation claim.
 #
 # The default run drives A at a constant 1.0 m/s. That single unchanged speed
 # is legal on the wide approach and illegal once the corridor narrows and the
@@ -23,6 +30,14 @@ updates="${UPDATES:-3000}"
 view="${VIEW:-rviz}"
 isaac_python="${ISAAC_PYTHON:-$HOME/isaac/env_isaaclab/bin/python}"
 evidence_dir="${EVIDENCE_DIR:-$workspace_dir/out/evidence/live-demo}"
+robot_domain="${ROBOT_DOMAIN_ID:-42}"
+police_domain="${POLICE_DOMAIN_ID:-43}"
+
+if [[ "$robot_domain" == "$police_domain" ]]; then
+  echo "ROBOT_DOMAIN_ID and POLICE_DOMAIN_ID must differ; both are $robot_domain." >&2
+  echo "Equal domains would put A and P back on one communication plane." >&2
+  exit 2
+fi
 
 usage() {
   cat <<'USAGE'
@@ -36,6 +51,8 @@ Environment overrides:
   UPDATES=<int>            adapter safety cap   (default 3000)
   VIEW=<name>              viewport perspective (default rviz; corner, chase)
   ISAAC_PYTHON=<path>      Isaac interpreter    (default ~/isaac/env_isaaclab/bin/python)
+  ROBOT_DOMAIN_ID=<int>    A's ROS domain       (default 42)
+  POLICE_DOMAIN_ID=<int>   P's ROS domain       (default 43)
 USAGE
 }
 
@@ -76,6 +93,7 @@ fi
 mkdir -p "$evidence_dir"
 ros_log="$evidence_dir/ros-side.log"
 isaac_log="$evidence_dir/isaac-side.log"
+gateway_log="$evidence_dir/gateway.log"
 drive_out="$evidence_dir/commanded-pose-schedule.json"
 
 # Job control puts each background job in its own process group whose id is the
@@ -111,9 +129,11 @@ echo "  stage        $stage"
 echo "  manifest     $manifest"
 echo "  path speed   $speed m/s"
 echo "  evidence     $evidence_dir"
+echo "  A's domain   $robot_domain"
+echo "  P's domain   $police_domain (reachable from A's only through the gateway)"
 echo
 
-# --- ROS side: system Jazzy, Python 3.12 -------------------------------------
+# --- P's side: system Jazzy, Python 3.12, police domain ----------------------
 # Started first, matching the ordering docs/ACTIVATION.md validates for the
 # external probe: the consumer is up before the publisher begins.
 (
@@ -122,17 +142,35 @@ echo
   source "$workspace_dir/install/setup.bash"
   set -u
   export PYTHONNOUSERSITE=1
+  export ROS_DOMAIN_ID="$police_domain"
   # ros2 launch rejects an empty value outright, so an unset profile has to be
   # omitted rather than passed as corridor_profile:= -- otherwise the whole ROS
   # side fails to start and the run looks like a DDS problem.
-  launch_args=(manifest:="$manifest" use_sim_time:=true rviz:="$rviz")
+  launch_args=(manifest:="$manifest" use_sim_time:=true rviz:="$rviz"
+               police_domain_id:="$police_domain")
   if [[ -n "$profile" ]]; then
     launch_args+=(corridor_profile:="$profile")
   fi
   exec ros2 launch police_observer live_demo.launch.py "${launch_args[@]}"
 ) >"$ros_log" 2>&1 &
 children+=($!)
-echo "observer + display starting (log: $ros_log)"
+echo "observer + display starting on domain $police_domain (log: $ros_log)"
+
+# --- The gateway: in both domains, which nothing else is ---------------------
+# No ROS_DOMAIN_ID is exported here on purpose. The bridge builds one
+# participant per domain from its own configuration; pinning it to either side
+# would make it a member of that side rather than the boundary between them.
+(
+  set +u
+  source /opt/ros/jazzy/setup.bash
+  source "$workspace_dir/install/setup.bash"
+  set -u
+  export PYTHONNOUSERSITE=1
+  exec ros2 launch corridor_gateway gateway.launch.py \
+    robot_domain_id:="$robot_domain" police_domain_id:="$police_domain"
+) >"$gateway_log" 2>&1 &
+children+=($!)
+echo "gateway starting, $robot_domain -> $police_domain one way (log: $gateway_log)"
 
 if [[ "$record" == "true" ]]; then
   (
@@ -141,13 +179,17 @@ if [[ "$record" == "true" ]]; then
     source "$workspace_dir/install/setup.bash"
     set -u
     export PYTHONNOUSERSITE=1
+    # Records from P's domain, which is the honest view: it captures exactly
+    # what the gateway let through plus what P published. A bag taken on A's
+    # domain would show topics P never had access to.
+    export ROS_DOMAIN_ID="$police_domain"
     cd "$evidence_dir"
     exec ros2 bag record -o rosbag \
       /robot/front_camera/image_raw /robot/front_camera/camera_info \
       /police/speed_estimate /police/speed_violation /clock
   ) >"$evidence_dir/rosbag.log" 2>&1 &
   children+=($!)
-  echo "recording to $evidence_dir/rosbag"
+  echo "recording to $evidence_dir/rosbag from domain $police_domain"
 fi
 
 # The children are in their own process groups now; quieten job notifications.
@@ -156,14 +198,19 @@ set +m
 # Let the consumers finish DDS discovery before the publisher starts.
 sleep 8
 
-# --- Isaac side: bundled Jazzy, Python 3.11 ----------------------------------
+# --- A's side: Isaac, bundled Jazzy, Python 3.11, robot domain ---------------
 # No system ROS in this shell. The adapter re-execs itself into Isaac's bundled
 # Jazzy and rejects leaked AMENT_PREFIX_PATH/PYTHONPATH, so sourcing system ROS
 # here would abort the run rather than silently mix two ABIs.
-echo "starting Isaac (log: $isaac_log)"
+#
+# ROS_DOMAIN_ID survives that re-exec: the bootstrap copies the environment and
+# replaces only the ROS distribution paths, so A stays on its own domain rather
+# than falling back to the default one and finding P again.
+echo "starting Isaac on domain $robot_domain (log: $isaac_log)"
 env -u AMENT_PREFIX_PATH -u PYTHONPATH -u ROS_DISTRO -u CMAKE_PREFIX_PATH \
     -u LD_LIBRARY_PATH -u ROS_VERSION -u ROS_PYTHON_VERSION \
     OMNI_KIT_ACCEPT_EULA=YES \
+    ROS_DOMAIN_ID="$robot_domain" \
     "$isaac_python" "$workspace_dir/tools/isaac_5_1_ros_camera.py" \
     "$stage" \
     ${profile:+--profile "$profile"} \
@@ -183,3 +230,8 @@ echo "  ISAAC_ROS_CAMERA_GPU            VRAM against the RTX 5070 Ti budget"
 echo "  ISAAC_ROS_CAMERA_PASS           one render product, one camera"
 echo
 echo "Observer output is in $ros_log; grep for speed_violation."
+echo "Gateway output is in $gateway_log."
+echo
+echo "If P received nothing, check which of the two it was before blaming DDS:"
+echo "  ROS_DOMAIN_ID=$robot_domain ros2 topic list   # empty means A never published"
+echo "  ROS_DOMAIN_ID=$police_domain ros2 topic list   # camera topics here means the gateway ran"

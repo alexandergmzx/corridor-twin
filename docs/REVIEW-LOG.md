@@ -9,15 +9,35 @@ broken the build.
 Disagreeing with a disposition here is welcome. Re-deriving one from scratch is
 the waste this file exists to prevent.
 
-| Round | Subject | Commits |
-|---|---|---|
-| 1 | Documentation and decisions | `5a3a083`, `43db0fc`, `ab09aff` |
-| 2 | Code | `b5194bf`, `55eb69e`, `dbcf57e` |
-| 3 | Closing the deferred findings | `a101b28`, `82b490d` |
-| 4 | Independent review of rounds 1–3 | `f2e2504`, `be4694f`, `1099245`, `64220a7`, `ade033e`, `7a5980a` |
-| 5 | Manifest consumers missed newly authored walls | `3bf0995` |
-| 6 | Police placement and certificate integrity | Implemented; independent review found 5 further issues in the fix itself — see round 7 |
-| 7 | Independent review of round 6's own fixes | `ab6c787`, `d115e0e`, `01527b7`, `b867536`, `e79b63c` — Implemented, **pending independent review** |
+| Round | Subject | Findings | Commits |
+|---|---|---|---|
+| 1 | Documentation and decisions | 15 — 3 High, 7 Med, 5 Low | `5a3a083`, `43db0fc`, `ab09aff` |
+| 2 | Code | 8 — 3 High, 5 Low | `b5194bf`, `55eb69e`, `dbcf57e` |
+| 3 | Closing the deferred findings | 2 re-opened (R17, C4) | `a101b28`, `82b490d` |
+| 4 | Independent review of rounds 1–3 | 5 — 1 High, 3 Med, 1 Low | `f2e2504`, `be4694f`, `1099245`, `64220a7`, `ade033e`, `7a5980a` |
+| 5 | Manifest consumers missed newly authored walls | 1 structural | `3bf0995` |
+| 6 | Police placement and certificate integrity | 7 — 2 High, 4 Med, 1 Low | `6c638f1`, `1f8a08f`, `f28d321`, `4d3e091`, `d99c18d`, `22589e4`, `75f0581`, `1eff967`, `01ce177` |
+| 7 | Independent review of round 6's own fixes | 5 — 1 High, 3 Med, 1 Low | `ab6c787`, `d115e0e`, `01527b7`, `b867536`, `e79b63c` — **pending independent review** |
+
+```mermaid
+flowchart LR
+    R1["Round 1<br/>Docs and decisions<br/>15 findings"] --> R3["Round 3<br/>Closing deferrals<br/>R17 &middot; C4"]
+    R2["Round 2<br/>Code<br/>8 findings"] --> R3
+    R3 --> R4["Round 4<br/>Review of rounds 1&ndash;3<br/>5 findings"]
+    R4 --> R5["Round 5<br/>Manifest blind spot<br/>1 structural"]
+    R5 --> R6["Round 6<br/>Police placement<br/>7 findings"]
+    R6 -. "review of the fix<br/>itself" .-> R7["Round 7<br/>Review of round 6<br/>5 findings"]
+    R7 --> Next["Independent review<br/>of round 7<br/><b>PENDING</b>"]:::pending
+
+    classDef pending fill:#5c471f,color:#ffffff,stroke:#ffc857,stroke-width:2px;
+```
+
+Solid arrows are "ran after". The one dotted arrow is different in kind: round
+7 audited **round 6's own fixes**, not the system as a whole, and found five
+further issues in them — including a High where the corrected verifier still
+never read the camera's authored rotation. That is the pattern this file exists
+to make visible: a fix is not evidence until something independent has tried to
+break it.
 
 ---
 

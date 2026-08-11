@@ -1,34 +1,31 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>police_observer</name>
+  <name>corridor_gateway</name>
   <version>0.1.0</version>
-  <description>ROS 2 camera observer and deterministic synthetic publisher for corridor-twin.</description>
+  <description>The one sanctioned one-way crossing between the robot and police ROS domains.</description>
   <maintainer email="alexandergmzx@gmail.com">Alexander Gomez</maintainer>
   <license>Apache-2.0</license>
 
-  <exec_depend>ament_index_python</exec_depend>
-  <exec_depend>corridor_gateway</exec_depend>
-  <exec_depend>corridor_interfaces</exec_depend>
-  <exec_depend>corridor_scene</exec_depend>
-  <exec_depend>cv_bridge</exec_depend>
-  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>domain_bridge</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>message_filters</exec_depend>
-  <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
-  <exec_depend>rclpy</exec_depend>
   <exec_depend>rosgraph_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>visualization_msgs</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
+  <!-- test/test_domain_isolation.py allocates collision-free ROS domain ids
+       with this rather than hardcoding 42 and 43, so two concurrent CI jobs on
+       one network cannot cross-talk and report a false leak. It is present on
+       most workstations only because ament_cmake_ros and ros2test happen to
+       depend on it; a clean CI image installs it only if it is declared here. -->
+  <test_depend>domain_coordinator</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>sensor_msgs</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

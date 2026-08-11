@@ -1,0 +1,60 @@
+# The only sanctioned data path between A's domain and P's domain.
+#
+# A (robot, Isaac or synthetic publisher) runs in ROS domain 42. P (police
+# observer, enforcement display, RViz) runs in ROS domain 43. DDS discovery does
+# not cross a domain boundary, so by default P cannot see, list, or subscribe to
+# anything A publishes -- including topics nobody thought to forbid.
+#
+# That isolation would leave P with no data at all, and P has no camera of its
+# own: the scenario source gives P A's front-camera feed, and CLAUDE.md's
+# one-camera invariant bars a police-side sensor. So exactly three message types
+# are relayed, one way, by this file. Everything else stays unreachable because
+# it was never listed here, which is a stronger guarantee than a blocklist: a
+# topic added to A tomorrow is invisible to P without anyone remembering to
+# forbid it.
+#
+# Why each entry is here, and not one more:
+#
+#   image_raw    P's only evidence. ADR 0002 derives speed from these pixels.
+#   camera_info  Without intrinsics the pixels have no metric meaning.
+#   clock        Not cosmetic. Under use_sim_time, rclpy's TimeSource subscribes
+#                to /clock internally -- no observer source line constructs it,
+#                so the repository's AST subscription guard cannot see it. Drop
+#                this entry and the observer's clock never advances,
+#                node.py's `timestamp_s <= 0.0` branch resets the pipeline on
+#                every frame, and the demonstration publishes zero estimates
+#                while looking perfectly healthy. See ADR 0020 and ADR 0003.
+#
+# `reversed` and `bidirectional` are deliberately absent from every entry.
+# domain_bridge is one-way by default and must stay that way here: nothing P
+# emits may reach A's domain, or A would be able to observe its own enforcement.
+#
+# QoS is stated explicitly rather than left to the bridge's publisher-side
+# auto-detection, so this file and docs/SENSOR-FEED.md can be compared by eye
+# and by test. The values mirror `sensor_qos` and `CLOCK_QOS` in the
+# police_observer package.
+name: corridor_twin_gateway
+from_domain: 42
+to_domain: 43
+topics:
+  /robot/front_camera/image_raw:
+    type: sensor_msgs/msg/Image
+    qos:
+      reliability: best_effort
+      durability: volatile
+      history: keep_last
+      depth: 5
+  /robot/front_camera/camera_info:
+    type: sensor_msgs/msg/CameraInfo
+    qos:
+      reliability: best_effort
+      durability: volatile
+      history: keep_last
+      depth: 5
+  /clock:
+    type: rosgraph_msgs/msg/Clock
+    qos:
+      reliability: best_effort
+      durability: volatile
+      history: keep_last
+      depth: 1

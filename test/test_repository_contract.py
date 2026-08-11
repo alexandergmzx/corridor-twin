@@ -23,11 +23,14 @@ def test_required_documents_exist() -> None:
 def test_visual_documentation_entry_points_exist() -> None:
     minimum_mermaid_blocks = {
         "README.md": 1,
+        "CLAUDE.md": 2,
         "docs/README.md": 2,
-        "docs/DESIGN.md": 2,
-        "docs/SENSOR-FEED.md": 1,
+        "docs/DESIGN.md": 4,
+        "docs/SENSOR-FEED.md": 2,
         "docs/ACTIVATION.md": 1,
         "docs/DEVELOPMENT.md": 1,
+        "docs/REVIEW-LOG.md": 1,
+        "docs/RELEASE-v1.0-interview.md": 1,
         "docs/evidence/README.md": 1,
         "docs/adr/README.md": 1,
     }
@@ -40,6 +43,79 @@ def test_visual_documentation_entry_points_exist() -> None:
     assert "## Project growth map" in project_map
     assert "## Capability and evidence matrix" in project_map
     assert "<b>NEXT</b>" in project_map
+
+
+# Mermaid renders on GitHub and in the published artifacts, but nothing in this
+# workspace can render it, so a typo in a hand-authored block would ship as a
+# grey error box that only a human viewing the page would notice. These are the
+# diagram types actually used here; a new one is a deliberate addition.
+KNOWN_MERMAID_TYPES = (
+    "flowchart",
+    "graph",
+    "sequenceDiagram",
+    "stateDiagram-v2",
+)
+
+
+def _mermaid_blocks(path: Path) -> list[str]:
+    return re.findall(r"```mermaid\n(.*?)\n```", path.read_text(encoding="utf-8"), re.DOTALL)
+
+
+def test_mermaid_blocks_are_structurally_sound() -> None:
+    """Catch a hand-authored mermaid typo that would render as an error box.
+
+    No mermaid CLI exists in this workspace, so this is a cheap structural
+    stand-in for rendering: the block must declare a known diagram type, and
+    its node-label brackets and quotes must balance. Unbalanced `["..."]` is
+    the realistic failure, because labels here carry `<br/>`, `&middot;` and
+    nested markup that make a dropped bracket easy to miss by eye.
+    """
+
+    problems: list[str] = []
+    for path in sorted(ROOT.rglob("*.md")):
+        if any(part in {".venv", "build", "install", "log"} for part in path.parts):
+            continue
+        for index, block in enumerate(_mermaid_blocks(path)):
+            where = f"{path.relative_to(ROOT)} block {index + 1}"
+            first = block.strip().splitlines()[0] if block.strip() else ""
+            if not first.startswith(KNOWN_MERMAID_TYPES):
+                problems.append(f"{where}: unknown diagram type {first!r}")
+            if block.count("[") != block.count("]"):
+                problems.append(f"{where}: unbalanced [] in node labels")
+            if block.count('"') % 2:
+                problems.append(f"{where}: odd number of quotes")
+            # Only flowcharts pair `end` exclusively with `subgraph`; a
+            # sequenceDiagram also closes opt/alt/loop blocks with it.
+            if first.startswith(("flowchart", "graph")):
+                ends = len(re.findall(r"^\s*end\s*$", block, re.M))
+                if block.count("subgraph") != ends:
+                    problems.append(f"{where}: {block.count('subgraph')} subgraph vs {ends} end")
+    assert problems == [], f"malformed mermaid: {problems}"
+
+
+def test_the_adr_decision_map_shows_every_adr() -> None:
+    """An ADR missing from the decision map is an invisible decision.
+
+    The map silently stopped at node A16 while the index table beside it
+    listed 19 records, so 0017, 0018 and 0019 -- including the supersession
+    that moved P to the other side of a wall -- rendered as a 16-ADR project.
+    Nothing caught it because the index table and the diagram were maintained
+    by hand, separately.
+    """
+
+    index_path = ROOT / "docs/adr/README.md"
+    blocks = _mermaid_blocks(index_path)
+    assert blocks, "docs/adr/README.md must carry the decision map"
+    map_block = blocks[0]
+
+    adrs = (ROOT / "docs/adr").glob("[0-9][0-9][0-9][0-9]-*.md")
+    numbers = sorted(path.name[:4] for path in adrs)
+    assert numbers, "no ADRs found to check the map against"
+    missing_from_map = [number for number in numbers if number not in map_block]
+    index_text = index_path.read_text(encoding="utf-8")
+    missing_from_table = [number for number in numbers if f"[{number}](" not in index_text]
+    assert missing_from_map == [], f"ADRs absent from the decision map: {missing_from_map}"
+    assert missing_from_table == [], f"ADRs absent from the index table: {missing_from_table}"
 
 
 def test_visual_documentation_local_links_resolve() -> None:

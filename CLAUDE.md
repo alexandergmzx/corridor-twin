@@ -110,19 +110,52 @@ The active sequence is defined by
 6. **Installed-version APIs.** Check the installed Isaac Sim documentation and
    examples before committing to a namespace.
 
-### Four distinct visibility concepts
+### Five distinct visibility concepts
 
 Do not conflate these in code, tests, docs, or the demo UI:
 
-| Concept | Question | Directional? |
-|---|---|---|
-| Physical line of sight | Does an opaque wall intersect the segment between A's camera and P's body? | No; normally reciprocal |
-| A-camera visibility | Is any part of P inside the camera frustum *and* unoccluded? | Yes |
-| A software awareness | Does A detect, model, or react to P, or consume police topics? | Yes |
-| P data access | Does P subscribe to A's Image/CameraInfo and surveyed scenario data? | Yes |
+| Concept | Question | Directional? | Enforced by |
+|---|---|---|---|
+| Physical line of sight | Does an opaque wall intersect the segment between A's camera and P's body? | No; normally reciprocal | `scene.occlusion`, reported separately |
+| A-camera visibility | Is any part of P inside the camera frustum *and* unoccluded? | Yes | `scene.occlusion` — the gate that must pass |
+| A software awareness | Does A detect, model, or react to P, or consume police topics? | Yes | `test_robot_side_sources_are_unaware_of_the_police` |
+| **Communication-domain isolation** | Can P discover or subscribe to *any* topic A publishes, other than through the gateway? | Yes | Separate `ROS_DOMAIN_ID`s; `test/test_domain_isolation.py`. **ADR 0020** |
+| P data access | Does P **receive a bridged copy** of A's Image/CameraInfo, and hold surveyed scenario data? | Yes | The gateway allowlist; permitted by design, but P cannot subscribe to A directly |
 
-P reading A's camera feed is a network relationship, not a sightline. Never
-relabel an off-screen P as wall-occluded.
+The fourth row is the newest and the one the assignment actually meant. Interview
+feedback on 2026-08-04 clarified that "the robot cannot see the traffic police"
+was about ROS communication domains, not sightlines. The geometric rows are not
+retracted — they are true of the scene and their gate still passes — but they are
+scenario realism, not the constraint. See
+[`docs/adr/0020-communication-domain-isolation.md`](docs/adr/0020-communication-domain-isolation.md).
+
+```mermaid
+flowchart LR
+    subgraph Geometry["Geometric &mdash; proved, not asserted"]
+        A["A's camera"] -. "wall intersects<br/>the segment" .- P["P's body"]
+    end
+
+    A ==> |"one RGB stream"| GW["<b>corridor_gateway</b><br/>allowlist &middot; one way<br/>domain 42 &rarr; 43"]
+    GW ==> P
+
+    P -. "cannot discover" .-x Truth["Pose &middot; odometry &middot; TF<br/>simulator truth<br/><i>robot domain only</i>"]:::blocked
+    A -. "never detects,<br/>models or reacts to" .-x P
+    P -. "nothing returns" .-x A
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+```
+
+The thick arrows are the only real data path, they run **from A to P**, and they
+pass through the gateway because there is no longer a direct route. That P
+receives A's camera feed while being invisible in it is not a contradiction: one
+is a relayed network stream, the other is a sightline. Never relabel an
+off-screen P as wall-occluded, and never let "A's software ignores P" stand in
+for the geometric gate — P could be plainly visible in A's pixels either way.
+
+Truth is no longer merely *refused* by the observer; it is on the robot domain
+and absent from the allowlist, so it is not discoverable from P's side at all.
+The source audits are kept anyway: they catch a mistake made on the wrong side of
+the boundary, which the transport cannot.
 
 ## Environment discipline
 
@@ -132,6 +165,29 @@ Two Python ABIs share this host and must not mix:
 |---|---|---|
 | Authoring, tests, observer | system Python 3.12 venv | system Jazzy |
 | Isaac Sim adapter | `~/isaac/env_isaaclab` Python 3.11 | bundled Jazzy |
+
+```mermaid
+flowchart LR
+    subgraph Sys["System shell &mdash; Python 3.12"]
+        Venv[".venv"] --> Author["scene.build<br/>scene.occlusion<br/>pytest"]
+        Venv --> Obs["police_observer<br/>enforcement_view"]
+    end
+
+    subgraph Isaac["Isaac shell &mdash; Python 3.11"]
+        IsaacEnv["~/isaac/env_isaaclab"] --> Adapter["tools/isaac_5_1_*.py"]
+    end
+
+    Adapter ==> |"Image &middot; CameraInfo &middot; /clock<br/>over DDS, not imports"| Obs
+
+    Sys -. "sourcing either into<br/>the other breaks the ABI" .-x Isaac
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+    class Isaac,Sys default;
+```
+
+The two halves meet over DDS, never in one interpreter. That is why the adapter
+re-executes itself with system ROS paths stripped rather than trusting the
+caller's shell.
 
 - Do not install pip `usd-core` into Isaac's Python.
 - Do not source two ROS installations into one shell.
@@ -149,6 +205,15 @@ python -m scene.occlusion --stage out/corridor.usda \
   --manifest out/corridor.manifest.json --out out/occlusion-certificate.json
 bash tools/check_workspace.sh   # ruff, pytest, colcon build, colcon test
 ```
+
+`ros-jazzy-domain-bridge` is a runtime prerequisite since ADR 0020; `rosdep`
+installs it on Ubuntu but refuses this Mint host, so `sudo apt install
+ros-jazzy-domain-bridge` there. The demo and the integration test need it; the
+isolation proof deliberately does not.
+
+The two halves run on separate ROS domains — A on 42, P on 43 — so a bare
+`ros2 topic list` in an unconfigured shell shows nothing from either. Set
+`ROS_DOMAIN_ID` to the side you mean to inspect.
 
 `scene.build` takes `--m/--n/--out/--config`. There is no `--profile` flag; an
 unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.

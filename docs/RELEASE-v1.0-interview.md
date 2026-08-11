@@ -521,6 +521,29 @@ for the live-run figures. **Nothing automates the second.**
 
 ## 6. Risks and fallbacks
 
+| Risk | If it happens | Mitigation | Status |
+|---|---|---|---|
+| The GUI run fails on the night | The enforcement story survives; Isaac, RTX pixels and the viewport do not | Video first, then the synthetic launch live | **Partially sufficient** — honest, not reassuring |
+| Mint is unsupported | NVIDIA's checker fails the aggregate result | The Ubuntu path | **Documented hope** — not real until rehearsed |
+| The violation has no redundancy | A missed gate 8.0 or 10.0 shows *no* violation, which reads as broken rather than conservative | Rehearse three consecutive runs, record the pass rate | **Unmeasured** — that number does not exist today |
+| `main` URLs rot after tagging | A release-body link silently points at moving content | Tag permalinks, mandatory regardless of D10 | **Required** |
+| Nothing checks this document's links | A broken link found during the demo | Re-verify by hand before tagging (D7) | **Manual** |
+
+```mermaid
+flowchart LR
+    Live["Live Isaac GUI run<br/><b>PRIMARY</b>"] -->|"fails"| Video["Recorded video<br/><b>PRIMARY FALLBACK</b>"]
+    Video --> Synth["Synthetic launch, live<br/>proves the pipeline is real,<br/>not a recording"]
+    Live -->|"succeeds"| Done["Demonstration complete"]
+    Ubuntu["Switch to Ubuntu"]:::blocked
+    Video -. "not a fallback &mdash;<br/>a new project on the night" .-x Ubuntu
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
+```
+
+The recovery order matters: the video shows the viewport the machine will not,
+and the live synthetic run afterwards proves the pipeline is real. That ordering
+is stronger than either alone. The reasoning behind each row follows.
+
 **The GUI run fails on the night.** The synthetic launch is the recorded fallback
 and it is **partially sufficient** — an honest answer, not a reassuring one. It
 exercises the same observer, the same messages, the same RViz view and the same

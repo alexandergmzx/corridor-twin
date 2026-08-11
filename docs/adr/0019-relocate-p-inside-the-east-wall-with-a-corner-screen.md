@@ -110,6 +110,32 @@ than forcing one mechanism to cover all of it:
    exclusion, with a wide margin, for the legs where A is provably driving
    away from P.
 
+```mermaid
+flowchart LR
+    subgraph Route["A's route, in order"]
+        direction TB
+        L1["approach"] --> L2["turn, first part"] --> L3["turn, tail"] --> L4["departure"] --> L5["delivery arc"] --> L6["delivery"]
+    end
+
+    L1 --> Screen["<b>CornerScreen</b><br/>0.4 m wide<br/>wall-blocked"]
+    L2 --> Screen
+    L3 --> Frustum["<b>Camera frustum</b><br/>A is driving away<br/>frustum-excluded"]
+    L4 --> Frustum
+    L5 --> Frustum
+    L6 --> Frustum
+
+    Screen --> Pass["camera_visible_intervals == ()<br/><b>passed</b>"]
+    Frustum --> Pass
+    Screen --> Stronger["line_of_sight_blocked_everywhere<br/>reported, no longer gates passed"]
+```
+
+Two mechanisms, split by what is actually true of each leg rather than forced
+into one. The screen covers the legs where A looks toward the corner; once A
+has turned away, no wall is needed and claiming one would be dishonest. The
+right-hand column is decision point 4: the written requirement is the pass
+bit, and the stronger wall-only claim is reported beside it instead of being
+folded into it.
+
 ### Why the screen only needs to be 0.4 m wide
 
 The intuition, and the reason the search converged so quickly once framed

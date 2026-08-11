@@ -66,19 +66,24 @@ The scene changed shape when it was reconciled with
 than carried forward. The earlier entries above stay as the record of what was
 true on 2026-07-26.
 
-- The `m=6.0`, `n=3.0` build passed the strengthened visibility gate: line of
-  sight blocked over the whole route, 78 certified interval and sub-volume
-  pairs, and a composed-USD audit of 204 rays with zero failures. Nearest
-  blocking surface 3.116 m. The `wide_corner_m6_n4_5` and `uniform_m6_n6`
-  profiles pass independently, each with P moved by the geometry.
+- The `m=6.0`, `n=3.0` build passed the strengthened visibility gate, and the
+  `wide_corner_m6_n4_5` and `uniform_m6_n6` profiles pass independently, each
+  with P moved by the geometry. **The figures have been superseded twice since**,
+  by ADR 0017/0018 and again by ADR 0019. All three generations are recorded
+  below rather than overwritten, because the recurring failure in this project
+  has been a superseded figure surviving in prose:
 
-  > **Superseded by ADR 0017 and ADR 0018.** Those figures describe P behind the
-  > corner mass on the old three-piece route. Measured on the current geometry:
-  > **5 covered intervals, 404 audit rays, zero failures, 5.366 m nearest
-  > blocking surface, `EastBuilding` the sole blocking prim, every witness
-  > constant-X.** The other profiles give 408 and 416 rays at 5.705 m and
-  > 5.909 m. One plane now separates P from the whole route, so the certificate
-  > covers each profile in five intervals rather than seventy-eight.
+  | Geometry generation | Where P stands | Blocking witness | Rays (nominal / wide / uniform) | Nearest blocking |
+  |---|---|---|---|---:|
+  | Pre-ADR 0017 — *historical* | Behind the corner mass, three-piece route | `SouthBuilding` + `CornerBuilding` | 204 | 3.116 m |
+  | ADR 0017 + 0018 — *historical* | Behind the east wall's outer face, five-piece route | `EastBuilding`, sole, all constant-X | 404 / 408 / 416 | 5.366 / 5.705 / 5.909 m |
+  | **ADR 0019 — current** | Inside the channel, behind the corner screen | `CornerScreen`, sole | **396 / 400 / 406** | **4.144 / 4.545 / 4.818 m** |
+
+  Zero audit failures in every generation. The middle row is where the interval
+  count collapsed from 78 to 5: one plane came to separate P from the whole
+  route. The current row is CPU-side and re-measurable without a GPU, so unlike
+  the memory figures below it is not waiting on requalification — it was
+  re-measured for this table.
 - The headless smoke composed the reconciled stage and found one authored robot
   camera, all three corridor variants, and collision schemas on all four
   buildings including the new corner mass and next-street kerb. 1,486 MiB.

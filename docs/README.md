@@ -75,6 +75,7 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Corner enforcement coverage | **Confirmed on rendered Isaac pixels** | Height-staggered reference plates carry the pose through the strict zone in a real render; gates 8.0 and 10.0 both measured, so the corner rule is confirmable. [Frame](evidence/live-demo/corner-references.png) | Repeat after any geometry change |
 | Robot delivery motion | **Working** | A completes the 24.601 m five-piece route in 24.617 s of simulation time, driven from `/clock`; `reached_end=True` | Measure the pose-to-render latency, which is still uncharacterised |
 | Live end-to-end violation | **Working** | One command runs Isaac → camera → observer → RViz; exactly one violation at station 10.0 m, exceedance 0.191 m/s, 3354 MiB VRAM, one render product | Rehearse the GUI path and the recorded fallback on the presentation machine |
+| Communication-domain isolation | **Working** | A on ROS domain 42, P on 43, crossed only by a three-topic one-way allowlist. Proved with no GPU and no Isaac: the police domain cannot discover A's camera topic, no message crosses unbridged, and every negative is paired with a positive control that skips rather than passes. Forcing both probes onto one domain fails 2 of 3 DDS tests. [ADR 0020](adr/0020-communication-domain-isolation.md) | Confirm on the live Isaac path, which this branch does not requalify |
 
 ## Evidence boundary
 
@@ -86,27 +87,31 @@ flowchart LR
     Author --> Manifest["corridor.manifest.json"]
 
     USD --> Isaac["Isaac Sim 5.1"]
-    Isaac --> Feed["Image + CameraInfo + /clock"]
-    Manifest --> Observer["police_observer"]
-    Feed --> Observer
+    Isaac --> Feed["Image + CameraInfo + /clock<br/><i>ROS domain 42</i>"]
+    Feed ==> GW["<b>corridor_gateway</b><br/>allowlist &middot; one way"]
+    GW ==> Observer["police_observer<br/><i>ROS domain 43</i>"]
+    Manifest --> Observer
     Observer --> Result["SpeedEstimate + SpeedViolation"]
 
     USD --> Occlusion["Continuous occlusion checker"]
     Manifest --> Occlusion
     Occlusion --> Certificate["Occlusion certificate"]
 
-    Truth["Harness/simulator truth"] -. "evaluation only" .-> Evaluator["Test evaluator"]
+    Truth["Harness/simulator truth<br/><i>ROS domain 42</i>"] -. "evaluation only" .-> Evaluator["Test evaluator"]
     Result --> Evaluator
 
     Forbidden["Pose / odometry / simulator TF"]:::blocked
-    Forbidden -. "not an observer input" .-> Observer
+    Forbidden -. "not on the allowlist,<br/>so unreachable from P" .-x GW
 
     classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
 ```
 
-The dashed red relationship is a prohibition, not a data path. The observer is
-allowed camera pixels, matching calibration, the surveyed manifest, and time;
-truth is available only to evaluation code.
+The dashed red relationship is a prohibition, and since ADR 0020 it is also an
+impossibility: those producers sit on A's ROS domain and are absent from the
+gateway allowlist, so they never appear in P's graph. The observer is allowed
+camera pixels, matching calibration, the surveyed manifest, and time; truth is
+available only to evaluation code. The manifest reaches P as a file, so it
+crosses no domain boundary at all.
 
 ## Current resource envelope
 

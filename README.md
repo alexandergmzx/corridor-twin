@@ -2,58 +2,78 @@
 
 An interview-sized digital-twin scenario for OpenUSD, ROS 2 Jazzy, and NVIDIA
 Isaac Sim. Robot A delivers a package to person B through a tapered corridor.
-Police observer P has no direct line of sight to A, but is permitted to consume
-A's front-camera feed and detect speed violations from surveyed ArUco markers.
+Police observer P runs on a **separate ROS communication domain** from A and has
+no direct line of sight to it, but is permitted to consume A's front-camera feed
+through one allowlisted gateway and detect speed violations from surveyed ArUco
+markers.
 
 ## Current status
 
-**Phase 1 baseline and first Isaac/ROS integration working — 2026-07-26.**
-Parametric USDA generation, finite width variants, static colliders, ArUco
-assets, a shared manifest, camera-only speed estimation, synthetic ROS playback,
-violation events, and continuous occlusion evidence are implemented. The RTX
-5070 Ti passes Isaac Sim 5.1's hardware checks. A version-specific adapter now
-publishes the single 640×360 RGB camera, matching `CameraInfo`, and simulation
-`/clock` through the installed Jazzy bridge. Independent ROS probes passed in
-both headless and visible modes at exactly 15 Hz.
+The demonstration runs end to end: one command drives A along the authored
+route in Isaac Sim while the police observer recovers its speed from that one
+camera alone.
 
-The checker still marks the host unsupported because it is Linux Mint. This is
-recorded as a platform risk rather than hidden by the successful hardware and
-live-stream checks.
+| Date | Milestone | State | Measured result | Evidence |
+|---|---|---|---|---|
+| 2026-07-26 | Phase 1 baseline and first Isaac/ROS integration | **Working** | One 640×360 RGB render product, matching `CameraInfo`, and simulation `/clock` through the installed Jazzy bridge. Independent ROS probes passed headless and visible at exactly 15 Hz | [Activation record](docs/ACTIVATION.md) |
+| 2026-07-27 | Geometry reconciled with the supplied diagram | **Working** | One-sided taper, a real perpendicular next street with a corner mass, and a five-piece route that turns in behind the east-wall stub to reach B in the pocket the drawing puts B in | [ADR 0010](docs/adr/0010-supplied-diagram-geometry.md), [ADR 0018](docs/adr/0018-model-the-east-wall-stub.md) |
+| 2026-07-27 | Static production-camera fiducials | **Pixels valid, renderer claim invalidated** | All 15 selected frames passed, maximum station error 0.010563 m, delivered rate 14.999999 Hz, and a mirror applied to the same capture produced zero passing frames | [Static fiducials](docs/evidence/static-fiducials/NOTES.md) |
+| 2026-07-27 | Live camera-only enforcement demonstration | **Working** | All four enforcement gates measured at 1.0 m/s truth, maximum speed error 0.0369 m/s, **exactly one** violation — 0.191 m/s over the 0.80 m/s corner rule at station 10.0 m — and 3354 MiB of the RTX 5070 Ti with one render product | [Live demo](docs/evidence/live-demo/NOTES.md) |
+| 2026-07-31 | Police placement audit and correction | **Merged** | P moved inside the east wall behind a purpose-built corner screen; the occlusion verifier bound to the composed USD; twelve findings closed across two review rounds | [ADR 0019](docs/adr/0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md), [Review log](docs/REVIEW-LOG.md) |
+| 2026-08-04 | Communication-domain isolation | **Working** | A and P on separate ROS domains, crossed only by a three-topic one-way allowlist. Proved without a GPU: the police domain cannot discover A's camera topic, and forcing both probes onto one domain fails the guard | [ADR 0020](docs/adr/0020-communication-domain-isolation.md) |
 
-**Geometry reconciled with the supplied diagram — 2026-07-27.** The corridor now
-carries the drawing's one-sided taper, a real perpendicular next street with a
-corner mass, and a continuous delivery trajectory. P is placed from the
-occluding wall faces, so it follows the geometry when a different `(m,n)`
-profile is selected. Since ADR 0018 the route has five pieces: it turns in
-behind the east-wall stub to reach B in the pocket the drawing puts B in.
+### What is deliberately not claimed
 
-**Static production-camera fiducials — historical run, renderer unqualified.**
-On 2026-07-27 the one-product Isaac ROS graph recovered surveyed station at five
-nominal approach dwells: all 15 selected frames passed, maximum station error
-0.010563 m, delivered rate 14.999999 Hz, and a mirror applied to the same
-capture produced zero passing frames. Those pixel, calibration, rate and control
-results remain valid. The run's **renderer mode was requested, never read back**,
-so it is not a current qualification; its summary is preserved unmodified as
-`qualification-summary-v1-request-echo-invalidated.json`. **There is no canonical
-static qualification until the planned requalification passes.**
+Each of these is open on purpose and recorded rather than hidden. None is a
+known failure; each is a measurement that has not been taken.
 
-The gate did expose and correct buried, undersampled marker plates.
+| Open item | Why it is not claimed | Consequence |
+|---|---|---|
+| No canonical **static** qualification | The recorded dwell run reported a *requested* renderer mode as measured. Its summary is preserved unmodified as `qualification-summary-v1-request-echo-invalidated.json` | Its pixel, calibration, rate and mirror-control results stand; its renderer claim does not. A fresh paired capture is required |
+| Pose-to-render latency uncharacterised | Whether a pose written before `app.update()` lands in that frame or the next was never measured | One camera period is 0.066 m at 1.0 m/s, which bounds but does not measure the effect. No offset compensates for it |
+| Every GPU figure predates ADR 0019 | The scene changed shape after the last capture: P moved sides and a `CornerScreen` was added | The figures above describe the pre-correction geometry and are pending refresh, not withdrawn |
+| Host is unsupported | NVIDIA's checker rejects Linux Mint regardless of the passing hardware and live-stream gates | Recorded as a platform risk; Ubuntu 24.04 remains the fallback |
 
-**Live camera-only enforcement demonstration working — 2026-07-27.** One
-command drives A along the authored route in Isaac Sim while the police
-observer recovers speed from that camera alone. At a constant 1.0 m/s the run
-measured all four enforcement gates with a maximum speed error of 0.0369 m/s,
-stayed compliant on the wide approach, and raised **exactly one** violation once
-the corridor narrowed and the limit tightened — 0.191 m/s over the 0.80 m/s
-corner rule, at station 10.0 m. A completed the 24.601 m route in 24.617 s of
-simulation time using 3354 MiB of the RTX 5070 Ti and one render product, with
-the renderer mode read back rather than requested. See the
-[measured evidence](docs/evidence/live-demo/NOTES.md).
+## The visibility constraint, reinterpreted (2026-08-04)
 
-Two things are still outstanding and are not claimed: there is no canonical
-**static** qualification until the planned paired requalification passes, and
-the pose-to-render latency has not been characterised, so no offset compensates
-for it.
+The supplied task says *the robot cannot see the traffic police, but the police
+can read the data from the robot*. This repository first read that as a statement
+about **what A's camera can image**, and built the geometry to match: continuous
+occlusion certification over the turn, a purpose-built corner screen, and the
+placement chain in ADR 0011, 0017, 0018 and 0019.
+
+In the technical interview on 2026-08-04 the interviewer clarified the intended
+meaning. The constraint was about **ROS 2 / DDS communication-domain isolation**:
+A and P were meant to run on separate communication planes with no topic-level
+visibility between them. Not occlusion.
+
+That is a reinterpretation, not a discovery, and it is recorded as one. The
+geometric reading was a reasonable construction of an ambiguous English sentence,
+it was implemented thoroughly, and it was wrong about the author's intent.
+
+**What changed.** A runs on ROS domain 42, P on domain 43. DDS discovery does not
+cross a domain boundary, so P cannot discover, list, or subscribe to anything A
+publishes — including topics nobody thought to forbid. One gateway
+(`src/corridor_gateway`) relays exactly three topics one way, A to P: the camera
+image, its calibration, and `/clock`. Simulator truth stays on A's domain and is
+not on that list, so P's inability to read truth is now a property of the
+transport rather than a rule the observer promises to obey.
+
+**What did not change.** The occlusion work stands. P really is hidden behind a
+wall, the certificate still proves it, and its gate still passes. It is now
+understood as *physical-scenario realism* rather than as the implementation of
+the assignment's constraint — both claims are true of the shipped system, and
+they are separate claims. Nothing in ADR 0001–0019 was edited; ADR 0020 amends a
+single row of ADR 0011's concept table by new record, as the immutability rule
+requires, and supersedes nothing.
+
+**Why it is not just a naming convention.** The isolation is proved, without a
+GPU or Isaac, by standing a node up in each domain and asking what it can see
+([`test/test_domain_isolation.py`](test/test_domain_isolation.py)). Every
+negative is paired with a positive control in the same environment and skips
+rather than passes when discovery is unavailable, so a container without
+multicast cannot report an isolation it never tested. Forcing both probes onto
+one domain fails the guard.
 
 ## Architecture at a glance
 
@@ -62,19 +82,34 @@ flowchart LR
     Config["corridor.yaml"] --> Build["scene.build"]
     Build --> USD["corridor.usda"]
     Build --> Manifest["corridor.manifest.json"]
-    USD --> Isaac["Isaac Sim 5.1"]
-    Isaac --> Contract["Image + CameraInfo + /clock"]
-    Synthetic["Synthetic camera"] --> Contract
-    Contract --> Observer["police_observer"]
-    Manifest --> Observer
-    Observer --> Output["Speed estimate / violation"]
     USD --> Proof["Occlusion certificate"]
     Manifest --> Proof
+
+    subgraph RobotDomain["ROS domain 42 &mdash; A"]
+        USD --> Isaac["Isaac Sim 5.1"]
+        Isaac --> Contract["Image + CameraInfo + /clock"]
+        Synthetic["Synthetic camera"] --> Contract
+        Truth["ground-truth speed"]:::blocked
+    end
+
+    Contract ==> GW["<b>corridor_gateway</b><br/>allowlist &middot; one way"]
+
+    subgraph PoliceDomain["ROS domain 43 &mdash; P"]
+        Observer["police_observer"] --> Output["Speed estimate / violation"]
+    end
+
+    GW ==> Observer
+    Manifest --> Observer
+    Truth -. "not on the allowlist" .-x GW
+
+    classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
 ```
 
 The observer is prohibited from reading simulated pose, odometry, TF-derived
-robot position, or synthetic ground truth. Its measurement timestamp comes from
-the image header.
+robot position, or synthetic ground truth — and since ADR 0020 it is also unable
+to: those producers live on A's domain and are absent from the gateway allowlist,
+so they never appear in P's graph. Its measurement timestamp comes from the image
+header. The manifest reaches P as a file, not a topic, so it crosses no boundary.
 
 ## Repository layout
 
@@ -147,6 +182,18 @@ rosdep install --from-paths src --ignore-src -r -y --rosdistro jazzy \
   --os=ubuntu:noble
 ```
 
+The demonstration needs the upstream domain bridge, which `corridor_gateway`
+declares as a dependency. On Ubuntu the `rosdep` line above installs it; this
+host runs Linux Mint, which `rosdep` refuses (`Unsupported OS: mint`), so install
+it directly:
+
+```bash
+sudo apt install ros-jazzy-domain-bridge
+```
+
+Without it the demonstration cannot bridge A's camera to P and the integration
+test skips. The isolation proof itself does not need it and still runs.
+
 Do not install pip `usd-core` into Isaac Sim's bundled Python. Do not source two
 different ROS installations into the same shell.
 
@@ -215,12 +262,29 @@ One command, once the scene is generated and the workspace is built:
 bash tools/run_demo.sh
 ```
 
-It starts both halves of the demonstration in the two environments they require
+It starts all three parts of the demonstration in the environments they require
 and never in one shell: the camera-only observer, the enforcement display and
-RViz on system Jazzy, then Isaac Sim on its bundled Jazzy driving A along the
-authored route. The observer side comes up first so the consumers have finished
-discovery before the publisher starts, which is the ordering the live camera
-contract in step 8 already validates.
+RViz on system Jazzy on **domain 43**; the gateway, which is the only participant
+in both domains; then Isaac Sim on its bundled Jazzy on **domain 42**, driving A
+along the authored route. The observer side comes up first so the consumers have
+finished discovery before the publisher starts, which is the ordering the live
+camera contract in step 8 already validates.
+
+Override the domains with `ROBOT_DOMAIN_ID` and `POLICE_DOMAIN_ID` if 42 and 43
+are taken on your network. The script refuses to run them equal — that failure is
+otherwise silent, because everything starts, every topic flows, and the isolation
+claim is simply false.
+
+To see the boundary rather than take it on trust, with the demo running:
+
+```bash
+ROS_DOMAIN_ID=42 ros2 topic list   # A's camera and its ground-truth speed
+ROS_DOMAIN_ID=43 ros2 topic list   # the bridged camera and P's output; no truth
+```
+
+The same two commands diagnose a silent run. With `--wait-for-publisher` at its
+upstream default, a dead Isaac side looks exactly like working isolation: no
+camera topic on domain 42 means A never published, not that the boundary held.
 
 The default drives A at a constant **1.0 m/s**. That one unchanged speed is
 legal on the wide approach at a 1.2 m/s limit and illegal once the corridor
@@ -272,14 +336,21 @@ ros2 launch police_observer synthetic_demo.launch.py \
 In another sourced shell:
 
 ```bash
-ros2 topic echo /police/speed_violation \
+ROS_DOMAIN_ID=43 ros2 topic echo /police/speed_violation \
   corridor_interfaces/msg/SpeedViolation --once --no-daemon
 ```
+
+Note the echo needs `ROS_DOMAIN_ID=43`, or the shell will find nothing: this
+launch runs the same two-domain topology the live path does. The synthetic
+publisher stands in for A on domain 42, the observer and display sit on domain
+43, and the gateway is started between them. It is the only end-to-end path that
+needs no GPU, so it is where the isolation is easiest to see for yourself.
 
 The launch deliberately sets `PYTHONNOUSERSITE=1`: this machine has a user-local
 NumPy 2.2 wheel, while ROS Jazzy's OpenCV/cv_bridge binaries use the NumPy 1.x
 ABI. No global package is modified. Add `use_sim_time:=true` to make the
-synthetic publisher the single `/clock` source for both nodes.
+synthetic publisher the single `/clock` source, which the gateway then relays to
+P's domain.
 
 ### 8. Run the live Isaac camera contract
 
