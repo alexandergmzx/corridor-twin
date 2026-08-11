@@ -33,7 +33,10 @@ from sensor_msgs.msg import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / "src/corridor_gateway/config/corridor_domain_bridge.yaml"
-TOPIC = "/robot/front_camera/image_raw"
+# Must name a topic the shipped config actually relays: this test publishes on it
+# and asserts it crosses. Pointing it at anything off the allowlist would turn a
+# working bridge into a silent, permanent failure of the positive half.
+TOPIC = "/p_cam/image_raw"
 
 # Matches the QoS the config declares and the observer subscribes with. A
 # mismatch here would show up as silence and be easy to misread as a boundary

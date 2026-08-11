@@ -38,9 +38,13 @@ SENSOR_QOS = {
 }
 CLOCK_QOS = {**SENSOR_QOS, "depth": 1}
 
+# Since ADR 0021 the crossing carries P's own enforcement camera, not a sensor on
+# A. The names moved with the ownership; the QoS did not, because nothing about
+# the transport changed. Resolution and rate stay unpinned here -- they are not
+# properties of the allowlist, and ADR 0024 re-measures them.
 EXPECTED = {
-    "/robot/front_camera/image_raw": ("sensor_msgs/msg/Image", SENSOR_QOS),
-    "/robot/front_camera/camera_info": ("sensor_msgs/msg/CameraInfo", SENSOR_QOS),
+    "/p_cam/image_raw": ("sensor_msgs/msg/Image", SENSOR_QOS),
+    "/p_cam/camera_info": ("sensor_msgs/msg/CameraInfo", SENSOR_QOS),
     "/clock": ("rosgraph_msgs/msg/Clock", CLOCK_QOS),
 }
 

@@ -1,19 +1,23 @@
 # Robot camera to police observer contract
 
-> **v2 transition (2026-08-11).** The contract below is the implemented **v1**
-> contract: A's front camera, bridged to P. [ADR
-> 0021](adr/0021-police-owned-sensing-and-isolation-gate.md) supersedes the
-> crossing — the single render product becomes **P's** enforcement camera and
-> the bridged topics become `/p_cam/image_raw`, `/p_cam/camera_info`, and
-> `/clock`. The contract version bumps to 0.5.0 when the bridge is rebuilt
-> (v2 plan task T2.1); until then this document describes what runs today and
-> is quotable only as v1.
+> **v2 transition (2026-08-11).** The **crossing** is rebuilt: per [ADR
+> 0021](adr/0021-police-owned-sensing-and-isolation-gate.md) the single render
+> product is **P's** enforcement camera, A is camera-less, and the gateway
+> allowlist is now exactly `/p_cam/image_raw`, `/p_cam/camera_info`, and
+> `/clock` (v2 plan task T2.1). **The producer half is not rebuilt yet.** No
+> publisher emits `/p_cam/*` and `police_observer` still subscribes to the v1
+> `robot/front_camera/*` names, so the end-to-end demonstration does not run
+> between this task and T2.2. Everything below the Topics table — encoding,
+> frame, resolution, rate, intrinsics convention — is still the **v1**
+> producer contract and is quotable only as v1. Resolution and rate are not
+> decided here; [ADR 0024](adr/0024-learned-enforcement-perception.md)
+> re-measures them.
 
 | Field | Value |
 |---|---|
-| Contract version | 0.4.0 |
-| Status | Implemented by synthetic and Isaac 5.1 publishers; `rgb8` gated at the wire and offline, both publishers share the production `cx=width/2` convention, and the two actors now sit on separate ROS domains |
-| Last updated | 2026-08-04 |
+| Contract version | 0.5.0 |
+| Status | **Crossing surface re-scoped to P's camera (T2.1); producer and consumer still on the v1 names until T2.2.** `rgb8` gated at the wire and offline, both publishers share the production `cx=width/2` convention, and the two actors sit on separate ROS domains |
+| Last updated | 2026-08-11 |
 
 The minor version moved for a reason worth stating: **a consumer written against
 0.3.3 will receive nothing after this change.** Producer and consumer are no
@@ -60,8 +64,8 @@ transport alone would not.
 
 | Direction | Domain | Resolved topic | Type | QoS | Purpose |
 |---|---|---|---|---|---|
-| A → P | robot → police, **bridged** | `/robot/front_camera/image_raw` | `sensor_msgs/msg/Image` | sensor data | Rectified or distortion-described color image |
-| A → P | robot → police, **bridged** | `/robot/front_camera/camera_info` | `sensor_msgs/msg/CameraInfo` | sensor data | Intrinsics and distortion matching the image |
+| A → P | robot → police, **bridged** | `/p_cam/image_raw` | `sensor_msgs/msg/Image` | sensor data | Rectified or distortion-described color image |
+| A → P | robot → police, **bridged** | `/p_cam/camera_info` | `sensor_msgs/msg/CameraInfo` | sensor data | Intrinsics and distortion matching the image |
 | P → consumers | police only | `/police/speed_estimate` | `corridor_interfaces/msg/SpeedEstimate` | reliable, volatile, depth 10 | Validity, speed, uncertainty, width, and limit |
 | P → consumers | police only | `/police/speed_violation` | `corridor_interfaces/msg/SpeedViolation` | reliable, volatile, depth 10 | Debounced event, not a latched alarm |
 | harness only | **robot only** | `/test/ground_truth/speed` | `geometry_msgs/msg/TwistStamped` | reliable, volatile, depth 10 | Evaluator reference in `twist.linear.x`; not on the allowlist, so unreachable from P |
@@ -71,6 +75,13 @@ The three bridged rows are the entire sanctioned surface between the two actors.
 Nothing returns from police to robot: the gateway declares no `reversed` or
 `bidirectional` entry, and `test_no_topic_is_bridged_back_toward_the_robot`
 fails if one appears.
+
+Read the direction column as *domain* 42 → 43, not as ownership. Since ADR 0021
+the camera on those two rows belongs to **P**; it is published in A's plane only
+because that is where the simulator renders, and the bridge hands it to the
+domain its owner is on. A is camera-less, so nothing on the crossing is a robot
+sensor being shared. A's own contract sensor is the fleet twin's navigation
+lidar, which stays on 42 and is never enforcement evidence.
 
 `/clock` is on that list for a reason that is easy to miss. Under `use_sim_time`
 rclpy's `TimeSource` subscribes to it internally, so no observer source line

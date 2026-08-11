@@ -18,7 +18,11 @@ nobody.
 
 from __future__ import annotations
 
-#: A's domain: the Isaac adapter or the synthetic publisher, plus simulator truth.
+#: A's domain: the Isaac adapter or the synthetic publisher, plus simulator
+#: truth. Since ADR 0021 the camera the adapter publishes is *P's* roadside
+#: enforcement instrument rather than a sensor on A, which is camera-less. It
+#: originates here only because this is the plane the simulator renders in, and
+#: it is relayed straight out to its owner.
 ROBOT_DOMAIN_ID = 42
 
 #: P's domain: the camera-only observer, the enforcement display, and RViz.
@@ -28,7 +32,7 @@ POLICE_DOMAIN_ID = 43
 #: it. Stated as a mapping from topic to message type so a reader sees the whole
 #: sanctioned surface in one place; the direction is uniform and one-way.
 RELAYED_TOPICS: dict[str, str] = {
-    "/robot/front_camera/image_raw": "sensor_msgs/msg/Image",
-    "/robot/front_camera/camera_info": "sensor_msgs/msg/CameraInfo",
+    "/p_cam/image_raw": "sensor_msgs/msg/Image",
+    "/p_cam/camera_info": "sensor_msgs/msg/CameraInfo",
     "/clock": "rosgraph_msgs/msg/Clock",
 }
