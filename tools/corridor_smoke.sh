@@ -101,8 +101,21 @@ echo "  imu gate: ${IMU_HZ} Hz"
 # paths contain "omniverse", and so does the scratch directory. A guard that
 # fires on its own caller is worse than no guard: it trains you to bypass it.
 occupants() {
-  pgrep -af 'rasptank_twin_runner\.py|sim_runner\.py|isaac-sim|/kit/kit' \
-    | grep -v "^$$ " || true
+  # Exclude this process AND its whole ancestry. A bare "$$" filter is not
+  # enough: the guard has now been tripped twice by the SHELL THAT LAUNCHED IT,
+  # because this repository's paths contain "omniverse" and because a caller
+  # who types the pattern on a command line puts it into their own cmdline.
+  # Both of those are ancestors, never the twin.
+  local ancestry=" $$ " walk=$PPID
+  while [ -n "$walk" ] && [ "$walk" -gt 1 ] 2>/dev/null; do
+    ancestry="$ancestry$walk "
+    walk=$(ps -o ppid= -p "$walk" 2>/dev/null | tr -d ' ')
+  done
+  pgrep -af 'rasptank_twin_runner\.py|isaac-sim|/kit/kit' 2>/dev/null \
+    | while read -r found rest; do
+        case "$ancestry" in *" $found "*) continue ;; esac
+        printf '%s %s\n' "$found" "$rest"
+      done
 }
 if [ -n "$(occupants)" ]; then
   echo "REFUSED: an Isaac-shaped session is already running:" >&2

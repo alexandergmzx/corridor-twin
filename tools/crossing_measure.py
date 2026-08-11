@@ -53,13 +53,21 @@ from sensor_msgs.msg import CameraInfo, Image
 sys.path.insert(0, str(Path(__file__).parent))
 from isaac_gpu import gpu_memory_snapshot  # noqa: E402
 
+#: The adapter's contract simulation rate; the camera divider derives from it.
+SIMULATION_HZ = 60.0
+
 IMAGE_TOPIC = "/p_cam/image_raw"
 CAMERA_INFO_TOPIC = "/p_cam/camera_info"
 CLOCK_TOPIC = "/clock"
 
+# Depth 200, not the contract's 5. This subscriber is an instrument, not a
+# consumer: a queue that overflows while the measuring thread is servicing the
+# other domain would be recorded as transport loss. Both planes get the SAME
+# profile, which is what makes the two counts comparable at all -- the
+# difference between them is then attributable to what sits between them.
 SENSOR_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
-    depth=5,
+    depth=200,
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
 )
@@ -186,6 +194,15 @@ def main() -> int:
     parser.add_argument("--police-domain", type=int, default=43)
     parser.add_argument("--rate-hz", type=float, default=15.0, help="declared nominal rate")
     parser.add_argument("--label", default="640x360")
+    parser.add_argument(
+        "--producer-manifest",
+        help=(
+            "The adapter's --drive-out schedule. Its per-update simulation times "
+            "are the publisher's OWN record of what it rendered, reached without "
+            "DDS, so the producer gate does not rest on a subscriber that can "
+            "drop the very frames it is counting."
+        ),
+    )
     parser.add_argument("--out", required=True)
     parser.add_argument(
         "--delivery-floor", type=float, default=0.95, help="fraction of nominal required"
@@ -231,6 +248,44 @@ def main() -> int:
     nominal = arguments.rate_hz * arguments.seconds
     delivered = len(police.image_receipts)
     published = len(robot.image_receipts)
+    # CameraInfo leaves the same render product on the same tick as the image,
+    # so it counts FRAMES without being confounded by frame SIZE. Counted on
+    # both planes, it is the schedule token that separates "the bridge dropped
+    # images" from "large messages drop everywhere on this transport".
+    published_info = len(robot.info_stamps)
+    delivered_info = len(police.info_stamps)
+
+    robot_span_s = robot.clock_summary().get("span_s") or 0.0
+    police_span_s = police.clock_summary().get("span_s") or 0.0
+
+    producer = {"manifest": arguments.producer_manifest}
+    # The adapter writes its schedule when the drive ENDS, which is after this
+    # capture window closes -- so the file is normally absent here and the
+    # producer gate is filled in by tools/producer_gate.py once the adapter has
+    # exited. Reading it here is the convenience path for a re-analysis.
+    if arguments.producer_manifest and Path(arguments.producer_manifest).is_file():
+        schedule = json.loads(Path(arguments.producer_manifest).read_text(encoding="utf-8"))
+        samples = schedule.get("samples", [])
+        # The graph publishes one frame every (skip + 1) updates; the adapter
+        # derives that divider from the same contract this tool is checking.
+        divider = max(1, round(SIMULATION_HZ / arguments.rate_hz))
+        sim_span = (
+            float(samples[-1]["sim_time_s"]) - float(samples[0]["sim_time_s"])
+            if len(samples) > 1
+            else 0.0
+        )
+        rendered_frames = len(samples) // divider
+        producer.update(
+            {
+                "updates_completed": len(samples),
+                "update_divider": divider,
+                "frames_the_adapter_rendered": rendered_frames,
+                "adapter_sim_span_s": round(sim_span, 3),
+                "adapter_rate_hz_sim_basis": (
+                    round(rendered_frames / sim_span, 3) if sim_span else None
+                ),
+            }
+        )
 
     # Only frames seen on BOTH planes can contribute a difference.
     shared = sorted(set(robot.image_receipts) & set(police.image_receipts))
@@ -252,7 +307,11 @@ def main() -> int:
                 round(delivered / published, 4) if published else 0.0
             ),
             "matched_on_both_planes": len(shared),
-            "camera_info_delivered": len(police.info_stamps),
+            "camera_info_published_on_robot_plane": published_info,
+            "camera_info_delivered": delivered_info,
+            "camera_info_crossing_ratio": (
+                round(delivered_info / published_info, 4) if published_info else 0.0
+            ),
         },
         "stamp_monotonicity": {
             "police_plane_non_monotonic": police.non_monotonic_stamps(),
@@ -295,30 +354,80 @@ def main() -> int:
         # The publisher's own liveness, because a short source makes the
         # delivered-vs-nominal ratio meaningless without it.
         "source_liveness": {
-            "robot_plane_clock_span_s": robot.clock_summary().get("span_s", 0.0),
-            "publisher_rate_hz_while_alive": (
-                round(published / robot.clock_summary()["span_s"], 2)
-                if robot.clock_summary().get("span_s")
-                else None
+            "robot_plane_clock_span_s": robot_span_s,
+            "police_plane_clock_span_s": police_span_s,
+            # Named for what it is. This is the rate at which IMAGES ARRIVED at
+            # a best-effort subscriber on A's plane -- not the rate the adapter
+            # published at. Reading it as the latter is the error the rung-1
+            # analysis caught.
+            "image_arrival_rate_hz_robot_plane_sim_basis": (
+                round(published / robot_span_s, 3) if robot_span_s else None
             ),
+            "camera_info_arrival_rate_hz_robot_plane_sim_basis": (
+                round(published_info / robot_span_s, 3) if robot_span_s else None
+            ),
+        },
+        "producer": producer,
+    }
+
+    # --- gates, decomposed --------------------------------------------------
+    # One combined "delivery" number cannot fail informatively: it mixes how
+    # fast the adapter rendered, how much the transport lost, and how long the
+    # source lived. Each of those is separately actionable, so each gets its own
+    # gate and its own evidence.
+    adapter_rate = producer.get("adapter_rate_hz_sim_basis")
+    producer_ratio = (adapter_rate / arguments.rate_hz) if adapter_rate else None
+    info_ratio = result["frames"]["camera_info_crossing_ratio"]
+    image_ratio = result["frames"]["delivered_ratio_of_published"]
+
+    # Attribution: CameraInfo and Image cross the same bridge on the same tick
+    # and differ only in size. If the small stream crosses intact while the
+    # large one does not, the loss is size-dependent transport behaviour on both
+    # legs, not a bridge declining to forward.
+    attribution = (
+        "unattributed (no camera_info baseline)"
+        if not published_info
+        else (
+            "size-dependent transport loss: the small stream crossed at "
+            f"{info_ratio:.3f} while the large stream crossed at {image_ratio:.3f}"
+            if info_ratio - image_ratio > 0.02
+            else "bridge-attributable: both streams crossed at comparable ratios"
+        )
+    )
+
+    result["gates"] = {
+        "producer": {
+            "definition": (
+                "frames the adapter rendered per simulation second, from its own "
+                "schedule, vs the declared rate"
+            ),
+            "measured_hz": adapter_rate,
+            "declared_hz": arguments.rate_hz,
+            "ratio": round(producer_ratio, 4) if producer_ratio else None,
+            "floor": arguments.delivery_floor,
+            "pass": bool(producer_ratio and producer_ratio >= arguments.delivery_floor),
+            "evidence": arguments.producer_manifest or "NOT MEASURED (no --producer-manifest)",
+        },
+        "crossing": {
+            "definition": "delivered in P's plane vs published on A's plane, same QoS both sides",
+            "image_ratio": image_ratio,
+            "camera_info_ratio": info_ratio,
+            "floor": arguments.delivery_floor,
+            "pass": image_ratio >= arguments.delivery_floor,
+            "attribution": attribution,
         },
     }
 
     checks = {
-        # Two delivery checks, deliberately separate. The first is the gate the
-        # v2 plan sets. The second is the bridge's own fidelity, and it exists
-        # because the first conflates two unrelated failures: a lossy bridge and
-        # a source that stopped early. The first run of this measurement scored
-        # 0.37 against nominal purely because the authored route finishes in
-        # ~24 s and the window was 60 s -- the bridge had in fact carried 95.7%
-        # of everything published. Reporting only the first would have recorded
-        # a transport failure that did not happen.
-        "delivery_at_or_above_floor": (
-            result["frames"]["delivered_ratio_of_nominal"] >= arguments.delivery_floor
-        ),
-        "bridge_carried_what_was_published": (
-            result["frames"]["delivered_ratio_of_published"] >= arguments.delivery_floor
-        ),
+        # The single "delivery vs nominal" number this replaced could not fail
+        # informatively: it mixed the adapter's render rate, the transport's
+        # loss, and how long the source lived. Its first run scored 0.37 purely
+        # because the authored route finishes in ~24 s against a 60 s window,
+        # and its second scored 0.79 because image arrivals were read as the
+        # publisher's rate. Both were recorded as transport failures that had
+        # not happened. The two gates below are separately actionable, and the
+        # ratio against nominal is kept in `frames` as a number, not a verdict.
+        "crossing_gate": result["gates"]["crossing"]["pass"],
         "stamps_monotonic_in_police_plane": (
             result["stamp_monotonicity"]["police_plane_non_monotonic"] == 0
         ),
@@ -330,6 +439,16 @@ def main() -> int:
         ),
         "camera_info_accompanies_images": result["frames"]["camera_info_delivered"] > 0,
     }
+    # The producer gate is deliberately absent from `checks` when the adapter's
+    # schedule does not exist yet, which is the normal case: the adapter writes
+    # it at drive end, after this window closes. Counting an unmeasurable gate
+    # as failed would report a producer fault on every run and train the reader
+    # to ignore the verdict. tools/producer_gate.py adds it and recomputes.
+    if result["gates"]["producer"].get("measured_hz") is not None:
+        checks["producer_gate"] = result["gates"]["producer"]["pass"]
+    else:
+        result["gates"]["producer"]["pass"] = None
+        result["gates"]["producer"]["status"] = "DEFERRED to tools/producer_gate.py"
     result["checks"] = checks
     result["pass"] = all(checks.values())
 

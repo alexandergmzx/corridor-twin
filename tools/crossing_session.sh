@@ -55,8 +55,21 @@ mkdir -p "$EVIDENCE"
 [ -x "$ISAAC_PYTHON" ] || { echo "isaac python missing: $ISAAC_PYTHON" >&2; exit 2; }
 
 occupants() {
-  pgrep -af 'isaac_5_1_ros_camera|rasptank_twin_runner\.py|isaac-sim|/kit/kit' \
-    | grep -v "^$$ " || true
+  # Exclude this process AND its whole ancestry. A bare "$$" filter is not
+  # enough: the guard has now been tripped twice by the SHELL THAT LAUNCHED IT,
+  # because this repository's paths contain "omniverse" and because a caller
+  # who types the pattern on a command line puts it into their own cmdline.
+  # Both of those are ancestors, never the twin.
+  local ancestry=" $$ " walk=$PPID
+  while [ -n "$walk" ] && [ "$walk" -gt 1 ] 2>/dev/null; do
+    ancestry="$ancestry$walk "
+    walk=$(ps -o ppid= -p "$walk" 2>/dev/null | tr -d ' ')
+  done
+  pgrep -af 'isaac_5_1_ros_camera|rasptank_twin_runner\.py|isaac-sim|/kit/kit' 2>/dev/null \
+    | while read -r found rest; do
+        case "$ancestry" in *" $found "*) continue ;; esac
+        printf '%s %s\n' "$found" "$rest"
+      done
 }
 if [ -n "$(occupants)" ]; then
   echo "REFUSED: an Isaac-shaped session is already running:" >&2
@@ -107,9 +120,11 @@ env -u AMENT_PREFIX_PATH -u PYTHONPATH -u ROS_DISTRO -u CMAKE_PREFIX_PATH \
     OMNI_KIT_ACCEPT_EULA=YES ROS_DOMAIN_ID="$ROBOT_DOMAIN" \
     "$ISAAC_PYTHON" "$REPO/tools/isaac_5_1_ros_camera.py" "$STAGE" \
     --manifest "$MANIFEST" --drive-speed-mps "$DRIVE_SPEED" --updates "$UPDATES" \
+    --drive-out "$EVIDENCE/drive-schedule-$LABEL.json" \
     --report-gpu-memory ${CAMERA_RES:+--camera-resolution $CAMERA_RES} \
     >"$EVIDENCE/isaac-$LABEL.log" 2>&1 &
-children+=($!)
+ADAPTER_PID=$!
+children+=("$ADAPTER_PID")
 echo "  adapter starting on domain $ROBOT_DOMAIN (updates=$UPDATES)"
 
 # --- wait for the crossing to open, in P's plane -----------------------------
@@ -136,6 +151,7 @@ echo "=== T2.2 measurement (${SECONDS_CAPTURE}s at ${RATE_HZ} Hz nominal) ==="
 python3 "$REPO/tools/crossing_measure.py" \
   --seconds "$SECONDS_CAPTURE" --rate-hz "$RATE_HZ" --label "$LABEL" \
   --robot-domain "$ROBOT_DOMAIN" --police-domain "$POLICE_DOMAIN" \
+  --producer-manifest "$EVIDENCE/drive-schedule-$LABEL.json" \
   --out "$EVIDENCE/crossing-$LABEL.json" || status=1
 
 if [ "$CERTIFICATE" = yes ]; then
@@ -200,6 +216,22 @@ YAML
     status=1
   fi
   kill -TERM "$MUTANT_PID" 2>/dev/null || true
+fi
+
+# --- producer gate: needs the adapter's schedule, written only at drive end ---
+echo "=== producer gate (waiting for the adapter to finish its route) ==="
+waited=0
+while kill -0 "$ADAPTER_PID" 2>/dev/null && [ "$waited" -lt 180 ]; do
+  sleep 5; waited=$((waited + 5))
+done
+if kill -0 "$ADAPTER_PID" 2>/dev/null; then
+  echo "  **adapter still running after ${waited}s; producer gate NOT MEASURED**"
+  status=1
+else
+  python3 "$REPO/tools/producer_gate.py" \
+    --schedule "$EVIDENCE/drive-schedule-$LABEL.json" \
+    --crossing "$EVIDENCE/crossing-$LABEL.json" \
+    --declared-hz "$RATE_HZ" || status=1
 fi
 
 if [ "$status" = 0 ]; then echo "=== crossing session $LABEL: PASS ==="
