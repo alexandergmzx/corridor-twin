@@ -37,6 +37,7 @@ Two status strings differ between a file and this index, both deliberately:
 | [0018](0018-model-the-east-wall-stub.md) | Accepted | Model the east-wall stub, recess B behind it, extend the route |
 | [0019](0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md) | Accepted | Relocate P inside the east wall, behind a purpose-built corner screen |
 | [0020](0020-communication-domain-isolation.md) | Accepted | Isolate A and P on separate ROS domains, bridged by one allowlist |
+| [0021](0021-police-owned-sensing-and-isolation-gate.md) | Accepted | Move the camera to P and gate on the isolation certificate |
 
 ## Decision map
 
@@ -82,6 +83,10 @@ flowchart LR
     A8 --> A20
     A11 -. "one row amended by" .-> A20
 
+    Feedback --> A21["0021<br/>P-owned sensing,<br/>isolation gate"]
+    A20 -. "three clauses<br/>superseded by" .-> A21
+    A2 -. "camera ownership<br/>superseded by" .-> A21
+
     A12 --> Demo["Defensible interview demo"]
     A13 --> Demo
     A16 --> Demo
@@ -90,6 +95,7 @@ flowchart LR
     A18 --> Demo
     A19 --> Demo
     A20 --> Demo
+    A21 --> Demo
 
     classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
     classDef superseded fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
@@ -104,8 +110,10 @@ exceptions, and they mean different things:
 
 | Dotted arrow | Meaning |
 |---|---|
-| 0017 → 0019 | The only **supersession** in the set. 0019 replaces 0017's placement decision on measured source evidence |
+| 0017 → 0019 | A full **supersession**: 0019 replaces 0017's placement decision on measured source evidence |
 | 0011 → 0020 | An **amendment** to one row of 0011's concept table. 0011's binding decision is unchanged and still enforced |
+| 0020 → 0021 | A **partial supersession**: 0021 replaces 0020's crossing contents, its camera-ownership stance, and the gating status of the geometric program. 0020's domain split, 42/43 defaults, truth placement, and `/clock` discipline are extended, not replaced |
+| 0002 → 0021 | 0021 moves camera **ownership** to P. 0002's camera-only evidence discipline carries onto P's camera; its estimation method is addressed by 0024 |
 
 ADR 0011 **extends** ADR 0005 rather than replacing it: the decision to prove
 occlusion continuously and audit composed USD still stands, and 0011 carries it
@@ -149,3 +157,13 @@ its gate still passes, but it is scenario realism rather than the assignment's
 constraint. Only ADR 0011's "P data access" row, which described P subscribing to
 A directly, is amended; under 0020 P receives a bridged copy instead. The
 occlusion chain 0005 → 0011 → 0012 → 0019 is untouched.
+
+ADR 0021 **supersedes three clauses of ADR 0020 and extends the rest.** The
+same interview carried two further corrections — autonomous navigation and
+active AI/ML use — that 0020, written the same day against the first
+correction alone, never saw. Under 0021 the single render product becomes P's
+enforcement camera, the crossing becomes `/p_cam/*` plus `/clock`, and the
+scenario requirement gate becomes the isolation certificate with its mutation
+test. 0020's domain split, its non-zero 42/43 defaults, truth staying on A's
+plane, and the `/clock` lesson are all retained and built on. The geometric
+program keeps passing as scenario realism; it stops gating the requirement.

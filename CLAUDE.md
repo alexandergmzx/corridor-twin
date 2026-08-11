@@ -97,12 +97,19 @@ The active sequence is defined by
 
 1. **Truth isolation.** Simulator pose, odometry, TF, and synthetic ground truth
    are evaluation inputs only, never observer inputs.
-2. **A cannot see P.** This is a hard geometric/camera acceptance gate, proved by
-   `scene.occlusion`, not an assertion. Software input rules are additive and
-   never a substitute — P could be plainly visible in A's pixels even if A's
-   controller chooses to ignore them.
-3. **One camera.** One 640x360 RGB render product at 15 Hz. No depth, LiDAR,
-   segmentation, second render product, or police-side sensor.
+2. **A cannot see P.** For the authored scene this remains a geometric
+   acceptance gate proved by `scene.occlusion`, not an assertion. Since ADR
+   0021 it is scenario realism rather than the assignment's constraint: the
+   requirement gate is the **isolation certificate** (P's observed graph
+   equals the declared allowlist exactly, mutation test red), and A is
+   camera-less in v2, which makes the camera clause vacuous going forward.
+   P's body stays concealed; do not delete or disavow the geometric proofs.
+3. **One render product = P's enforcement instrument.** Since ADR 0021 the
+   single RGB render product is P's roadside camera; A carries no camera.
+   A's navigation lidar is the fleet twin's contract sensor on A's plane and
+   never an enforcement evidence source. No depth, segmentation, or second
+   render product. Resolution and rate are re-measured for v2 (ADR 0024);
+   the v1 contract was 640x360 at 15 Hz.
 4. **Interface first.** The observer consumes standard camera messages and does
    not know whether the publisher is synthetic, Isaac Sim, or hardware.
 5. **Deterministic authoring.** The USDA and manifest are generated from
