@@ -1,0 +1,219 @@
+# Nav2 for robot1 IN THE CORRIDOR — v2 evidence night (2026-08-11).
+# Derived from ground_station/src/fleet_bringup/param/nav2_robot2.yaml; every
+# tuned value is inherited [estimate] unless tagged otherwise below.
+#
+# THE CARRIED WARNING (research-plan P6, from MicroROS, verbatim in spirit):
+# Nav2 BYPASSES the governor unless routed through it. Here the routing IS the
+# point: controller_server and behavior_server have cmd_vel remapped to
+# cmd_vel_raw in the launch, so Nav2 is just another operator upstream of the
+# governor. Do not run this on a floor before the P2 stopping numbers exist.
+#
+# FIVE SUBSTITUTIONS vs the robot2 file, all forced by robot1's architecture:
+#
+#   1. NAMESPACE. robot1 runs at ROOT, unprefixed (architecture.md:46-51,
+#      amendments A2.1/A2.2). robot2's file assumes a /robot2 namespace.
+#   2. FRAMES. odom / base_footprint, not odom / base_footprint
+#      (ekf_sim_pnfix.yaml:97-99). Nav2 does not namespace frames, so these are
+#      literal and had to change one by one.
+#   3. ODOM TOPIC -> /odom. robot1's EKF remaps odometry/filtered to /odom
+#      (bringup_corrected_launch.py:82). Leaving the robot2 value would leave
+#      the controller waiting on a topic nobody publishes.
+#   4. SCAN -> /scan. **robot1 has no scan_filtered producer at all**, and its
+#      governor judges raw /scan (cmd_vel_governor.py:82). Costmaps must see
+#      the same stream the governor sees, or Nav2 plans around obstacles the
+#      governor cannot brake for, and vice versa.
+#   5. MAP TOPIC -> /map. robot1's slam_toolbox publishes /map at root
+#      (slam_launch.py:56-63, no namespace, no remappings). The robot2 file's
+#      absolute /robot2/map exists because a RELATIVE 'map' there resolved
+#      against the costmap's nested namespace and silently produced an empty
+#      map [measured 2026-08-08]; the absolute form is kept for the same
+#      reason, pointed at root.
+#
+# Speed caps are unchanged from robot2 at 0.22 m/s, deliberately: it keeps the
+# two robots' corridor runs comparable and sits under robot1's own governor cap
+# of 0.35 m/s (yahboomcar_safety/governor.py:41-60). Not a robot1 measurement.
+#
+# robot_radius is INHERITED 0.12 and is NOT verified for robot1's chassis. It
+# is flagged in every artifact and parked to the morning list; it matters most
+# where the corridor is narrowest.
+
+/**:
+  controller_server:
+    ros__parameters:
+      controller_frequency: 20.0
+      min_x_velocity_threshold: 0.001
+      min_theta_velocity_threshold: 0.001
+      failure_tolerance: 1.0
+      odom_topic: /odom
+      progress_checker_plugins: ["progress_checker"]
+      goal_checker_plugins: ["general_goal_checker"]
+      controller_plugins: ["FollowPath"]
+      progress_checker:
+        plugin: "nav2_controller::SimpleProgressChecker"
+        required_movement_radius: 0.1
+        movement_time_allowance: 20.0
+      general_goal_checker:
+        plugin: "nav2_controller::SimpleGoalChecker"
+        stateful: true
+        xy_goal_tolerance: 0.15
+        yaw_goal_tolerance: 0.6
+      FollowPath:
+        plugin: "dwb_core::DWBLocalPlanner"
+        # Tracks: no lateral DOF; caps under the governor's [estimate] limits.
+        min_vel_x: 0.0
+        max_vel_x: 0.22
+        min_vel_y: 0.0
+        max_vel_y: 0.0
+        max_vel_theta: 1.0
+        min_speed_xy: 0.0
+        max_speed_xy: 0.22
+        min_speed_theta: 0.0
+        acc_lim_x: 0.5
+        acc_lim_y: 0.0
+        acc_lim_theta: 1.5
+        decel_lim_x: -0.5
+        decel_lim_y: 0.0
+        decel_lim_theta: -1.5
+        vx_samples: 20
+        vy_samples: 1
+        vtheta_samples: 20
+        sim_time: 1.5
+        linear_granularity: 0.05
+        angular_granularity: 0.025
+        transform_tolerance: 0.3
+        xy_goal_tolerance: 0.15
+        trans_stopped_velocity: 0.05
+        short_circuit_trajectory_evaluation: true
+        stateful: true
+        critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign",
+                  "PathAlign", "PathDist", "GoalDist"]
+        BaseObstacle.scale: 0.02
+        PathAlign.scale: 32.0
+        PathAlign.forward_point_distance: 0.1
+        GoalAlign.scale: 24.0
+        GoalAlign.forward_point_distance: 0.1
+        PathDist.scale: 32.0
+        GoalDist.scale: 24.0
+        RotateToGoal.scale: 32.0
+        RotateToGoal.slowing_factor: 5.0
+        RotateToGoal.lookahead_time: -1.0
+
+  planner_server:
+    ros__parameters:
+      expected_planner_frequency: 1.0
+      planner_plugins: ["GridBased"]
+      GridBased:
+        plugin: "nav2_navfn_planner::NavfnPlanner"
+        tolerance: 0.15
+        use_astar: false
+        allow_unknown: true
+
+  behavior_server:
+    ros__parameters:
+      local_costmap_topic: local_costmap/costmap_raw
+      global_costmap_topic: global_costmap/costmap_raw
+      local_footprint_topic: local_costmap/published_footprint
+      global_footprint_topic: global_costmap/published_footprint
+      cycle_frequency: 10.0
+      behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
+      spin:
+        plugin: "nav2_behaviors::Spin"
+      backup:
+        plugin: "nav2_behaviors::BackUp"
+      drive_on_heading:
+        plugin: "nav2_behaviors::DriveOnHeading"
+      wait:
+        plugin: "nav2_behaviors::Wait"
+      local_frame: odom
+      global_frame: map
+      robot_base_frame: base_footprint
+      transform_tolerance: 0.3
+      # Recovery motions also go through the governor (cmd_vel remapped in
+      # launch); reverse is capped there at 0.10 m/s — backup obeys the cap.
+      max_rotational_vel: 0.8
+      min_rotational_vel: 0.2
+      rotational_acc_lim: 1.5
+
+  bt_navigator:
+    ros__parameters:
+      global_frame: map
+      robot_base_frame: base_footprint
+      odom_topic: /odom
+      bt_loop_duration: 10
+      default_server_timeout: 20
+      wait_for_service_timeout: 1000
+
+  local_costmap:
+    local_costmap:
+      ros__parameters:
+        update_frequency: 5.0
+        publish_frequency: 2.0
+        global_frame: odom
+        robot_base_frame: base_footprint
+        rolling_window: true
+        width: 3
+        height: 3
+        resolution: 0.05
+        robot_radius: 0.12          # INHERITED from robot2, UNVERIFIED for robot1
+        plugins: ["obstacle_layer", "inflation_layer"]
+        obstacle_layer:
+          plugin: "nav2_costmap_2d::ObstacleLayer"
+          enabled: true
+          observation_sources: scan
+          scan:
+            # THE filtered scan (§6): costmap sees exactly what the governor
+            # and matcher see. RELIABLE publisher + this best_effort sub is
+            # the compatible direction (§4 amendment).
+            topic: /scan
+            max_obstacle_height: 2.0
+            clearing: true
+            marking: true
+            data_type: "LaserScan"
+            raytrace_max_range: 3.5
+            raytrace_min_range: 0.0
+            obstacle_max_range: 2.5
+            obstacle_min_range: 0.0
+        inflation_layer:
+          plugin: "nav2_costmap_2d::InflationLayer"
+          cost_scaling_factor: 3.0
+          inflation_radius: 0.35
+        always_send_full_costmap: true
+
+  global_costmap:
+    global_costmap:
+      ros__parameters:
+        update_frequency: 1.0
+        publish_frequency: 1.0
+        global_frame: map
+        robot_base_frame: base_footprint
+        robot_radius: 0.12          # INHERITED from robot2, UNVERIFIED for robot1
+        resolution: 0.05
+        track_unknown_space: true
+        plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+        static_layer:
+          plugin: "nav2_costmap_2d::StaticLayer"
+          map_subscribe_transient_local: true
+          # ABSOLUTE on purpose [measured 2026-08-08]: a relative 'map' here
+          # resolves against the costmap node's NESTED namespace
+          # (/global_costmap/map — silently empty, "no map received",
+          # robot out of bounds, planner dead), not the robot namespace.
+          map_topic: /map
+        obstacle_layer:
+          plugin: "nav2_costmap_2d::ObstacleLayer"
+          enabled: true
+          observation_sources: scan
+          scan:
+            topic: /scan
+            max_obstacle_height: 2.0
+            clearing: true
+            marking: true
+            data_type: "LaserScan"
+            raytrace_max_range: 3.5
+            raytrace_min_range: 0.0
+            obstacle_max_range: 2.5
+            obstacle_min_range: 0.0
+        inflation_layer:
+          plugin: "nav2_costmap_2d::InflationLayer"
+          cost_scaling_factor: 3.0
+          inflation_radius: 0.35
+        always_send_full_costmap: true
