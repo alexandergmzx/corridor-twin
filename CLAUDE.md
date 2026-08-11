@@ -18,9 +18,14 @@ Commit as the repository's configured git identity and nothing else.
 ## What this project is
 
 An interview-sized digital twin: robot A delivers a package to person B through a
-tapered corridor and around a corner onto the next street. Robot A cannot see
-traffic police P, but P receives A's front-camera feed over ROS 2 and estimates
-A's speed from surveyed ArUco wall fiducials.
+tapered corridor and around a corner onto the next street. A and P live on
+separate ROS communication domains — the assignment's "cannot see" constraint
+(ADR 0020/0021). In v2, A navigates autonomously on the fleet twin's lidar with
+no camera of its own, and traffic police P measures A's speed from P's own
+roadside enforcement camera: a learned detector with an ArUco-on-A baseline
+(ADRs 0021–0024). The implemented v1 pipeline — A's front camera bridged to P,
+speed from surveyed ArUco wall fiducials — remains what runs today, quotable
+only as v1, until the v2 plan's phases land.
 
 The supplied scenario source is `docs/ROBO_TASK.pdf`. Its prose and topology are
 authoritative. Its unlabelled drawing has no scale bar, so metric dimensions in
@@ -35,15 +40,19 @@ not to become a production traffic-enforcement platform. The primary deliverable
 is a short, reliable, visually understandable demonstration backed by enough
 evidence to defend its engineering decisions.
 
-An interviewer should understand in one run:
+An interviewer should understand in one run (v2 reading; the v1 equivalents
+live in the historical sections below):
 
-1. A travels from the tapered corridor toward B on the next street.
+1. A travels from the tapered corridor toward B on the next street,
+   autonomously — governed Nav2 building its map live, no scripted route.
 2. The corridor narrows toward the corner and the local demonstration speed limit
    becomes stricter.
-3. P is physically hidden behind the corner wall and cannot be seen by A's camera.
-4. P nevertheless receives A's one permitted RGB camera stream over ROS 2.
-5. Surveyed fiducials let P estimate station and speed without pose, odometry, TF,
-   depth, or simulator truth.
+3. A's plane and P's plane are separate ROS domains; the isolation certificate
+   proves P's graph equals the declared allowlist exactly, mutation test red.
+4. P's own roadside camera is the single render product, its feed transported
+   one way through the gateway; A is camera-less.
+5. A learned detector (with an ArUco-on-A classical baseline) lets P estimate
+   station and speed without pose, odometry, TF, depth, or simulator truth.
 6. The UI makes measured speed, uncertainty, local width, limit, and violation
    state obvious.
 7. Changing the corridor-width USD variant visibly changes the geometry and policy
@@ -52,12 +61,13 @@ An interviewer should understand in one run:
 Interview-ready means:
 
 - one documented command starts the demonstration;
-- A moves continuously on the authored route;
-- the camera-only observer demonstrates a compliant run and one continuous
-  speeding episode;
-- P's concealment is visible and backed by the geometric certificate;
-- one camera remains the only simulated sensor;
-- the RTX 5070 Ti stays within the recorded memory budget;
+- A delivers autonomously and the violation arises from A's own profile;
+- P's camera-only enforcement demonstrates a compliant stretch and a speeding
+  episode, learned and baseline pipelines reported side by side;
+- the isolation certificate is green with its mutation control red;
+- exactly one render product remains the only rendered sensor (P's camera;
+  A's navigation lidar is the twin's contract sensor, never evidence);
+- the RTX 5070 Ti stays within the re-measured v2 memory budget;
 - a recorded fallback is available if the live run fails.
 
 Use this decision filter for new work:
@@ -129,17 +139,21 @@ Do not conflate these in code, tests, docs, or the demo UI:
 | Concept | Question | Directional? | Enforced by |
 |---|---|---|---|
 | Physical line of sight | Does an opaque wall intersect the segment between A's camera and P's body? | No; normally reciprocal | `scene.occlusion`, reported separately |
-| A-camera visibility | Is any part of P inside the camera frustum *and* unoccluded? | Yes | `scene.occlusion` — the gate that must pass |
+| A-camera visibility | Is any part of P inside the camera frustum *and* unoccluded? | Yes | `scene.occlusion` — computed, reported, and asserted for the authored scene; scenario realism since ADR 0021, no longer the requirement gate |
 | A software awareness | Does A detect, model, or react to P, or consume police topics? | Yes | `test_robot_side_sources_are_unaware_of_the_police` |
 | **Communication-domain isolation** | Can P discover or subscribe to *any* topic A publishes, other than through the gateway? | Yes | Separate `ROS_DOMAIN_ID`s; `test/test_domain_isolation.py`. **ADR 0020** |
 | P data access | Does P **receive a bridged copy** of A's Image/CameraInfo, and hold surveyed scenario data? | Yes | The gateway allowlist; permitted by design, but P cannot subscribe to A directly |
 
-The fourth row is the newest and the one the assignment actually meant. Interview
-feedback on 2026-08-04 clarified that "the robot cannot see the traffic police"
-was about ROS communication domains, not sightlines. The geometric rows are not
-retracted — they are true of the scene and their gate still passes — but they are
-scenario realism, not the constraint. See
-[`docs/adr/0020-communication-domain-isolation.md`](docs/adr/0020-communication-domain-isolation.md).
+The fourth row is the one the assignment actually meant. Interview feedback on
+2026-08-04 clarified that "the robot cannot see the traffic police" was about
+ROS communication domains, not sightlines. The geometric rows are not
+retracted — they are true of the scene and still asserted — but they are
+scenario realism, not the constraint. The fifth row describes the implemented
+v1 crossing; under ADR 0021 the bridged topics become P's own camera feed
+(`/p_cam/*`), and the requirement gate is the isolation certificate. See
+[`docs/adr/0020-communication-domain-isolation.md`](docs/adr/0020-communication-domain-isolation.md)
+and
+[`docs/adr/0021-police-owned-sensing-and-isolation-gate.md`](docs/adr/0021-police-owned-sensing-and-isolation-gate.md).
 
 ```mermaid
 flowchart LR
@@ -147,7 +161,7 @@ flowchart LR
         A["A's camera"] -. "wall intersects<br/>the segment" .- P["P's body"]
     end
 
-    A ==> |"one RGB stream"| GW["<b>corridor_gateway</b><br/>allowlist &middot; one way<br/>domain 42 &rarr; 43"]
+    A ==> |"one RGB stream<br/><i>v1: A's camera; v2: p_cam,<br/>P's instrument in transit</i>"| GW["<b>corridor_gateway</b><br/>allowlist &middot; one way<br/>domain 42 &rarr; 43"]
     GW ==> P
 
     P -. "cannot discover" .-x Truth["Pose &middot; odometry &middot; TF<br/>simulator truth<br/><i>robot domain only</i>"]:::blocked
@@ -244,6 +258,11 @@ fulfilled.
 
 ## Historical handoff: end-to-end demonstration milestone
 
+> Every Isaac, VRAM, and estimator figure in this section is the pre-ADR-0021
+> architecture — A's camera as the evidence source — and is **not quotable for
+> v2** (ADR 0022 retires all v1 certificate numbers). The figures stay
+> recorded here because they are true of the v1 run they describe.
+
 Read [`docs/REVIEW-LOG.md`](docs/REVIEW-LOG.md) first. It records every finding
 raised so far and how each was dispositioned, including the ones deliberately
 left open. Read the gate counts off your own `bash tools/check_workspace.sh`
@@ -292,8 +311,11 @@ Two limits remain open and must not be claimed closed:
   source used; do not reconstruct APIs from memory.
 - Reuse the authored trajectory, camera contract, marker manifest, and observer.
   Do not introduce a parallel geometry model or a simulator-only observer path.
-- Preserve the one-camera budget: one 640x360 RGB render product at 15 Hz, no
-  path tracing, depth, segmentation, LiDAR, police camera, or extra sensor.
+- Preserve the render-product budget: exactly one RGB render product — since
+  ADR 0021 it is P's enforcement camera, with resolution and rate re-measured
+  per ADR 0024 (the v1 contract was 640x360 at 15 Hz). No path tracing,
+  depth, segmentation, or second render product. A's navigation lidar is the
+  fleet twin's contract sensor on A's plane, never an evidence source.
 - Use ROS `/clock` and message header stamps consistently when running in
   simulation. Wall time may measure external latency but must not enter speed
   differentiation.

@@ -9,7 +9,7 @@ increments without requiring a reader to reconstruct status from commit history.
 | Map version | 1.7.0 |
 | Last updated | 2026-08-11 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | v2 decisions recorded: ADRs 0021–0025 land the three interview corrections — P owns the camera and the isolation certificate gates, robot A is selected by a measured fleet-twin gate, autonomy is governed Nav2 on live SLAM at robot-scale policy, enforcement perception is a learned detector with an ArUco baseline, and the repo joins the fleet workspace. See the [v2 plan](v2-plan.md) |
+| Current milestone | v2 decisions recorded: ADRs 0021–0025 land the three interview corrections — P owns the camera and the isolation certificate gates, robot A is selected by a measured fleet-twin gate, autonomy is governed Nav2 on live SLAM at robot-scale policy, enforcement perception is a learned detector with an ArUco baseline, and the fleet-workspace membership *decision* is recorded (ADR 0025; execution is Day 1). See the [v2 plan](v2-plan.md) |
 | Next milestone | v2 Day 1: fleet membership executed (symlink, pin, ledger, arena composer) and the isolation verification measured — ADR 0026. See the [v2 plan](v2-plan.md) §4–§5 |
 
 > Every Isaac Sim and GPU/VRAM figure in the capability matrix and resource
@@ -20,6 +20,12 @@ increments without requiring a reader to reconstruct status from commit history.
 > [`RELEASE-v1.0-interview.md`](RELEASE-v1.0-interview.md)'s own pending-refresh
 > banners. Portable, geometry-independent facts (topology, trajectory
 > continuity, occlusion certificate results) are current.
+>
+> Since ADR 0021 a stronger caveat sits above that one: every v1 estimator,
+> route, and VRAM figure on this page describes the pre-v2 architecture (A's
+> camera as the evidence source) and is **not quotable for v2** — ADR 0022
+> retires all v1 certificate numbers. The figures stay because they are true
+> of the v1 runs they describe.
 
 ## Read the documentation in this order
 
@@ -27,7 +33,8 @@ increments without requiring a reader to reconstruct status from commit history.
 |---|---|---:|
 | The scenario as supplied | [Source task and diagram](ROBO_TASK.pdf) | 2 minutes |
 | What exists and what comes next | This page | 3 minutes |
-| What must be corrected before requalification | [Active implementation handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) | 8 minutes |
+| The active v2 sequence: verified facts, corrections, Day 0–3 plan | [v2 plan](v2-plan.md) | 12 minutes |
+| The completed police-placement audit (historical record) | [Police-placement handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) | 8 minutes |
 | What earlier reviews found, and how each was dispositioned | [Review log](REVIEW-LOG.md) | 6 minutes |
 | Why the system is divided this way | [System design](DESIGN.md) | 8 minutes |
 | Exactly what P may consume | [Sensor-feed contract](SENSOR-FEED.md) | 6 minutes |
@@ -48,13 +55,17 @@ flowchart LR
     P4["4. Robot motion<br/>follows the authored route<br/>driven from simulation time<br/><b>WORKING</b>"]
     P5["5. Live estimation<br/>Isaac pixels to observer<br/>4 gates, 1 violation, measured<br/><b>WORKING</b>"]
     P6["6. Demo hardening<br/>one launch path + RViz<br/>rehearsed, fallback recorded<br/><b>WORKING</b>"]
-    P3c["3c. GPU requalification<br/>measured renderer state<br/>paired dwell capture<br/><b>NEXT</b>"]
-    P7["7. Latency + remaining profiles<br/>pose-to-render offset<br/>other (m,n) variants<br/><b>PENDING</b>"]
+    P3c["3c. GPU requalification<br/>retired by ADR 0022:<br/>no v1 number is quotable for v2<br/><b>RETIRED</b>"]
+    P7["7. Latency + remaining profiles<br/>pose-to-render offset<br/>other (m,n) variants<br/><b>RETIRED</b>"]
+    V2["8. v2 corrections<br/>ADRs 0021&ndash;0025 recorded<br/>fleet gate, Nav2, detector ahead<br/><b>NEXT</b>"]
 
-    P1 --> P2 --> P3 --> P3b --> P4 --> P5 --> P6 --> P3c --> P7
+    P1 --> P2 --> P3 --> P3b --> P4 --> P5 --> P6 --> P3c
+    P6 --> V2
+    P3c -.-> P7
 
     classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
     class P3c blocked;
+    class P7 blocked;
 ```
 
 `QUALIFIED*` means all hardware gates passed, but NVIDIA's checker still rejects
@@ -78,6 +89,12 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Communication-domain isolation | **Working** | A on ROS domain 42, P on 43, crossed only by a three-topic one-way allowlist. Proved with no GPU and no Isaac: the police domain cannot discover A's camera topic, no message crosses unbridged, and every negative is paired with a positive control that skips rather than passes. Forcing both probes onto one domain fails 2 of 3 DDS tests. [ADR 0020](adr/0020-communication-domain-isolation.md) | Confirm on the live Isaac path, which this branch does not requalify |
 
 ## Evidence boundary
+
+The diagram shows the **v1** boundary as implemented and running today. ADR
+0021 supersedes the crossing — in v2 the feed through the gateway is P's own
+camera (`/p_cam/*`), A is camera-less, and the requirement gate is the
+isolation certificate; the diagram is redrawn when that bridge is rebuilt
+(v2 plan task T2.1).
 
 ```mermaid
 flowchart LR
@@ -120,7 +137,7 @@ crosses no domain boundary at all.
 | RGB render products | 1 | Do not add another until a documented requirement and new VRAM measurement exist |
 | Resolution and rate | 640×360 at 15 Hz | Increase only after live estimator accuracy is measured |
 | Renderer | Real-time `RaytracedLighting` | No interactive path tracing |
-| Sensors | RGB only | No depth, LiDAR, radar, or segmentation in the interview scope |
+| Sensors | RGB only (v1) | No depth, radar, or segmentation in the interview scope. In v2 the one RGB render product becomes P's enforcement camera and A navigates on the fleet twin's contract lidar — a sensor, never an evidence source (ADRs 0021/0023) |
 | Current one-product GPU memory | 3,354 MiB headless, the live demonstration's own recorded figure (see the banner above: this predates ADR 0019 and needs a fresh capture). A later R17 plate relocation measured 3,486 MiB headless on the *pre-ADR-0019* geometry only; that number describes neither the live-demo run cited elsewhere on this page nor the corrected geometry, and is not carried here to avoid implying either | Remain below the 14,336 MiB soft ceiling |
 | Clock sources | Exactly 1 per time mode | Never run competing `/clock` publishers |
 
