@@ -44,6 +44,7 @@ Three status strings differ between a file and this index, each deliberately:
 | [0024](0024-learned-enforcement-perception.md) | Accepted | Synthetic-data detector with an ArUco-on-A baseline for P's camera |
 | [0025](0025-fleet-workspace-membership.md) | Accepted | Join the fleet workspace by symlink and pin; domains 42/43 stand, 44 reserved |
 | [0026](0026-isolation-verification.md) | Accepted | Verify the committed isolation mechanism: producer + crossing gates, certificate green, mutation red |
+| [0027](0027-robot-a-selection-outcome.md) | Accepted | **Corridor gate FAILED on both gated profiles; robot A stays robot1** (ADR 0022 fallback) |
 
 Reserved, written only when their evidence exists: **0026** (isolation
 verification under the 0021 crossing — protocol in
@@ -115,6 +116,7 @@ flowchart LR
     A14 --> A24
 
     A8 --> A25["0025<br/>Fleet workspace<br/>membership"]
+    A22 --> A27["0027<br/>Robot A outcome<br/>GATE FAILED"]
     A20 --> A26["0026<br/>Isolation<br/>VERIFIED"]
     A21 --> A26
     A20 --> A25
@@ -134,6 +136,7 @@ flowchart LR
     A24 --> Demo
     A25 --> Demo
     A26 --> Demo
+    A27 --> Demo
 
     classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
     classDef superseded fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
@@ -230,3 +233,9 @@ single delivery gate into a producer gate and a crossing gate, because the
 combined number produced two wrong conclusions before it was split -- once
 blaming the transport for a source that had stopped early, once blaming the
 publisher for loss that belonged to the measuring subscriber.
+
+ADR 0027 is 0022's **outcome**, and it is a negative one: the RaspTank twin
+failed the corridor gate on both gated profiles, so robot A stays robot1 under
+0022's fallback clause. 0022 is not edited by it -- a procedure ADR and its
+outcome are separate records, which is exactly why the procedure was written
+before the measurement was taken.
