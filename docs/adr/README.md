@@ -43,6 +43,7 @@ Three status strings differ between a file and this index, each deliberately:
 | [0023](0023-governed-nav2-live-slam.md) | Accepted | Autonomy is governed Nav2 on a live SLAM map, policy re-pinned to robot scale |
 | [0024](0024-learned-enforcement-perception.md) | Accepted | Synthetic-data detector with an ArUco-on-A baseline for P's camera |
 | [0025](0025-fleet-workspace-membership.md) | Accepted | Join the fleet workspace by symlink and pin; domains 42/43 stand, 44 reserved |
+| [0026](0026-isolation-verification.md) | Accepted | Verify the committed isolation mechanism: producer + crossing gates, certificate green, mutation red |
 
 Reserved, written only when their evidence exists: **0026** (isolation
 verification under the 0021 crossing — protocol in
@@ -114,6 +115,8 @@ flowchart LR
     A14 --> A24
 
     A8 --> A25["0025<br/>Fleet workspace<br/>membership"]
+    A20 --> A26["0026<br/>Isolation<br/>VERIFIED"]
+    A21 --> A26
     A20 --> A25
     A25 --> A22
 
@@ -130,6 +133,7 @@ flowchart LR
     A23 --> Demo
     A24 --> Demo
     A25 --> Demo
+    A26 --> Demo
 
     classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
     classDef superseded fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
@@ -218,3 +222,11 @@ completes the supersession of 0002 that 0021 began; 0025 makes the fleet the
 second build home without displacing this repository's own gate, and records
 the domain allocation (42/43 standing, 44 reserved, 70 dirty) on the fleet's
 ledger.
+
+ADR 0026 is a **verification** record, not a mechanism choice: 0020 shipped the
+domain split and stated that it changed no measured result, and 0026 supplies
+that measurement under 0021's recast crossing. It also decomposes the v2 plan's
+single delivery gate into a producer gate and a crossing gate, because the
+combined number produced two wrong conclusions before it was split -- once
+blaming the transport for a source that had stopped early, once blaming the
+publisher for loss that belonged to the measuring subscriber.
