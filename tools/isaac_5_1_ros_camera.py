@@ -211,6 +211,16 @@ def arguments() -> argparse.Namespace:
         metavar="X,Y,Z",
         help="Explicit viewport look-at point in world metres; overrides --view.",
     )
+    parser.add_argument(
+        "--camera-resolution",
+        metavar="WxH",
+        help=(
+            "Override the contract resolution for a throughput trial. The "
+            "contract value is what the demonstration runs; this exists so a "
+            "resolution can be MEASURED without editing the contract, and it "
+            "is recorded in the evidence as a trial rather than a decision."
+        ),
+    )
     parser.add_argument("--report-gpu-memory", action="store_true")
     return parser.parse_args()
 
@@ -715,6 +725,22 @@ def main() -> int:
         raise ValueError("--drive-speed-mps must be positive")
     if args.drive_out is not None and args.drive_speed_mps is None:
         raise ValueError("--drive-out requires --drive-speed-mps")
+    if args.camera_resolution is not None:
+        # Mutating the contract dict is deliberate: every consumer downstream --
+        # the Camera construction, the CameraInfo intrinsics, and the logged
+        # ISAAC_ROS_CAMERA_CONTRACT line -- reads it, so a trial resolution that
+        # only reached some of them would publish frames whose intrinsics
+        # described a different sensor. The log line is the record that a trial
+        # ran at something other than the contract.
+        try:
+            width_text, height_text = args.camera_resolution.lower().split("x")
+            trial_width, trial_height = int(width_text), int(height_text)
+        except ValueError as error:
+            raise ValueError("--camera-resolution must look like 1280x720") from error
+        if trial_width < 1 or trial_height < 1:
+            raise ValueError("--camera-resolution must be positive")
+        ADAPTER_CONTRACT["width"] = trial_width
+        ADAPTER_CONTRACT["height"] = trial_height
     # Reject a bad viewpoint before paying for a GPU app start, not after.
     static_view = resolve(args.view, args.view_eye, args.view_target)
     if args.view == CHASE_VIEW and args.drive_speed_mps is None:
