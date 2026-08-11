@@ -482,37 +482,104 @@ def test_phase_one_python_has_no_isaac_dependencies() -> None:
     assert violations == []
 
 
+def _scene_import_graph() -> dict[str, tuple[set[str], set[str]]]:
+    """Per scene module: (local scene modules imported, third-party roots).
+
+    Walks module-level AST imports only, which matches how the interpreter
+    fails: an undeclared third-party import at module level breaks
+    `python -m scene.build` before any argument parsing runs.
+    """
+    import sys
+
+    package_dir = ROOT / "src/corridor_scene/scene"
+    graph: dict[str, tuple[set[str], set[str]]] = {}
+    for path in package_dir.glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        local: set[str] = set()
+        third_party: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                roots = [alias.name.split(".", maxsplit=1)[0] for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                if node.level > 0:
+                    local |= (
+                        {node.module.split(".", maxsplit=1)[0]}
+                        if node.module
+                        else {alias.name for alias in node.names}
+                    )
+                    continue
+                roots = [node.module.split(".", maxsplit=1)[0]] if node.module else []
+            else:
+                continue
+            for root in roots:
+                if root == "scene":
+                    # Absolute self-import: `from scene.x import ...`.
+                    continue
+                if root == "__future__" or root in sys.stdlib_module_names:
+                    continue
+                third_party.add(root)
+        graph[path.stem] = (local, third_party)
+    return graph
+
+
+def _reachable_third_party(graph: dict[str, tuple[set[str], set[str]]], start: str) -> set[str]:
+    seen: set[str] = set()
+    frontier = [start]
+    third_party: set[str] = set()
+    while frontier:
+        module = frontier.pop()
+        if module in seen or module not in graph:
+            continue
+        seen.add(module)
+        local, roots = graph[module]
+        third_party |= roots
+        frontier.extend(local)
+    return third_party
+
+
 def test_scene_build_dependencies_are_declared() -> None:
-    """scene.build imports cv2 and numpy; corridor_scene must say so.
+    """Everything scene.build transitively imports must be declared.
 
     marker_assets.py imports cv2 at module level and build.py imports
     marker_assets unconditionally, so `python -m scene.build` needs OpenCV on
     every run. For a long time that worked only because the venv is created
     with --system-site-packages over apt's python3-opencv -- an undeclared
     dependency a rosdep-provisioned machine would not install. ADR 0025
-    declares it; this test stops the declaration from silently disappearing
-    while the import remains.
+    declares it; this test walks the transitive import graph from `build` so
+    the guard survives the import moving to another scene module.
     """
-    marker_assets = ROOT / "src/corridor_scene/scene/marker_assets.py"
-    tree = ast.parse(marker_assets.read_text(encoding="utf-8"), filename=str(marker_assets))
-    imported = {
-        alias.name.split(".", maxsplit=1)[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    } | {
-        node.module.split(".", maxsplit=1)[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and node.module
-    }
+    graph = _scene_import_graph()
+    reachable = _reachable_third_party(graph, "build")
+    rosdep_keys = {"cv2": "python3-opencv", "numpy": "python3-numpy", "yaml": "python3-yaml"}
+    # pxr arrives via pip usd-core (requirements.txt); it has no rosdep entry
+    # by design (ADR 0008 keeps USD out of the ROS dependency channel).
+    undeclared = reachable - set(rosdep_keys) - {"pxr"}
+    assert undeclared == set(), (
+        f"scene.build transitively imports undeclared third-party modules: {sorted(undeclared)}"
+    )
     package_xml = (ROOT / "src/corridor_scene/package.xml").read_text(encoding="utf-8")
-    required = {"cv2": "python3-opencv", "numpy": "python3-numpy"}
-    for module, rosdep_key in required.items():
-        if module in imported:
-            assert f"<exec_depend>{rosdep_key}</exec_depend>" in package_xml, (
-                f"scene/marker_assets.py imports {module} but corridor_scene/package.xml "
-                f"does not declare {rosdep_key}"
-            )
+    for module in sorted(reachable & set(rosdep_keys)):
+        rosdep_key = rosdep_keys[module]
+        assert f"<exec_depend>{rosdep_key}</exec_depend>" in package_xml, (
+            f"scene.build transitively imports {module} but corridor_scene/package.xml "
+            f"does not declare {rosdep_key}"
+        )
+
+
+def test_occlusion_chain_stays_pip_minimal() -> None:
+    """ADR 0025 decision 5: the certificate chain needs usd-core + PyYAML only.
+
+    The claim is load-bearing for the pip-only proof path; a stray numpy or
+    cv2 import anywhere in occlusion's transitive chain would falsify the
+    accepted record silently. yaml is permitted because model.py reads the
+    versioned scenario config; pxr is the usd-core chain the claim names.
+    """
+    graph = _scene_import_graph()
+    reachable = _reachable_third_party(graph, "occlusion")
+    assert reachable <= {"pxr", "yaml"}, (
+        f"scene.occlusion's transitive imports grew beyond usd-core + PyYAML: "
+        f"{sorted(reachable - {'pxr', 'yaml'})}"
+    )
 
 
 # Cases the build-side and observer-side policy validators must agree on.
