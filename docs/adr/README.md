@@ -38,6 +38,7 @@ Two status strings differ between a file and this index, both deliberately:
 | [0019](0019-relocate-p-inside-the-east-wall-with-a-corner-screen.md) | Accepted | Relocate P inside the east wall, behind a purpose-built corner screen |
 | [0020](0020-communication-domain-isolation.md) | Accepted | Isolate A and P on separate ROS domains, bridged by one allowlist |
 | [0021](0021-police-owned-sensing-and-isolation-gate.md) | Accepted | Move the camera to P and gate on the isolation certificate |
+| [0022](0022-robot-a-selection-gate.md) | Accepted | Select robot A by a measured corridor-odometry gate |
 
 ## Decision map
 
@@ -87,6 +88,9 @@ flowchart LR
     A20 -. "three clauses<br/>superseded by" .-> A21
     A2 -. "camera ownership<br/>superseded by" .-> A21
 
+    Feedback --> A22["0022<br/>Robot-A selection gate"]
+    A4 --> A22
+
     A12 --> Demo["Defensible interview demo"]
     A13 --> Demo
     A16 --> Demo
@@ -96,6 +100,7 @@ flowchart LR
     A19 --> Demo
     A20 --> Demo
     A21 --> Demo
+    A22 --> Demo
 
     classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
     classDef superseded fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
