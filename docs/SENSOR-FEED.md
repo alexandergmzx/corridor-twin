@@ -1,5 +1,14 @@
 # Robot camera to police observer contract
 
+> **v2 transition (2026-08-11).** The contract below is the implemented **v1**
+> contract: A's front camera, bridged to P. [ADR
+> 0021](adr/0021-police-owned-sensing-and-isolation-gate.md) supersedes the
+> crossing — the single render product becomes **P's** enforcement camera and
+> the bridged topics become `/p_cam/image_raw`, `/p_cam/camera_info`, and
+> `/clock`. The contract version bumps to 0.5.0 when the bridge is rebuilt
+> (v2 plan task T2.1); until then this document describes what runs today and
+> is quotable only as v1.
+
 | Field | Value |
 |---|---|
 | Contract version | 0.4.0 |
