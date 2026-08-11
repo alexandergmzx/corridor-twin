@@ -175,6 +175,13 @@ class CorridorGate(Node):
         self.covariance_trace: list[tuple[float, float, float, float]] = []
         self.last_odom_laser_s: float | None = None
         self.withheld_gaps: list[float] = []
+        # When the drive began. The interval from here to the FIRST odom_laser
+        # is withholding too, and the most consequential kind: it was missed
+        # entirely by a gaps-between-messages metric, which scored a run where
+        # the matcher produced nothing for the first 5.9 m as "1 consecutive
+        # withheld update".
+        self.drive_started_s: float | None = None
+        self.first_odom_laser_station_m: float | None = None
 
         self.create_subscription(Odometry, f"{NS}/odom_laser", self._on_odom_laser, 10)
         self.create_subscription(Odometry, f"{NS}/odometry/filtered", self._on_ekf, 10)
@@ -187,6 +194,9 @@ class CorridorGate(Node):
         now = time.monotonic()
         if self.last_odom_laser_s is not None:
             self.withheld_gaps.append(now - self.last_odom_laser_s)
+        elif self.drive_started_s is not None:
+            self.withheld_gaps.append(now - self.drive_started_s)
+            self.first_odom_laser_station_m = round(path_length_m(self.truth), 4)
         self.last_odom_laser_s = now
         self.counts["odom_laser"] += 1
         covariance = message.pose.covariance
@@ -221,6 +231,7 @@ class CorridorGate(Node):
 def drive(gate: CorridorGate, seconds: float) -> None:
     """Straight passes with settles. No rotation: see the module docstring."""
 
+    gate.drive_started_s = time.monotonic()
     end = time.monotonic() + seconds
     phase_end, phase = 0.0, "settle"
     while time.monotonic() < end:
@@ -292,6 +303,7 @@ def main() -> int:
         "tf_map_to_odom": tf_map_odom,
         "ground_truth_distance_m": round(truth_distance, 3),
         "max_consecutive_withheld_updates": max(0, consecutive),
+        "first_odom_laser_station_m": gate.first_odom_laser_station_m,
         "midpoint_drift": midpoint_drift(gate.truth, gate.estimate),
         "midpoint_covariance": covariance_at_midpoint(gate.covariance_trace, truth_distance),
         # The degeneracy study's primary artifact. Kept whole: it is a few
