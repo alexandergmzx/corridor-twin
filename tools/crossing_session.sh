@@ -77,6 +77,10 @@ if [ -n "$(occupants)" ]; then
   exit 2
 fi
 
+# shellcheck disable=SC1091
+source "$REPO/tools/isaac_lock.sh"
+isaac_lock_acquire "crossing-session $LABEL" || exit 3
+
 children=()
 cleanup() {
   echo "=== teardown ==="
@@ -94,6 +98,7 @@ cleanup() {
   else
     echo "  verified dead"
   fi
+  isaac_lock_release
 }
 trap cleanup EXIT INT TERM
 

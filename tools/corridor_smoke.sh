@@ -123,6 +123,10 @@ if [ -n "$(occupants)" ]; then
   exit 2
 fi
 
+# shellcheck disable=SC1091
+source "$REPO/tools/isaac_lock.sh"
+isaac_lock_acquire "corridor-smoke (domain $DOMAIN)" || exit 3
+
 # ROS setup scripts read variables they do not always set (COLCON_TRACE,
 # AMENT_TRACE_SETUP_FILES), so `set -u` has to stand down across the source or
 # the smoke dies before it starts anything.
@@ -145,6 +149,7 @@ stop_session() {
     return 1
   fi
   echo "  verified dead"
+  isaac_lock_release
   return 0
 }
 # The session outlives this shell unless it is torn down explicitly, so the trap

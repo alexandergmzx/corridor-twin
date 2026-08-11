@@ -90,6 +90,13 @@ if [ -n "$(occupants)" ]; then
   exit 2
 fi
 
+# Machine-wide single-occupancy. The occupancy scan above only sees THIS
+# machine's process list at one instant; the lock is what serialises sessions
+# that start seconds apart. Exit 3 (infrastructure), never a robot result.
+# shellcheck disable=SC1091
+source "$REPO/tools/isaac_lock.sh"
+isaac_lock_acquire "corridor-profile-run $PROFILE (domain $DOMAIN)" || exit 3
+
 set +u
 # shellcheck disable=SC1090,SC1091
 source "$WS_SETUP"
@@ -108,6 +115,7 @@ teardown() {
     echo "!! SESSION NOT DEAD:" >&2; occupants >&2; return 1
   fi
   echo "  verified dead"
+  isaac_lock_release
 }
 trap 'teardown || true' EXIT INT TERM
 
