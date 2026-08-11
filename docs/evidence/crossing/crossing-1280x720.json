@@ -1,0 +1,97 @@
+{
+  "label": "1280x720",
+  "seconds": 60.0,
+  "domains": {
+    "robot": 42,
+    "police": 43
+  },
+  "nominal_rate_hz": 15.0,
+  "frames": {
+    "nominal_expected": 900.0,
+    "published_on_robot_plane": 551,
+    "delivered_in_police_plane": 518,
+    "delivered_ratio_of_nominal": 0.5756,
+    "delivered_ratio_of_published": 0.9401,
+    "matched_on_both_planes": 410,
+    "camera_info_delivered": 844
+  },
+  "stamp_monotonicity": {
+    "police_plane_non_monotonic": 0,
+    "robot_plane_non_monotonic": 0
+  },
+  "clock": {
+    "police_plane": {
+      "messages": 3170,
+      "advancing": true,
+      "span_s": 58.55,
+      "first_ns": 900000046,
+      "last_ns": 59450003100
+    },
+    "robot_plane": {
+      "messages": 3156,
+      "advancing": true,
+      "span_s": 58.65,
+      "first_ns": 800000041,
+      "last_ns": 59450003100
+    }
+  },
+  "added_latency_ms": {
+    "samples": 410,
+    "median": 5.264,
+    "p95": 8.408,
+    "max": 17.5,
+    "ceiling_ms": 66.667
+  },
+  "stream": {
+    "frame_ids": [
+      "p_cam_optical_frame"
+    ],
+    "sizes": [
+      "1280x720"
+    ],
+    "encodings": [
+      "rgb8"
+    ]
+  },
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 5070 Ti",
+    "vram_used_mib_at_start": 2929,
+    "vram_used_mib_peak_during_capture": 2934,
+    "vram_used_mib_samples": 12,
+    "vram_total_mib": 16303,
+    "method": "nvidia-smi --query-gpu=memory.used --id=0 (tools/isaac_gpu.py), sampled every 5 s DURING the capture"
+  },
+  "bridge": {
+    "running": true,
+    "pid": 3748289,
+    "cpu_percent_sample": 6.0,
+    "sample_window_s": 0.5,
+    "cpu_percent_samples": [
+      6.0,
+      8.0,
+      8.0,
+      6.0,
+      7.99,
+      8.0,
+      4.0,
+      4.0,
+      6.0,
+      6.0,
+      6.0
+    ],
+    "cpu_percent_max": 8.0
+  },
+  "source_liveness": {
+    "robot_plane_clock_span_s": 58.65,
+    "publisher_rate_hz_while_alive": 9.39
+  },
+  "checks": {
+    "delivery_at_or_above_floor": false,
+    "bridge_carried_what_was_published": false,
+    "stamps_monotonic_in_police_plane": true,
+    "clock_advancing_in_police_plane": true,
+    "added_latency_under_one_camera_period": true,
+    "camera_info_accompanies_images": true
+  },
+  "pass": false
+}
