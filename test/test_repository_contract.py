@@ -482,6 +482,39 @@ def test_phase_one_python_has_no_isaac_dependencies() -> None:
     assert violations == []
 
 
+def test_scene_build_dependencies_are_declared() -> None:
+    """scene.build imports cv2 and numpy; corridor_scene must say so.
+
+    marker_assets.py imports cv2 at module level and build.py imports
+    marker_assets unconditionally, so `python -m scene.build` needs OpenCV on
+    every run. For a long time that worked only because the venv is created
+    with --system-site-packages over apt's python3-opencv -- an undeclared
+    dependency a rosdep-provisioned machine would not install. ADR 0025
+    declares it; this test stops the declaration from silently disappearing
+    while the import remains.
+    """
+    marker_assets = ROOT / "src/corridor_scene/scene/marker_assets.py"
+    tree = ast.parse(marker_assets.read_text(encoding="utf-8"), filename=str(marker_assets))
+    imported = {
+        alias.name.split(".", maxsplit=1)[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        node.module.split(".", maxsplit=1)[0]
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+    package_xml = (ROOT / "src/corridor_scene/package.xml").read_text(encoding="utf-8")
+    required = {"cv2": "python3-opencv", "numpy": "python3-numpy"}
+    for module, rosdep_key in required.items():
+        if module in imported:
+            assert f"<exec_depend>{rosdep_key}</exec_depend>" in package_xml, (
+                f"scene/marker_assets.py imports {module} but corridor_scene/package.xml "
+                f"does not declare {rosdep_key}"
+            )
+
+
 # Cases the build-side and observer-side policy validators must agree on.
 # corridor_scene cannot import police_observer -- the dependency runs the other
 # way -- so the invariant is implemented twice. This is what stops the two
