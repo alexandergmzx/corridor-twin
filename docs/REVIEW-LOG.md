@@ -400,3 +400,19 @@ independent review. Full workspace check after all five:
 ruff clean, 187 portable tests passed / 1 skipped (up from 185/1), 128 colcon
 tests / 0 failures (up from 127; the new repository-contract test lives
 outside any ROS package and does not add to the colcon count).
+
+## Status note — v2 corrections (2026-08-11)
+
+The round-7 independent review of the police-placement fixes was still pending
+when the 2026-08-04 interview feedback landed its three corrections. The
+domain split merged as ADR 0020 (PR #4), and ADRs 0021–0025 now record the v2
+decisions; the operative sequence is [`docs/v2-plan.md`](v2-plan.md).
+
+Two consequences for this log. First, round 7 remains open as a review of the
+v1 geometry work and is welcome, but it is no longer release-blocking: ADR
+0022 retires every v1 certificate number regardless of the robot-selection
+outcome, so the paused GPU requalification is closed as moot rather than
+resumed. Second, v2 evidence starts its own review trail — the isolation
+verification (ADR 0026) and the robot-A gate (ADR 0027) each name their
+protocol and pass/fail criteria in the plan before any run happens, which is
+the property this log exists to protect.

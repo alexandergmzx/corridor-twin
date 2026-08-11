@@ -6,11 +6,11 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.6.0 |
-| Last updated | 2026-07-29 |
+| Map version | 1.7.0 |
+| Last updated | 2026-08-11 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | Audit correction landed: P relocated to the source-faithful side of the east wall behind a new corner screen (ADR 0019), and the occlusion verifier is now bound to the composed USD actor and bounded against pathological recursion |
-| Next milestone | Independent review of the portable correction, then fresh GPU requalification on the corrected geometry — see the [active handoff](HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md) |
+| Current milestone | v2 decisions recorded: ADRs 0021–0025 land the three interview corrections — P owns the camera and the isolation certificate gates, robot A is selected by a measured fleet-twin gate, autonomy is governed Nav2 on live SLAM at robot-scale policy, enforcement perception is a learned detector with an ArUco baseline, and the repo joins the fleet workspace. See the [v2 plan](v2-plan.md) |
+| Next milestone | v2 Day 1: fleet membership executed (symlink, pin, ledger, arena composer) and the isolation verification measured — ADR 0026. See the [v2 plan](v2-plan.md) §4–§5 |
 
 > Every Isaac Sim and GPU/VRAM figure in the capability matrix and resource
 > envelope below predates the 2026-07-29 police-placement correction (ADR

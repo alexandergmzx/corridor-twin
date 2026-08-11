@@ -80,18 +80,23 @@ Claude is currently the implementation/planning agent. Codex independently
 reviews completed milestone commits. Claude should not repeatedly restart the
 independent audit unless the user explicitly assigns that role.
 
-Steps 1–5 of the original sequence produced an end-to-end demonstration. A new
-independent audit on 2026-07-29 found that P is on the opposite side of the east
-wall from the supplied drawing and that the occlusion verifier is not bound to
-the P actor in the composed USD. Release work and GPU requalification are paused.
-The active sequence is defined by
-[`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md):
+Steps 1–5 of the original sequence produced an end-to-end demonstration. The
+2026-07-29 police-placement audit was then implemented and merged (PR #2, with
+its five review fixes), and the domain split landed as ADR 0020 (PR #4).
 
-1. bind and bound the visibility verifier, with substitution regressions;
-2. supersede ADR 0017 and author a source-faithful, visibly defensible P layout;
-3. correct observer/display and calibration contract drift;
-4. reconcile stale status and release documentation; and
-5. obtain fresh GPU evidence only after independent review of the correction.
+**The active sequence is now the v2 correction plan,
+[`docs/v2-plan.md`](docs/v2-plan.md).** The 2026-08-04 interview feedback
+carried three corrections — communication-domain isolation (answered by ADR
+0020), autonomous navigation, and active AI/ML use — and ADRs 0021–0025 record
+the v2 decisions: the camera becomes P's enforcement instrument, robot A is
+selected by a measured fleet-twin gate, autonomy is governed Nav2 on a live
+SLAM map with the speed policy re-pinned to robot scale, enforcement
+perception is a synthetic-data-trained detector with an ArUco baseline, and
+the repo joins the fleet workspace by symlink and pin. v1's GPU
+requalification is moot: no v1 certificate number is quotable for v2
+(ADR 0022), so the paused requalification stays closed rather than resumed.
+The police-placement handoff document remains as the record of its own,
+completed audit.
 
 ## Architectural invariants
 
@@ -226,12 +231,16 @@ The two halves run on separate ROS domains — A on 42, P on 43 — so a bare
 unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 `scene.occlusion` does take `--profile`, meaning the corridor profile.
 
-## Active handoff: correct police placement before requalification
+## Active handoff: the v2 correction plan
 
-The operative checklist is
-[`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md).
-It overrides the historical milestone narrative below wherever they conflict.
-Do not requalify or release the current geometry as source-faithful.
+The operative checklist is [`docs/v2-plan.md`](docs/v2-plan.md) — its Day 0–3
+task DAG, the isolation verification protocol (ADR 0026 when measured), and
+the robot-A gate protocol (ADR 0027 when measured). It overrides the
+historical narratives below wherever they conflict. The police-placement
+handoff ([`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md))
+is the completed record of the 2026-07-29 audit; its GPU-requalification exit
+item is retired by ADR 0022's retirement of all v1 certificate numbers, not
+fulfilled.
 
 ## Historical handoff: end-to-end demonstration milestone
 
