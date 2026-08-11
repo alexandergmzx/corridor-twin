@@ -87,8 +87,60 @@ C1_NAME = "c1_lidar"
 # inherit that.
 C1_MIN_ECHO_M = 0.05
 
-# Ride height above the ground plane, matching build_rasptank_arena.py.
+# MS200 contract -- robot1's lidar, and NOT interchangeable with the C1.
+# Deliberately expressed as "pass no overrides": author_lidar's keyword
+# arguments all default to these module constants
+# (yahboomcar-ros2/tools/build_arena.py:51-56, substituted at :65-69), so
+# robot1's contract is what the shared function already believes. Restating the
+# numbers as kwargs here would create a second place for them to drift.
+#
+# The range difference is load-bearing for this scenario, not a detail: 8.0 m
+# against the C1's 12.0 m, in a corridor whose end wall stands 11.50 m from A's
+# spawn. Robot1 cannot range that wall until station 3.50 m. See
+# docs/degeneracy-study.md.
+MS200_BEAMS, MS200_HZ = 360, 12
+MS200_RANGE = (0.12, 8.0)
+MS200_NAME = "laser_frame_lidar"
+
+# Ride height above the ground plane. Both twins land on 0.055 by different
+# routes -- rasptank by build_rasptank_arena.py's constant, robot1 by
+# build_arena.py:43-44,:335 (WHEEL_DROP 0.045 + SPAWN_CLEARANCE 0.01). Kept
+# per-robot rather than shared, because the agreement is a coincidence.
 SPAWN_Z_M = 0.055
+
+#: robot1's driven wheel links, and the analytic collider that replaces their
+#: mesh colliders. Replicated from yahboomcar-ros2/tools/build_arena.py:396-420,
+#: which authors this inline in main() and cannot be imported.
+#:
+#: PROVENANCE, and why this is a copy rather than a shared call: the block is a
+#: MEASURED skid-steer model, not a modelling convenience. Rear friction is an
+#: order of magnitude below front (0.1 vs 0.6) because the real car is 4WD
+#: skid-steer and only slips into a turn. Fleet OI-19 already records "sim
+#: geometry helpers have three" copies; this is the fourth, and extracting it
+#: into a shared home means writing to yahboomcar-ros2, which is not delegated
+#: in this session. The extraction is parked to the session handback.
+ROBOT1_WHEEL_LINKS = ("zq_Link", "yq_Link", "yh_Link", "zh_Link")
+ROBOT1_REAR_WHEEL_LINKS = ("yh_Link", "zh_Link")
+ROBOT1_WHEEL_RADIUS_M = 0.024
+ROBOT1_WHEEL_HEIGHT_M = 0.0215
+ROBOT1_REAR_WHEEL_FRICTION = 0.1
+
+#: robot1's drive convention, from yahboomcar-ros2/tools/sim_runner.py:70-75.
+#: The right side is MIRRORED: commanding both sides the same sign makes them
+#: fight and the robot does not move. That is not hypothetical -- it is exactly
+#: what the forward-sign gate caught on this composer's first robot1 run.
+ROBOT1_LEFT_JOINTS = ("zq_Joint", "zh_Joint")
+ROBOT1_RIGHT_JOINTS = ("yq_Joint", "yh_Joint")
+
+#: EFFECTIVE rolling radius as seen through the joint-velocity API, NOT the
+#: geometric one (sim_runner.py:51,:58,:69: geometric 0.0245, effective 0.0458,
+#: a ~2.0 units/convention factor between apply_action and physical angular
+#: velocity that survived replacing the colliders with analytic cylinders).
+#: Using the geometric value here would command half the intended speed.
+ROBOT1_WHEEL_R_EFFECTIVE_M = 0.0458
+
+#: rasptank drives every dof at one sign; its verify already passes that way.
+RASPTANK_WHEEL_R_M = 0.025
 
 CORE_PREFIX = "omni:sensor:Core:"
 
@@ -188,6 +240,70 @@ def rasptank_usd(start: str | None = None) -> str:
     )
 
 
+def robot1_usd(start: str | None = None) -> str:
+    """robot1's imported twin asset, resolved the way yahboom's own tools do.
+
+    `_layout.USD_DIR` is imported rather than reconstructed: it carries a
+    `YAHBOOM_USD_DIR` override and a two-candidate fallback for the pre- and
+    post-extraction layouts (yahboomcar-ros2/tools/_layout.py:60-63), and a
+    hand-built path here would silently disagree with `sim_runner.py` the moment
+    either moved. Same rule as importing `author_lidar` instead of copying it.
+    """
+
+    tools = yahboom_tools(start)
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    from _layout import USD_DIR  # noqa: PLC0415 - resolved only after the D5 walk
+
+    return os.path.join(USD_DIR, "micro4", "micro4.usd")
+
+
+#: Per-robot composition facts. One table, so nothing robot-specific is left
+#: scattered through main() where the two could drift apart.
+ROBOTS = {
+    "rasptank": {
+        "asset": rasptank_usd,
+        "lidar_kwargs": {
+            "beams": C1_BEAMS,
+            "hz": C1_HZ,
+            "range_min": C1_RANGE[0],
+            "range_max": C1_RANGE[1],
+            "xyz": C1_XYZ,
+            "name": C1_NAME,
+        },
+        "expected": {
+            "scanRateBaseHz": float(C1_HZ),
+            "reportRateBaseHz": float(C1_BEAMS * C1_HZ),
+            "nearRangeM": float(C1_RANGE[0]),
+            "farRangeM": float(C1_RANGE[1]),
+        },
+        "spawn_z_m": SPAWN_Z_M,
+        "wheel_links": (),
+        "drive": {"left": (), "right": (), "wheel_r_m": RASPTANK_WHEEL_R_M},
+        "contract": "C1",
+    },
+    "robot1": {
+        "asset": robot1_usd,
+        # Deliberately empty: author_lidar's defaults ARE robot1's contract.
+        "lidar_kwargs": {},
+        "expected": {
+            "scanRateBaseHz": float(MS200_HZ),
+            "reportRateBaseHz": float(MS200_BEAMS * MS200_HZ),
+            "nearRangeM": float(MS200_RANGE[0]),
+            "farRangeM": float(MS200_RANGE[1]),
+        },
+        "spawn_z_m": SPAWN_Z_M,
+        "wheel_links": ROBOT1_WHEEL_LINKS,
+        "drive": {
+            "left": ROBOT1_LEFT_JOINTS,
+            "right": ROBOT1_RIGHT_JOINTS,
+            "wheel_r_m": ROBOT1_WHEEL_R_EFFECTIVE_M,
+        },
+        "contract": "MS200",
+    },
+}
+
+
 # --- composition -------------------------------------------------------------
 
 
@@ -262,6 +378,16 @@ def profile_pose(manifest: dict, profile: str) -> tuple[tuple[float, float, floa
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--profile", choices=PROFILES, default=PROFILES[0])
+    ap.add_argument(
+        "--robot",
+        choices=sorted(ROBOTS),
+        default="rasptank",
+        help=(
+            "Which twin to compose in. Selects the asset, the lidar contract, "
+            "and any robot-specific physics. Defaults to rasptank so existing "
+            "invocations are unchanged."
+        ),
+    )
     ap.add_argument("--stage", default="out/corridor.usda", help="stage from scene.build")
     ap.add_argument("--manifest", default="out/corridor.manifest.json")
     ap.add_argument("--out-dir", default="out", help="this repo only; never a sibling")
@@ -272,7 +398,8 @@ def main() -> int:
 
     stage_path = logical_abspath(args.stage)
     manifest_path = logical_abspath(args.manifest)
-    robot_usd = rasptank_usd()
+    robot = ROBOTS[args.robot]
+    robot_usd = robot["asset"]()
     for label, path in (
         ("corridor stage", stage_path),
         ("corridor manifest", manifest_path),
@@ -290,7 +417,11 @@ def main() -> int:
         manifest = json.load(handle)
     spawn, yaw = profile_pose(manifest, args.profile)
 
-    arena_usd = os.path.join(logical_abspath(args.out_dir), f"arena_corridor_{args.profile}.usd")
+    # Robot in the filename: composing robot1 must never silently overwrite the
+    # robot2 arena an earlier gate run was measured against.
+    arena_usd = os.path.join(
+        logical_abspath(args.out_dir), f"arena_corridor_{args.robot}_{args.profile}.usd"
+    )
     report_dir = os.path.join(logical_abspath(args.out_dir), "evidence", "corridor-arena")
     os.makedirs(os.path.dirname(arena_usd), exist_ok=True)
     os.makedirs(report_dir, exist_ok=True)
@@ -317,6 +448,7 @@ def main() -> int:
         import omni.usd
         from pxr import Gf, Sdf, Usd, UsdGeom, UsdLux, UsdPhysics, UsdShade, Vt
 
+        say(f"robot        : {args.robot}  (contract {robot['contract']})")
         say(f"profile      : {args.profile}")
         say(f"fleet src    : {fleet_src_root()}")
         say(f"yahboom tools: {tools_dir}")
@@ -400,8 +532,8 @@ def main() -> int:
             say(f"  v1 stand-in: none at {V1_ACTOR_A_PRIM}/Visual")
 
         # --- robot ---
-        robot = UsdGeom.Xform.Define(stage, ROBOT_PRIM)
-        robot.GetPrim().GetReferences().AddReference(robot_usd)
+        robot_xform = UsdGeom.Xform.Define(stage, ROBOT_PRIM)
+        robot_xform.GetPrim().GetReferences().AddReference(robot_usd)
         # XformCommonAPI refuses this prim. The referenced asset brings its own
         # xform op stack, the API only manages a stack it recognises, and when
         # it does not it logs "incompatible xformable" and writes NOTHING. The
@@ -411,12 +543,12 @@ def main() -> int:
         # how a silent placement failure survives a gate. So the op stack is
         # cleared and rebuilt explicitly, then read back off the composed
         # transform rather than assumed.
-        xformable = UsdGeom.Xformable(robot.GetPrim())
+        xformable = UsdGeom.Xformable(robot_xform.GetPrim())
         xformable.ClearXformOpOrder()
         xformable.AddTranslateOp().Set(Gf.Vec3d(*spawn))
         xformable.AddRotateZOp().Set(math.degrees(yaw))
 
-        placed = UsdGeom.XformCache().GetLocalToWorldTransform(robot.GetPrim())
+        placed = UsdGeom.XformCache().GetLocalToWorldTransform(robot_xform.GetPrim())
         got_translation = placed.ExtractTranslation()
         rotation = placed.ExtractRotationMatrix()
         position_error_m, yaw_error_deg = placement_error(spawn, yaw, got_translation, rotation)
@@ -435,6 +567,52 @@ def main() -> int:
             f"({spawn[0]:.3f}, {spawn[1]:.3f}, {spawn[2]:.3f}) "
             f"yaw {math.degrees(yaw):+.2f} deg  (read back from the composed transform)"
         )
+
+        # --- robot-specific wheel physics -----------------------------------
+        # robot1 only. Its imported mesh wheels are replaced by analytic
+        # cylinders with differentiated front/rear friction, replicating
+        # yahboomcar-ros2/tools/build_arena.py:396-420. That block is a MEASURED
+        # skid-steer model -- rear friction an order of magnitude below front,
+        # because the real 4WD car only slips into a turn -- and it lives inline
+        # in that file's main(), so it cannot be imported. See the provenance
+        # note on ROBOT1_WHEEL_LINKS; the extraction is parked, not forgotten.
+        for link_name in robot["wheel_links"]:
+            link = stage.GetPrimAtPath(f"{ROBOT_PRIM}/{link_name}")
+            if not link or not link.IsValid():
+                say(f"FAIL: wheel link {link_name} missing under {ROBOT_PRIM}")
+                return 1
+            for prim in Usd.PrimRange(link, Usd.TraverseInstanceProxies()):
+                if prim.IsInstanceable():
+                    prim.SetInstanceable(False)
+            for prim in Usd.PrimRange(link):
+                if prim.HasAPI(UsdPhysics.CollisionAPI):
+                    UsdPhysics.CollisionAPI(prim).CreateCollisionEnabledAttr(False)
+            cylinder = UsdGeom.Cylinder.Define(stage, f"{ROBOT_PRIM}/{link_name}/wheel_cyl")
+            cylinder.CreateAxisAttr("Y")          # wheel axis is local Y (URDF)
+            cylinder.CreateRadiusAttr(ROBOT1_WHEEL_RADIUS_M)
+            cylinder.CreateHeightAttr(ROBOT1_WHEEL_HEIGHT_M)
+            cylinder.CreatePurposeAttr(UsdGeom.Tokens.guide)   # collider, not a visual
+            UsdPhysics.CollisionAPI.Apply(cylinder.GetPrim())
+            mu = (
+                ROBOT1_REAR_WHEEL_FRICTION
+                if link_name in ROBOT1_REAR_WHEEL_LINKS
+                else args.friction
+            )
+            wheel_material = UsdShade.Material.Define(
+                stage, f"/World/PhysicsMaterials/Wheel_{link_name}"
+            )
+            wheel_physics = UsdPhysics.MaterialAPI.Apply(wheel_material.GetPrim())
+            wheel_physics.CreateStaticFrictionAttr().Set(mu)
+            wheel_physics.CreateDynamicFrictionAttr().Set(max(0.05, mu - 0.1))
+            UsdShade.MaterialBindingAPI.Apply(cylinder.GetPrim()).Bind(
+                wheel_material, materialPurpose="physics"
+            )
+        if robot["wheel_links"]:
+            say(
+                f"  wheel physics: {len(robot['wheel_links'])} analytic colliders, "
+                f"rear mu={ROBOT1_REAR_WHEEL_FRICTION} front mu={args.friction} "
+                f"(skid-steer model, build_arena.py:396-420)"
+            )
 
         base_path = None
         for prim in Usd.PrimRange(stage.GetPrimAtPath(ROBOT_PRIM)):
@@ -480,19 +658,9 @@ def main() -> int:
         # --- the reuse seam ---
         from build_arena import author_lidar
 
-        lidar_path = author_lidar(
-            stage,
-            base_path,
-            Gf,
-            Vt,
-            say,
-            beams=C1_BEAMS,
-            hz=C1_HZ,
-            range_min=C1_RANGE[0],
-            range_max=C1_RANGE[1],
-            xyz=C1_XYZ,
-            name=C1_NAME,
-        )
+        # robot1 passes NO overrides on purpose: author_lidar's defaults are the
+        # MS200 contract. rasptank passes the C1's, as build_rasptank_arena does.
+        lidar_path = author_lidar(stage, base_path, Gf, Vt, say, **robot["lidar_kwargs"])
         if not lidar_path:
             return 1
 
@@ -505,10 +673,7 @@ def main() -> int:
         # how a report stops being read.
         lidar = stage.GetPrimAtPath(lidar_path)
         expected = {
-            "scanRateBaseHz": float(C1_HZ),
-            "reportRateBaseHz": float(C1_BEAMS * C1_HZ),
-            "nearRangeM": float(C1_RANGE[0]),
-            "farRangeM": float(C1_RANGE[1]),
+            **robot["expected"],
             "minDistBetweenEchosM": C1_MIN_ECHO_M,
             # The traps. A nonzero elevation makes FlatScan refuse to run, and a
             # channelId of 0 makes the plugin keep the previous 3D profile --
@@ -534,11 +699,11 @@ def main() -> int:
             if got is None or abs(float(got) - want) > 1e-5:
                 drift.append(f"{name} = {got!r}, wanted {want!r}")
         if drift:
-            say("FAIL: C1 contract values did not stick:")
+            say(f"FAIL: {robot['contract']} contract values did not stick:")
             for item in drift:
                 say(f"    {item}")
             return 1
-        say(f"  C1 contract  : {len(expected)} values verified against this repo's constants")
+        say(f"  {robot['contract']:<12} : {len(expected)} contract values verified on readback")
 
         # --- ground-truth publisher hook point ---
         # Deliberately inert: an Xform carrying the prim paths a ground-truth
@@ -587,8 +752,30 @@ def main() -> int:
 
             x0, y0, z0 = position()
             say(f"  settled at z={z0:.3f} m (expect ~{SPAWN_Z_M} ride height [estimate])")
-            wheel_radius = 0.025
-            velocity = np.array([0.2 / wheel_radius] * len(dof))
+            # Per-robot drive convention. With no named sides (rasptank) every
+            # dof gets the same sign, which is what its own verify has always
+            # done. With named sides (robot1) the right side is mirrored and
+            # non-wheel joints are left at zero -- driving all six of robot1's
+            # dof at one sign makes the sides fight, and the robot travels 4 mm.
+            drive = robot["drive"]
+            target = 0.2 / drive["wheel_r_m"]
+            if drive["left"] or drive["right"]:
+                velocity = np.zeros(len(dof))
+                for index, joint in enumerate(dof):
+                    if joint in drive["left"]:
+                        velocity[index] = target
+                    elif joint in drive["right"]:
+                        velocity[index] = -target
+                driven = int((velocity != 0.0).sum())
+                if driven != len(drive["left"]) + len(drive["right"]):
+                    say(
+                        f"FAIL: expected {len(drive['left']) + len(drive['right'])} driven "
+                        f"joints, matched {driven} in {dof}"
+                    )
+                    return 1
+                say(f"  drive        : {driven} wheel joints, right side mirrored")
+            else:
+                velocity = np.array([target] * len(dof))
             for _ in range(120):
                 articulation.apply_action(ArticulationAction(joint_velocities=velocity))
                 sim.step(render=False)
