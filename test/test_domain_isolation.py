@@ -50,7 +50,7 @@ domain_coordinator = pytest.importorskip(
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-TOPIC = "/robot/front_camera/image_raw"
+TOPIC = "/p_cam/image_raw"
 SETTLE_S = 5.0
 POLL_S = 0.2
 

@@ -23,10 +23,10 @@ def test_adapter_has_one_small_rgb_camera_and_clock() -> None:
     contract = literal_assignment(ADAPTER, "ADAPTER_CONTRACT")
     assert contract == {
         "camera_prim": "/World/Actors/A/CameraMount/FrontCamera",
-        "image_topic": "/robot/front_camera/image_raw",
-        "camera_info_topic": "/robot/front_camera/camera_info",
+        "image_topic": "/p_cam/image_raw",
+        "camera_info_topic": "/p_cam/camera_info",
         "clock_topic": "/clock",
-        "frame_id": "robot_front_camera_optical_frame",
+        "frame_id": "p_cam_optical_frame",
         "width": 640,
         "height": 360,
         "simulation_hz": 60,
@@ -163,8 +163,8 @@ def test_live_probe_uses_only_permitted_feed_topics() -> None:
         for name in ("IMAGE_TOPIC", "CAMERA_INFO_TOPIC", "CLOCK_TOPIC")
     }
     assert values == {
-        "IMAGE_TOPIC": "/robot/front_camera/image_raw",
-        "CAMERA_INFO_TOPIC": "/robot/front_camera/camera_info",
+        "IMAGE_TOPIC": "/p_cam/image_raw",
+        "CAMERA_INFO_TOPIC": "/p_cam/camera_info",
         "CLOCK_TOPIC": "/clock",
     }
     source = PROBE.read_text(encoding="utf-8").lower()
@@ -175,10 +175,10 @@ def test_live_probe_uses_only_permitted_feed_topics() -> None:
 def test_aruco_capture_has_only_the_production_camera_contract() -> None:
     contract = literal_assignment(ARUCO_CAPTURE, "CAPTURE_CONTRACT")
     assert contract == {
-        "image_topic": "/robot/front_camera/image_raw",
-        "camera_info_topic": "/robot/front_camera/camera_info",
+        "image_topic": "/p_cam/image_raw",
+        "camera_info_topic": "/p_cam/camera_info",
         "clock_topic": "/clock",
-        "frame_id": "robot_front_camera_optical_frame",
+        "frame_id": "p_cam_optical_frame",
         "width": 640,
         "height": 360,
         "encoding": "rgb8",

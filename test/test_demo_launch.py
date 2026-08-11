@@ -120,7 +120,7 @@ def test_display_shows_one_camera_and_no_other_sensor() -> None:
     topics = [
         display["Topic"]["Value"] for display in displays if isinstance(display.get("Topic"), dict)
     ]
-    assert topics == ["/robot/front_camera/image_raw", "/police/enforcement_view"]
+    assert topics == ["/p_cam/image_raw", "/police/enforcement_view"]
     image_displays = [d for d in displays if d["Class"] == "rviz_default_plugins/Image"]
     assert len(image_displays) == 1, "one camera means one image display"
     assert config["Visualization Manager"]["Global Options"]["Fixed Frame"] == "world"

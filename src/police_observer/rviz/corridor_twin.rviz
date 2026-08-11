@@ -41,7 +41,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /robot/front_camera/image_raw
+        Value: /p_cam/image_raw
       Value: true
     # Corridor, occluding walls, route, fiducials, P, B, A's *measured*
     # position and the enforcement readout, all from police_observer's

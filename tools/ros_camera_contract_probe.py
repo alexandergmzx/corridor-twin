@@ -15,10 +15,10 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import CameraInfo, Image
 
-IMAGE_TOPIC = "/robot/front_camera/image_raw"
-CAMERA_INFO_TOPIC = "/robot/front_camera/camera_info"
+IMAGE_TOPIC = "/p_cam/image_raw"
+CAMERA_INFO_TOPIC = "/p_cam/camera_info"
 CLOCK_TOPIC = "/clock"
-FRAME_ID = "robot_front_camera_optical_frame"
+FRAME_ID = "p_cam_optical_frame"
 WIDTH = 640
 HEIGHT = 360
 EXPECTED_RATE_HZ = 15.0

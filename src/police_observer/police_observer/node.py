@@ -35,8 +35,8 @@ class PoliceObserverNode(Node):
         self.declare_parameter("corridor_profile", "")
         self.declare_parameter("marker_dictionary", "DICT_5X5_100")
         self.declare_parameter("pose_reprojection_error_px", 3.0)
-        self.declare_parameter("image_topic", "robot/front_camera/image_raw")
-        self.declare_parameter("camera_info_topic", "robot/front_camera/camera_info")
+        self.declare_parameter("image_topic", "p_cam/image_raw")
+        self.declare_parameter("camera_info_topic", "p_cam/camera_info")
         self.declare_parameter("estimate_topic", "police/speed_estimate")
         self.declare_parameter("violation_topic", "police/speed_violation")
 

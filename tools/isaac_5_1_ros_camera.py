@@ -62,10 +62,10 @@ from isaacsim import SimulationApp  # noqa: E402
 # This literal is inspected by ordinary pytest without importing Isaac Sim.
 ADAPTER_CONTRACT = {
     "camera_prim": "/World/Actors/A/CameraMount/FrontCamera",
-    "image_topic": "/robot/front_camera/image_raw",
-    "camera_info_topic": "/robot/front_camera/camera_info",
+    "image_topic": "/p_cam/image_raw",
+    "camera_info_topic": "/p_cam/camera_info",
     "clock_topic": "/clock",
-    "frame_id": "robot_front_camera_optical_frame",
+    "frame_id": "p_cam_optical_frame",
     "width": 640,
     "height": 360,
     "simulation_hz": 60,

@@ -65,7 +65,7 @@ geometry:
 
 camera:
   count: 1
-  frame_id: robot_front_camera_optical_frame
+  frame_id: p_cam_optical_frame
   width_px: 640
   height_px: 360
   rate_hz: 15.0

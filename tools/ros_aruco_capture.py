@@ -19,10 +19,10 @@ from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import CameraInfo, Image
 
 CAPTURE_CONTRACT = {
-    "image_topic": "/robot/front_camera/image_raw",
-    "camera_info_topic": "/robot/front_camera/camera_info",
+    "image_topic": "/p_cam/image_raw",
+    "camera_info_topic": "/p_cam/camera_info",
     "clock_topic": "/clock",
-    "frame_id": "robot_front_camera_optical_frame",
+    "frame_id": "p_cam_optical_frame",
     "width": 640,
     "height": 360,
     "encoding": "rgb8",

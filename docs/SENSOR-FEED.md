@@ -4,19 +4,23 @@
 > 0021](adr/0021-police-owned-sensing-and-isolation-gate.md) the single render
 > product is **P's** enforcement camera, A is camera-less, and the gateway
 > allowlist is now exactly `/p_cam/image_raw`, `/p_cam/camera_info`, and
-> `/clock` (v2 plan task T2.1). **The producer half is not rebuilt yet.** No
-> publisher emits `/p_cam/*` and `police_observer` still subscribes to the v1
-> `robot/front_camera/*` names, so the end-to-end demonstration does not run
-> between this task and T2.2. Everything below the Topics table — encoding,
-> frame, resolution, rate, intrinsics convention — is still the **v1**
-> producer contract and is quotable only as v1. Resolution and rate are not
-> decided here; [ADR 0024](adr/0024-learned-enforcement-perception.md)
-> re-measures them.
+> `/clock` (v2 plan task T2.1). The **producer and consumer** now speak those
+> names too (T2.2): the Isaac adapter publishes `/p_cam/*` on frame
+> `p_cam_optical_frame`, and `police_observer` subscribes to them.
+>
+> What is **not** yet v2: the camera is still mounted and aimed as A's front
+> camera was. Only the naming and ownership moved, so the geometry below
+> describes a camera in the wrong place for an enforcement instrument, and
+> **P's camera placement is a later task**. Resolution and rate are likewise
+> unchanged and are **not** decided here — [ADR
+> 0024](adr/0024-learned-enforcement-perception.md) re-measures them; the
+> 1280×720 figure recorded in the evidence is a throughput ceiling, not a
+> chosen contract.
 
 | Field | Value |
 |---|---|
 | Contract version | 0.5.0 |
-| Status | **Crossing surface re-scoped to P's camera (T2.1); producer and consumer still on the v1 names until T2.2.** `rgb8` gated at the wire and offline, both publishers share the production `cx=width/2` convention, and the two actors sit on separate ROS domains |
+| Status | **Crossing, producer, and consumer all on P's camera names (T2.1/T2.2); camera placement still A's old mount.** `rgb8` gated at the wire and offline, both publishers share the production `cx=width/2` convention, and the two actors sit on separate ROS domains |
 | Last updated | 2026-08-11 |
 
 The minor version moved for a reason worth stating: **a consumer written against
@@ -27,9 +31,11 @@ right domain as well as speaking the right messages. See
 
 ## Scope
 
-P may read A's front-camera image and calibration data. P has no direct line of
-sight and the `police_observer` must not consume ground-truth pose, odometry,
-simulator transforms, or test truth.
+P may read the enforcement camera's image and calibration data. Since ADR 0021
+that camera is **P's own**, not A's — it is rendered in A's plane because that
+is where the simulator runs, and relayed to P. P has no direct line of sight to
+A's body, and the `police_observer` must not consume ground-truth pose,
+odometry, simulator transforms, or test truth.
 
 Since ADR 0020, most of that sentence is enforced by the transport rather than by
 convention. A publishes on the **robot domain** (default 42) and P runs on the
@@ -44,7 +50,7 @@ resolved demo names.
 
 | Evidence | Producer/source | Reaches P how? | `police_observer` may consume? | Test evaluator may consume? | Why |
 |---|---|---|:---:|:---:|---|
-| RGB image | A's camera publisher | Gateway allowlist | Yes | Yes | Primary indirect observation |
+| RGB image | P's camera publisher (rendered in A's plane) | Gateway allowlist | Yes | Yes | Primary indirect observation |
 | Camera calibration | Same publisher/render product | Gateway allowlist | Yes | Yes | Converts pixels into geometric rays |
 | Surveyed marker map and width policy | Versioned scenario manifest | Local file, no topic | Yes | Yes | Known infrastructure, not robot truth |
 | `/clock` in simulated-time mode | Single active harness or Isaac source | Gateway allowlist | Yes | Yes | Aligns acquisition timestamps |
@@ -109,7 +115,7 @@ publish pose, odometry, TF, depth, segmentation, or harness truth.
 - Initial resolution: 640×360.
 - Initial rate: 15 Hz.
 - `header.stamp`: image acquisition/simulation time.
-- `header.frame_id`: `robot_front_camera_optical_frame`.
+- `header.frame_id`: `p_cam_optical_frame`.
 - Optical axes: X right, Y down, Z forward.
 - Empty or zero timestamps are invalid in simulated-time mode.
 

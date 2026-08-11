@@ -19,6 +19,27 @@
 # is legal on the wide approach and illegal once the corridor narrows and the
 # limit tightens, so one pass shows both compliance and exactly one violation
 # without anyone touching a throttle.
+#
+# ---------------------------------------------------------------------------
+# V2 TRANSITION WARNING (2026-08-11). THIS SCRIPT RUNS, BUT IT IS NOT THE v2
+# DEMONSTRATION. Read this before showing it to anyone.
+#
+# The topics were renamed to P's camera (/p_cam/*) in v2 plan task T2.2, so
+# every process here agrees and the pipeline is end-to-end again. What did NOT
+# change is the camera's PLACEMENT: it is still mounted on A and aimed the way
+# A's front camera was. Under ADR 0021 the enforcement camera is P's roadside
+# instrument and A is camera-less, so what this script currently shows is the
+# v1 scenario wearing v2 names.
+#
+# Concretely, do not quote a run of this script as evidence for:
+#   - P's camera placement or field of view       (a later task)
+#   - the v2 resolution or rate                   (ADR 0024 re-measures both)
+#   - autonomous navigation                       (the route here is authored)
+#   - the learned detector                        (ADRs 0023/0024, later phase)
+#
+# What it IS still good for: the domain split, the gateway crossing, and the
+# camera-only speed estimator, all of which are unchanged by the rename.
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
 workspace_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -185,7 +206,7 @@ if [[ "$record" == "true" ]]; then
     export ROS_DOMAIN_ID="$police_domain"
     cd "$evidence_dir"
     exec ros2 bag record -o rosbag \
-      /robot/front_camera/image_raw /robot/front_camera/camera_info \
+      /p_cam/image_raw /p_cam/camera_info \
       /police/speed_estimate /police/speed_violation /clock
   ) >"$evidence_dir/rosbag.log" 2>&1 &
   children+=($!)
