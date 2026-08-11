@@ -1,0 +1,36 @@
+{
+  "question": "is the adapter rate shortfall a clock-basis artifact?",
+  "declared_hz": 15.0,
+  "captures": [
+    {
+      "label": "640x360",
+      "wall_window_s": 60.0,
+      "sim_span_s": 58.467,
+      "real_time_factor": 0.9744,
+      "declared_hz": 15.0,
+      "image_rate_hz_wall_basis": 12.6,
+      "image_rate_hz_sim_basis": 12.93,
+      "camera_info_rate_hz_sim_basis": 14.388,
+      "image_fraction_of_declared_sim_basis": 0.862,
+      "camera_info_fraction_of_declared_sim_basis": 0.9592,
+      "estimators_disagree_by_hz": 1.457
+    },
+    {
+      "label": "1280x720",
+      "wall_window_s": 60.0,
+      "sim_span_s": 58.65,
+      "real_time_factor": 0.9775,
+      "declared_hz": 15.0,
+      "image_rate_hz_wall_basis": 9.183,
+      "image_rate_hz_sim_basis": 9.395,
+      "camera_info_rate_hz_sim_basis": 14.415,
+      "image_fraction_of_declared_sim_basis": 0.6263,
+      "camera_info_fraction_of_declared_sim_basis": 0.961,
+      "estimators_disagree_by_hz": 5.02
+    }
+  ],
+  "clock_basis_explains_shortfall": false,
+  "estimators_disagree": true,
+  "verdict": "RUNG_1_INCONCLUSIVE_INSTRUMENT_CONFOUNDED",
+  "reason": "the real-time factor does not explain the gap, but CameraInfo and Image -- same render product, same tick, different sizes -- give materially different rate estimates, so the recorded publisher rate is a property of the BEST_EFFORT measuring subscriber, not of the publisher. Attributable accounting (step B) must settle it before any renderer work or re-declaration"
+}
