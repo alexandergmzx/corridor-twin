@@ -49,7 +49,14 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from tf2_ros import Buffer, TransformListener
 
+#: Default robot2 so pre-existing artifacts stay reproducible.
 NS = "/robot2"
+
+#: robot1 runs at ROOT with unprefixed frames (architecture.md:46-51).
+ROBOT_TARGETS = {
+    "robot2": {"namespace": "/robot2", "base_frame": "robot2/base_footprint"},
+    "robot1": {"namespace": "", "base_frame": "base_footprint"},
+}
 
 #: ADR 0022's pinned delivery tolerance. Printed AND enforced from here.
 GOAL_TOLERANCE_M = 0.15
@@ -84,14 +91,18 @@ def goal_in_map_frame(manifest: dict, profile: str) -> tuple[float, float]:
 
 
 class NavGate(Node):
-    def __init__(self) -> None:
+    def __init__(self, target: dict | None = None) -> None:
         super().__init__("corridor_nav_gate")
+        self.target = target or ROBOT_TARGETS["robot2"]
+        namespace = self.target["namespace"]
         self.truth: tuple[float, float] | None = None
         self.start_xy: tuple[float, float] | None = None
-        self.create_subscription(Odometry, f"{NS}/sim/ground_truth", self._on_truth, 10)
+        self.create_subscription(
+            Odometry, f"{namespace}/sim/ground_truth", self._on_truth, 10
+        )
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.client = ActionClient(self, NavigateToPose, f"{NS}/navigate_to_pose")
+        self.client = ActionClient(self, NavigateToPose, f"{namespace}/navigate_to_pose")
 
     def _on_truth(self, message: Odometry) -> None:
         position = message.pose.pose.position
@@ -106,7 +117,7 @@ class NavGate(Node):
 
     def map_pose(self) -> tuple[float, float]:
         transform = self.tf_buffer.lookup_transform(
-            "map", "robot2/base_footprint", rclpy.time.Time()
+            "map", self.target["base_frame"], rclpy.time.Time()
         )
         return transform.transform.translation.x, transform.transform.translation.y
 
@@ -114,6 +125,7 @@ class NavGate(Node):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--profile", required=True)
+    parser.add_argument("--robot", choices=sorted(ROBOT_TARGETS), default="robot2")
     parser.add_argument("--manifest", default="out/corridor.manifest.json")
     parser.add_argument("--out", required=True)
     parser.add_argument("--timeout", type=float, default=300.0)
@@ -128,8 +140,9 @@ def main() -> int:
     goal_x, goal_y = goal_in_map_frame(manifest, arguments.profile)
 
     rclpy.init()
-    gate = NavGate()
+    gate = NavGate(ROBOT_TARGETS[arguments.robot])
     report: dict = {
+        "robot": arguments.robot,
         "profile": arguments.profile,
         "gated": arguments.gated,
         "goal_map_frame": [round(goal_x, 4), round(goal_y, 4)],

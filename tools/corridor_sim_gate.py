@@ -48,7 +48,46 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
 
+#: Default target is robot2, so every artifact committed before this
+#: parameterization stays reproducible by re-running the same command.
 NS = "/robot2"
+
+#: Per-robot wiring. robot1 runs at ROOT (architecture.md:46-51) with
+#: unprefixed frames, and its EKF output is /odom rather than
+#: odometry/filtered (bringup_corrected_launch.py:82).
+ROBOT_TARGETS = {
+    "robot2": {
+        "namespace": "/robot2",
+        "ekf_topic": "odometry/filtered",
+        "base_frame": "robot2/base_footprint",
+        "odom_frame": "robot2/odom",
+        "scan_hz": 10.0,
+        # robot2 HAS no encoders (fleet D-05): the matcher IS its odometry, so
+        # withholding starves localization and is gated.
+        "gate_withholding": True,
+    },
+    "robot1": {
+        "namespace": "",
+        "ekf_topic": "/odom",
+        "base_frame": "base_footprint",
+        "odom_frame": "odom",
+        "scan_hz": 12.0,
+        # robot1's EKF fuses wheel encoders + IMU and does NOT consume the
+        # matcher at all (ekf_sim_pnfix.yaml:117-155; laser pose removed at
+        # :138-146 as "measured HARMFUL"). Withholding therefore cannot starve
+        # localization: it is RECORDED as study data and deliberately NOT
+        # gated. The criterion that replaces it is EKF output continuity.
+        "gate_withholding": False,
+    },
+}
+
+#: Replacement criterion for robot1, derived by ADR 0022's own logic: blind
+#: travel must stay under the goal tolerance. 0.35 m/s governor cap
+#: (yahboomcar_safety/governor.py:41-60) x 0.4 s = 0.14 m < 0.15 m. At the
+#: EKF's 10 Hz (ekf_sim_pnfix.yaml:86) that is 4 consecutive missed updates.
+#: The governor cap is used rather than the gate's drive speed because it is
+#: the true worst case. Measured from drive start, so initial silence counts.
+MAX_EKF_GAP_S = 0.4
 
 #: Straight-pass schedule. Forward at a governed crawl, with short settles that
 #: let the matcher publish against a stationary scan -- a corridor's weakest
@@ -164,8 +203,10 @@ def max_consecutive_withheld(gaps_s: list[float], scan_period_s: float) -> int:
 
 
 class CorridorGate(Node):
-    def __init__(self) -> None:
+    def __init__(self, target: dict | None = None) -> None:
         super().__init__("corridor_sim_gate")
+        self.target = target or ROBOT_TARGETS["robot2"]
+        namespace = self.target["namespace"]
         self.counts = {"odom_laser": 0, "ekf": 0, "map": 0}
         self.map_msg: OccupancyGrid | None = None
         # (monotonic_s, x, y) so station and drift are both derivable.
@@ -183,11 +224,18 @@ class CorridorGate(Node):
         self.drive_started_s: float | None = None
         self.first_odom_laser_station_m: float | None = None
 
-        self.create_subscription(Odometry, f"{NS}/odom_laser", self._on_odom_laser, 10)
-        self.create_subscription(Odometry, f"{NS}/odometry/filtered", self._on_ekf, 10)
-        self.create_subscription(OccupancyGrid, f"{NS}/map", self._on_map, 10)
-        self.create_subscription(Odometry, f"{NS}/sim/ground_truth", self._on_truth, 10)
-        self.publisher = self.create_publisher(Twist, f"{NS}/cmd_vel_raw", 10)
+        ekf_topic = self.target["ekf_topic"]
+        if not ekf_topic.startswith("/"):
+            ekf_topic = f"{namespace}/{ekf_topic}"
+        # The EKF gap list mirrors the matcher's: same instrument, different
+        # subject, so the two robots' numbers stay directly comparable.
+        self.last_ekf_s: float | None = None
+        self.ekf_gaps: list[float] = []
+        self.create_subscription(Odometry, f"{namespace}/odom_laser", self._on_odom_laser, 10)
+        self.create_subscription(Odometry, ekf_topic, self._on_ekf, 10)
+        self.create_subscription(OccupancyGrid, f"{namespace}/map", self._on_map, 10)
+        self.create_subscription(Odometry, f"{namespace}/sim/ground_truth", self._on_truth, 10)
+        self.publisher = self.create_publisher(Twist, f"{namespace}/cmd_vel_raw", 10)
 
     # --- callbacks ---------------------------------------------------------
     def _on_odom_laser(self, message: Odometry) -> None:
@@ -205,6 +253,12 @@ class CorridorGate(Node):
         )
 
     def _on_ekf(self, message: Odometry) -> None:
+        now = time.monotonic()
+        if self.last_ekf_s is not None:
+            self.ekf_gaps.append(now - self.last_ekf_s)
+        elif self.drive_started_s is not None:
+            self.ekf_gaps.append(now - self.drive_started_s)
+        self.last_ekf_s = now
         self.counts["ekf"] += 1
         self.estimate.append(
             (
@@ -255,7 +309,18 @@ def main() -> int:
     parser.add_argument("--seconds", type=float, default=90.0)
     parser.add_argument("--profile", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--scan-hz", type=float, default=10.0)
+    parser.add_argument(
+        "--robot",
+        choices=sorted(ROBOT_TARGETS),
+        default="robot2",
+        help="Which robot's namespace, frames, odom source and criteria to use.",
+    )
+    parser.add_argument(
+        "--scan-hz",
+        type=float,
+        default=None,
+        help="Matcher rate for the withholding arithmetic; defaults to the robot's.",
+    )
     parser.add_argument(
         "--gated",
         action="store_true",
@@ -263,8 +328,11 @@ def main() -> int:
     )
     arguments = parser.parse_args()
 
+    target = ROBOT_TARGETS[arguments.robot]
+    scan_hz = arguments.scan_hz if arguments.scan_hz is not None else target["scan_hz"]
+
     rclpy.init()
-    gate = CorridorGate()
+    gate = CorridorGate(target)
     drive(gate, arguments.seconds)
 
     import tf2_ros
@@ -275,9 +343,9 @@ def main() -> int:
     while time.monotonic() < deadline:
         rclpy.spin_once(gate, timeout_sec=0.05)
     tf_odom_base = buffer.can_transform(
-        "robot2/odom", "robot2/base_footprint", rclpy.time.Time()
+        target["odom_frame"], target["base_frame"], rclpy.time.Time()
     )
-    tf_map_odom = buffer.can_transform("map", "robot2/odom", rclpy.time.Time())
+    tf_map_odom = buffer.can_transform("map", target["odom_frame"], rclpy.time.Time())
 
     truth_distance = path_length_m(gate.truth)
     occupied = free = None
@@ -285,9 +353,11 @@ def main() -> int:
         occupied = sum(1 for value in gate.map_msg.data if value > 50)
         free = sum(1 for value in gate.map_msg.data if 0 <= value <= 50)
 
-    consecutive = max_consecutive_withheld(gate.withheld_gaps, 1.0 / arguments.scan_hz)
+    consecutive = max_consecutive_withheld(gate.withheld_gaps, 1.0 / scan_hz)
+    worst_ekf_gap_s = round(max(gate.ekf_gaps), 4) if gate.ekf_gaps else None
 
     report = {
+        "robot": arguments.robot,
         "profile": arguments.profile,
         "gated": arguments.gated,
         "seconds": arguments.seconds,
@@ -303,6 +373,9 @@ def main() -> int:
         "tf_map_to_odom": tf_map_odom,
         "ground_truth_distance_m": round(truth_distance, 3),
         "max_consecutive_withheld_updates": max(0, consecutive),
+        "withholding_is_gated": target["gate_withholding"],
+        "worst_ekf_gap_s": worst_ekf_gap_s,
+        "max_ekf_gap_s_limit": MAX_EKF_GAP_S,
         "first_odom_laser_station_m": gate.first_odom_laser_station_m,
         "midpoint_drift": midpoint_drift(gate.truth, gate.estimate),
         "midpoint_covariance": covariance_at_midpoint(gate.covariance_trace, truth_distance),
@@ -316,7 +389,7 @@ def main() -> int:
     }
 
     failures = []
-    if gate.counts["odom_laser"] < arguments.seconds * arguments.scan_hz * 0.5:
+    if gate.counts["odom_laser"] < arguments.seconds * scan_hz * 0.5:
         failures.append("odom_laser too slow or absent")
     if gate.covariance_trace and not all(
         0 < value < 1e5 for value in gate.covariance_trace[-1][1:]
@@ -332,11 +405,24 @@ def main() -> int:
         failures.append(f"map missing or too sparse (occupied={occupied})")
     if truth_distance < 1.0:
         failures.append(f"robot barely moved ({truth_distance:.2f} m) - map proves nothing")
-    if consecutive > MAX_CONSECUTIVE_WITHHELD:
-        failures.append(
-            f"matcher withheld {consecutive} consecutive updates "
-            f"(limit {MAX_CONSECUTIVE_WITHHELD}, ADR 0022)"
-        )
+    if target["gate_withholding"]:
+        if consecutive > MAX_CONSECUTIVE_WITHHELD:
+            failures.append(
+                f"matcher withheld {consecutive} consecutive updates "
+                f"(limit {MAX_CONSECUTIVE_WITHHELD}, ADR 0022)"
+            )
+    else:
+        # The matcher is not this robot's odometry, so its withholding is
+        # recorded rather than gated. What must hold instead is that the EKF --
+        # which Nav2 actually consumes -- never goes quiet for long enough to
+        # blind the robot past its goal tolerance.
+        if worst_ekf_gap_s is None:
+            failures.append("no EKF output at all")
+        elif worst_ekf_gap_s > MAX_EKF_GAP_S:
+            failures.append(
+                f"EKF output gap {worst_ekf_gap_s:.3f} s exceeds {MAX_EKF_GAP_S} s "
+                f"(0.35 m/s governor cap x that gap must stay under the 0.15 m tolerance)"
+            )
     drift = report["midpoint_drift"]
     if drift.get("available") and drift["drift_fraction"] > MAX_MIDPOINT_DRIFT_FRACTION:
         failures.append(

@@ -148,3 +148,69 @@ def test_the_pinned_thresholds_match_adr_0022() -> None:
 
     assert MAX_CONSECUTIVE_WITHHELD == 5
     assert MAX_MIDPOINT_DRIFT_FRACTION == 0.05
+
+
+# --- per-robot targeting (X4) ------------------------------------------------
+# The two robots differ in namespace, frames, odometry source AND in which
+# criterion is load-bearing. Getting any of these wrong fails silently: a gate
+# pointed at the wrong namespace simply records a robot that never moved.
+
+
+def test_the_two_robots_target_different_wiring() -> None:
+    from corridor_sim_gate import ROBOT_TARGETS
+
+    robot2 = ROBOT_TARGETS["robot2"]
+    robot1 = ROBOT_TARGETS["robot1"]
+
+    # robot1 runs at ROOT (architecture.md:46-51), robot2 under /robot2.
+    assert robot2["namespace"] == "/robot2"
+    assert robot1["namespace"] == ""
+    # robot1's EKF output is /odom, not odometry/filtered
+    # (bringup_corrected_launch.py:82).
+    assert robot1["ekf_topic"] == "/odom"
+    assert robot2["ekf_topic"] == "odometry/filtered"
+    # Nav2 does not namespace frames, so these are literal per robot.
+    assert robot1["base_frame"] == "base_footprint"
+    assert robot2["base_frame"] == "robot2/base_footprint"
+
+
+def test_withholding_is_gated_only_where_the_matcher_is_the_odometry() -> None:
+    """The criterion swap that ADR 0027's contrast rests on.
+
+    robot2 has no wheel encoders (fleet D-05), so the matcher IS its odometry
+    and withholding starves localization. robot1's EKF fuses encoders and IMU
+    and does not consume the matcher at all (ekf_sim_pnfix.yaml:138-146), so
+    the same measurement is study data rather than a gate.
+    """
+
+    from corridor_sim_gate import ROBOT_TARGETS
+
+    assert ROBOT_TARGETS["robot2"]["gate_withholding"] is True
+    assert ROBOT_TARGETS["robot1"]["gate_withholding"] is False
+
+
+def test_the_ekf_continuity_limit_keeps_blind_travel_under_the_goal_tolerance() -> None:
+    """ADR 0022's derivation, reapplied to the topic Nav2 actually consumes.
+
+    The bound is not a preference: at robot1's 0.35 m/s governor cap, the
+    permitted gap times that cap must stay under the 0.15 m goal tolerance, or
+    the robot can overshoot its goal while blind.
+    """
+
+    from corridor_nav_gate import GOAL_TOLERANCE_M
+    from corridor_sim_gate import MAX_EKF_GAP_S
+
+    governor_cap_mps = 0.35
+    assert MAX_EKF_GAP_S * governor_cap_mps < GOAL_TOLERANCE_M
+    # And it must be loose enough to pass a healthy 10 Hz EKF: 0.4 s is four
+    # missed updates, not one jittery period.
+    assert MAX_EKF_GAP_S >= 4 * (1.0 / 10.0)
+
+
+def test_the_scan_rate_default_follows_the_robot() -> None:
+    """robot2's matcher runs ~10 Hz, robot1's scan is 12 Hz declared."""
+
+    from corridor_sim_gate import ROBOT_TARGETS
+
+    assert ROBOT_TARGETS["robot2"]["scan_hz"] == 10.0
+    assert ROBOT_TARGETS["robot1"]["scan_hz"] == 12.0
