@@ -39,17 +39,24 @@ ALLOW_CONTRACT_FAIL=0
 # transit is allowed to take, not an independent number that can silently
 # truncate a slow delivery.
 GATE_SECONDS=""
-# FLEET CANONICAL SLAM by default -- simctl's own step, loop closure ON.
+# FLEET CANONICAL params, launched by US so the activation retry applies.
 #
-# This was briefly pointed at config/robot1/slam_robot1_corridor.yaml, which
-# turns loop closing OFF. That was my change and it is reverted: the operator
-# observed SLAM behaving worse with it, and the argument for it ("a single-pass
-# delivery has no loop to close") was wrong -- slam_toolbox also closes against
-# recent scan chains, which is how it corrects accumulated drift. One metric
-# failed to move and I treated that as permission.
+# Two separate things got conflated and both are now settled:
 #
-# --corridor-slam opts back in for a deliberate A/B.
-SLAM_PARAMS=""
+#   * WHICH PARAMS: the fleet canonical, loop closure ON. Pointing this at
+#     config/robot1/slam_robot1_corridor.yaml (loop closing OFF) was my change
+#     and it is reverted -- the operator observed SLAM behaving worse, and the
+#     argument for it ("a single-pass delivery has no loop to close") was wrong,
+#     because slam_toolbox also closes against recent scan chains and that is
+#     how it corrects accumulated drift.
+#   * WHO LAUNCHES: us, not simctl's step. slam_toolbox intermittently misses
+#     its own lifecycle service response and then publishes no map at all;
+#     simctl reports "no /map after 120 s" and the run dies in the TF wait.
+#     simctl's step has no retry and takes no config hook, so handing SLAM back
+#     to it lost the verify-and-retry that makes a run reliable.
+#
+# --corridor-slam opts into the loop-closing-off file for a deliberate A/B.
+SLAM_PARAMS="/home/alexmint/Development/robot-fleet/src/yahboomcar-ros2/yahboomcar_config/param/slam_toolbox.yaml"
 # U3: which local controller. dwb is the shipped arm; mppi is the comparison.
 CONTROLLER="dwb"
 # Terminal docking: drive the final approach from the LANDMARK instead of the
