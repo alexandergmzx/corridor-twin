@@ -257,7 +257,7 @@
           # and call it free space. Inflation is cost, not prohibition, so this
           # biases the planner toward the centreline rather than forbidding the
           # edges -- which is what a corridor demands.
-          inflation_radius: 0.30
+          inflation_radius: 0.18
         always_send_full_costmap: true
 
   global_costmap:
@@ -314,5 +314,5 @@
         inflation_layer:
           plugin: "nav2_costmap_2d::InflationLayer"
           cost_scaling_factor: 3.0
-          inflation_radius: 0.30
+          inflation_radius: 0.18
         always_send_full_costmap: true

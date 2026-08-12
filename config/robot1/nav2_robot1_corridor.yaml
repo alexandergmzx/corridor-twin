@@ -132,13 +132,27 @@
         trans_stopped_velocity: 0.05
         short_circuit_trajectory_evaluation: true
         stateful: true
+        # PreferForward is here because its ABSENCE was measured: with nothing
+        # scoring forward motion above rotation, a 325 deg turn scored as well
+        # as the 35 deg one that pointed at the goal, and A drove a full circle
+        # at the start of every run -- a constant +0.3 rad/s with 0.08 m/s
+        # forward, which is a 0.27 m circle, and exactly the track it drove.
         critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign",
-                  "PathAlign", "PathDist", "GoalDist"]
+                  "PathAlign", "PathDist", "GoalDist", "PreferForward"]
+        PreferForward.scale: 2.0
+        PreferForward.penalty: 1.0
+        PreferForward.strafe_x: 0.1
+        PreferForward.theta_scale: 10.0
         BaseObstacle.scale: 0.02
         PathAlign.scale: 32.0
-        PathAlign.forward_point_distance: 0.1
+        # 0.325, nav2's default, up from 0.1. At 0.1 the aligner scored heading
+        # against a point 10 cm ahead at weight 32 -- hypersensitive, so the
+        # robot rotated to align, overshot, re-aimed and never settled. That is
+        # the wiggle down the corridor and, at full amplitude, the circle at the
+        # start; they are one defect at two scales.
+        PathAlign.forward_point_distance: 0.325
         GoalAlign.scale: 24.0
-        GoalAlign.forward_point_distance: 0.1
+        GoalAlign.forward_point_distance: 0.325
         PathDist.scale: 32.0
         GoalDist.scale: 24.0
         RotateToGoal.scale: 32.0
@@ -245,7 +259,11 @@
           # and call it free space. Inflation is cost, not prohibition, so this
           # biases the planner toward the centreline rather than forbidding the
           # edges -- which is what a corridor demands.
-          inflation_radius: 0.30
+          # 0.18, down from 0.30: forced by the corner narrowing to 0.90 m.
+          # At 0.30 from both walls only 0.30 m of the corner is uninflated;
+          # 0.18 leaves 0.54 m. A consequence of the scene change, not an
+          # independent tuning decision.
+          inflation_radius: 0.18
         always_send_full_costmap: true
 
   global_costmap:
@@ -302,5 +320,9 @@
         inflation_layer:
           plugin: "nav2_costmap_2d::InflationLayer"
           cost_scaling_factor: 3.0
-          inflation_radius: 0.30
+          # 0.18, down from 0.30: forced by the corner narrowing to 0.90 m.
+          # At 0.30 from both walls only 0.30 m of the corner is uninflated;
+          # 0.18 leaves 0.54 m. A consequence of the scene change, not an
+          # independent tuning decision.
+          inflation_radius: 0.18
         always_send_full_costmap: true

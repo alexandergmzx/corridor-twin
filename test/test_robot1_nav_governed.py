@@ -175,7 +175,9 @@ def test_both_arms_share_the_measured_footprint_and_inflation() -> None:
         for scope in ("local_costmap", "global_costmap"):
             costmap = params[scope][scope]["ros__parameters"]
             assert costmap["robot_radius"] == 0.128
-            assert costmap["inflation_layer"]["inflation_radius"] == 0.30
+            # 0.18 since the corner narrowed to 0.90 m: at 0.30 only 0.30 m of
+            # the corner would be uninflated, against 0.54 m at 0.18.
+            assert costmap["inflation_layer"]["inflation_radius"] == 0.18
 
 
 def test_the_mppi_arm_respects_the_governors_near_wall_yaw_cap() -> None:
