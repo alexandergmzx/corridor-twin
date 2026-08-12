@@ -43,10 +43,20 @@ GATE_SECONDS=""
 # divergence gets noticed at all -- the ghosting that started this whole
 # sequence was seen there first. --no-rviz for a genuinely unattended run.
 RVIZ_FLAG=""
-# The full simulation window. A transit through a 5 m corridor with a corner
-# needs room to recover and replan; a short window reports a still-navigating
-# run as a failure.
-NAV_TIMEOUT=420
+# HARD wall-clock cap on the whole session, enforced by a watchdog below.
+#
+# Not a timeout on any one step -- a ceiling on the run existing at all. Runs
+# have hung holding the GPU and the machine-wide Isaac lock, which blocks every
+# other session, and a hung run is worth nothing anyway.
+#
+# 300 s costs no evidence: A's closest approach to B was measured at t+68 s and
+# t+119.8 s on the two runs that reached it, and everything after was A driving
+# back to spawn. What this cuts is the part that was never informative.
+SIM_MAX_S=300
+
+# The nav window is DERIVED to fit inside the cap, never set past it: a nav
+# timeout longer than the session cap is a promise the watchdog will break.
+NAV_TIMEOUT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -57,6 +67,7 @@ while [ $# -gt 0 ]; do
     --allow-contract-fail) ALLOW_CONTRACT_FAIL=1; shift ;;
     --gate-seconds) GATE_SECONDS="$2"; shift 2 ;;
     --nav-timeout) NAV_TIMEOUT="$2"; shift 2 ;;
+    --sim-max-s) SIM_MAX_S="$2"; shift 2 ;;
     --rviz) RVIZ_FLAG=""; shift ;;
     --no-rviz) RVIZ_FLAG="--no-rviz"; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -131,6 +142,8 @@ set -u
 
 nav_pid=""
 recorder_pid=""
+watchdog_pid=""
+WATCHDOG_FLAG="$(mktemp -u)"
 stopped=0
 teardown() {
   [ "$stopped" = 1 ] && return 0
@@ -138,6 +151,7 @@ teardown() {
   echo "=== stopping $PROFILE on domain $DOMAIN ==="
   [ -n "$nav_pid" ] && kill -TERM "$nav_pid" 2>/dev/null || true
   [ -n "$recorder_pid" ] && kill -TERM "$recorder_pid" 2>/dev/null || true
+  [ -n "$watchdog_pid" ] && kill -TERM "$watchdog_pid" 2>/dev/null || true
   "$SIMCTL" stop --domain "$DOMAIN" || true
   sleep 3
   if [ -n "$(occupants)" ]; then
@@ -168,6 +182,23 @@ echo "=== simctl start ==="
 "$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" \
   --no-patrol $RVIZ_FLAG || {
   echo "**INFRASTRUCTURE: simctl start failed for $PROFILE**" >&2; exit 3; }
+
+# The session now exists and holds the GPU and the machine-wide lock. From here
+# a hang costs every other session on this machine, so the cap is armed.
+#
+# $$ inside the subshell is THIS script's pid, not the subshell's -- bash keeps
+# it across subshells -- so the watchdog signals the run, whose EXIT trap then
+# tears the session down on the normal path. A flag file survives the signal so
+# the exit code can say INFRASTRUCTURE rather than reporting a killed run as a
+# robot failure.
+( sleep "$SIM_MAX_S"
+  : > "$WATCHDOG_FLAG"
+  echo "" >&2
+  echo "**WATCHDOG: session exceeded the ${SIM_MAX_S}s cap -- tearing down**" >&2
+  kill -TERM $$ 2>/dev/null ) &
+watchdog_pid=$!
+SESSION_START_S=$(date +%s)
+echo "  watchdog armed: ${SIM_MAX_S}s cap"
 
 # Contract numbers are PER-ROBOT and do not transfer. robot2 is checked with
 # --imu-hz 60; robot1's checker carries its own WANT_HZ (scan 12 / odom_raw 11
@@ -254,7 +285,19 @@ fi
 # The recorder starts BEFORE the goal so the transit is measured from its first
 # metre, and outlives the nav gate's own timeout so it cannot truncate a slow
 # but successful delivery. It commands nothing (--observe-only).
-: "${GATE_SECONDS:=$((NAV_TIMEOUT + 30))}"
+# Nav gets what the CAP has left after bring-up, measured rather than assumed:
+# Isaac's load time varies by a minute between runs, so a fixed nav window either
+# overruns the watchdog or wastes the cap. 20 s is reserved for teardown.
+if [ -z "$NAV_TIMEOUT" ]; then
+  elapsed=$(( $(date +%s) - SESSION_START_S ))
+  NAV_TIMEOUT=$(( SIM_MAX_S - elapsed - 20 ))
+  if [ "$NAV_TIMEOUT" -lt 30 ]; then
+    echo "**INFRASTRUCTURE: bring-up used ${elapsed}s of the ${SIM_MAX_S}s cap; no window left to navigate**" >&2
+    exit 3
+  fi
+  echo "  nav window: ${NAV_TIMEOUT}s (cap ${SIM_MAX_S}s, bring-up took ${elapsed}s)"
+fi
+: "${GATE_SECONDS:=$((NAV_TIMEOUT + 10))}"
 echo "=== T3.3a transit recorder (observe-only, ${GATE_SECONDS}s) ==="
 python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
   --profile "$PROFILE" --robot "$ROBOT" $GATED --observe-only \
@@ -324,6 +367,14 @@ else
   fi
 fi
 
+# A run the watchdog killed is INFRASTRUCTURE, never a verdict about the robot:
+# it was stopped mid-transit by the clock, so its gate failures describe an
+# interrupted run and nothing else.
+if [ -f "$WATCHDOG_FLAG" ]; then
+  rm -f "$WATCHDOG_FLAG"
+  echo "=== $PROFILE: **INFRASTRUCTURE -- killed at the ${SIM_MAX_S}s cap, not a result** ===" >&2
+  exit 3
+fi
 if [ "$status" = 0 ]; then
   echo "=== $PROFILE: PASS ==="
 else
