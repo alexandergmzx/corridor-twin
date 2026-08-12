@@ -36,6 +36,29 @@ lowered.
 A detects B's post from 2.76 m, confirms in exactly the k-of-n minimum, tracks
 it to 0.31 m, and recovers the authored radius to 5.5%.
 
+## Reproduced (n=2)
+
+Second run, session `20260812-030240-isaac-d67`, artifact
+`gate-robot1-landmark-run2.json`:
+
+| | run 1 | run 2 |
+|---|---|---|
+| detected | true | **true** |
+| first detection | 2.763 m | **2.409 m** |
+| frames to confirm | **3** | **3** |
+| closest tracked | 0.309 m | 1.121 m |
+| fitted radius, mean | 0.0665 m (+5.5%) | 0.0723 m (+14.8%) |
+| confirmed frames | 207 of 3740 | 71 of 3891 |
+
+Detection reproduces, acquires at 2.4-2.8 m, and confirms in exactly the k-of-n
+minimum on both runs. The fitted radius is biased HIGH on both, which is the
+expected direction for a Kasa fit on a short arc and is why the acceptance
+window is +/-40% of the authored radius rather than a tight symmetric band.
+
+The two runs differ in how long the post stayed tracked (207 vs 71 confirmed
+frames) because they differ in how close A got and how long it dwelt there --
+which is a property of the navigation, not of the detector.
+
 ## Why this matters more than the number
 
 Every other measurement of "where is B" in this system passes through the SLAM
