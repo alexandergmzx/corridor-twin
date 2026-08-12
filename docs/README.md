@@ -6,11 +6,11 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.7.0 |
-| Last updated | 2026-08-11 |
+| Map version | 1.8.0 |
+| Last updated | 2026-08-12 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | v2 decisions recorded: ADRs 0021–0025 land the three interview corrections — P owns the camera and the isolation certificate gates, robot A is selected by a measured fleet-twin gate, autonomy is governed Nav2 on live SLAM at robot-scale policy, enforcement perception is a learned detector with an ArUco baseline, and the fleet-workspace membership *decision* is recorded (ADR 0025; execution is Day 1). See the [v2 plan](v2-plan.md) |
-| Next milestone | v2 Day 1: fleet membership executed (symlink, pin, ledger, arena composer) and the isolation verification measured — ADR 0026. See the [v2 plan](v2-plan.md) §4–§5 |
+| Current milestone | **A delivers autonomously and perceives B.** Governed Nav2 on a live SLAM map, no authored route, reaches the delivery standoff beside B — 0.244 m at best, measured in world frame from truth (ADR 0028) — and a geometric landmark on B is detected from 2.4–2.8 m and confirmed in 3 frames (ADR 0029). Robot A is decided: robot1 (ADR 0027); isolation is verified (ADR 0026) |
+| Next milestone | **Close the map divergence, which is the one thing keeping the arrival gate red.** The fusion reports rotation its own input does not contain (0.14×–23.4× across seven runs against an IMU measuring 0.987–0.993 of truth); the fix is outside this repo. See [ADR 0029](adr/0029-the-corner-is-where-the-map-dies.md) and [`NOTES-fusion-anomaly.md`](evidence/robot-a-gate/NOTES-fusion-anomaly.md) |
 
 > Every Isaac Sim and GPU/VRAM figure in the capability matrix and resource
 > envelope below predates the 2026-07-29 police-placement correction (ADR
@@ -57,15 +57,21 @@ flowchart LR
     P6["6. Demo hardening<br/>one launch path + RViz<br/>rehearsed, fallback recorded<br/><b>WORKING</b>"]
     P3c["3c. GPU requalification<br/>retired by ADR 0022:<br/>no v1 number is quotable for v2<br/><b>RETIRED</b>"]
     P7["7. Latency + remaining profiles<br/>pose-to-render offset<br/>other (m,n) variants<br/><b>RETIRED</b>"]
-    V2["8. v2 corrections<br/>ADRs 0021&ndash;0025 recorded<br/>fleet gate, Nav2, detector ahead<br/><b>NEXT</b>"]
+    V2["8. v2 corrections<br/>ADRs 0021&ndash;0025 recorded<br/>fleet gate, Nav2, detector ahead<br/><b>DONE</b>"]
+    V3["9. Isolation + robot A<br/>certificate green, mutation red<br/>A = robot1, gate failed for robot2<br/><b>DONE</b>"]
+    V4["10. Autonomous delivery<br/>emergent route to B&apos;s standoff<br/>0.244 m, world frame from truth<br/><b>WORKING</b>"]
+    V5["11. A perceives B<br/>geometric landmark, laser frame<br/>2.4&ndash;2.8 m, 3 frames to confirm<br/><b>WORKING</b>"]
+    V6["12. Map divergence<br/>fusion reports 0.14&ndash;23.4x its input<br/>arrival gate RED until fixed<br/><b>BLOCKER</b>"]
+    V7["13. Learned enforcement detector<br/>ADR 0024, synthetic-first<br/><b>NEXT</b>"]
 
     P1 --> P2 --> P3 --> P3b --> P4 --> P5 --> P6 --> P3c
-    P6 --> V2
+    P6 --> V2 --> V3 --> V4 --> V5 --> V6 --> V7
     P3c -.-> P7
 
     classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
     class P3c blocked;
     class P7 blocked;
+    class V6 blocked;
 ```
 
 `QUALIFIED*` means all hardware gates passed, but NVIDIA's checker still rejects
@@ -86,6 +92,11 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | Corner enforcement coverage | **Confirmed on rendered Isaac pixels** | Height-staggered reference plates carry the pose through the strict zone in a real render; gates 8.0 and 10.0 both measured, so the corner rule is confirmable. [Frame](evidence/live-demo/corner-references.png) | Repeat after any geometry change |
 | Robot delivery motion | **Working** | A completes the 24.601 m five-piece route in 24.617 s of simulation time, driven from `/clock`; `reached_end=True` | Measure the pose-to-render latency, which is still uncharacterised |
 | Live end-to-end violation | **Working** | One command runs Isaac → camera → observer → RViz; exactly one violation at station 10.0 m, exceedance 0.191 m/s, 3354 MiB VRAM, one render product | Rehearse the GUI path and the recorded fallback on the presentation machine |
+| **Autonomous delivery to B** | **Working; arrival gate RED** | Governed Nav2 on a live SLAM map with **no authored route**. A leaves the corridor mouth, turns the corner and reaches the delivery standoff beside B on every run that got a goal: closest approach **0.244 / 0.404 / 0.574 / 0.647 / 0.774 m**, measured in **world frame from simulator truth** because the map-frame number is not trustworthy. The goal is a standoff, never B's centre — the RTX lidar sees render geometry, so B is a costmap obstacle and its centre is unreachable at any tolerance. [ADR 0028](adr/0028-goal-directed-navigation-on-a-live-map.md) | Pass the unchanged arrival gate (Nav2 `SUCCEEDED`, ≤ 0.15 m map-frame). Blocked on the map |
+| **A perceives B** | **Working** | A cylindrical post beside B, detected **geometrically** — cluster, fit a circle, require both a small residual and the manifest's authored radius. Measured twice: acquired at **2.763 m** and **2.409 m**, confirmed in **exactly 3 frames** (the 3-of-5 minimum), tracked to **0.309 m**, fitted radius 0.0665/0.0723 m against an authored 0.063. Taken in the **laser frame**, so it is true whatever the map believes. Never intensity-based: sim-vs-real intensity fidelity is unowned here. [Evidence](evidence/robot-a-gate/NOTES-landmark.md) | Consume it — terminal docking (one refinement, ever) is specified and unbuilt |
+| **SLAM map through the corridor** | **Working** | `slam_lens`, attached from the first transform: scan-to-map fit **0.752–1.000**, SLAM-pose-vs-truth divergence **0.000–0.022 m**. Two centimetres | Hold it past the corner |
+| **SLAM map at the far end** | **BROKEN — the one open blocker** | Duplicate wall extent **0.740–2.680 m** against an authored "perfect SLAM" reference that scores **0.000 m**. Seven causes eliminated by measurement (motion sources, calibration, rate, sign, simulator slowdown, system load, corridor shape); loop closure **falsified** by test. What remains: `robot_localization` reports **0.14×–23.4×** its own input's rotation, from an IMU measuring 0.987–0.993 of truth, and it never jumps — continuous over-integration. [ADR 0029](adr/0029-the-corner-is-where-the-map-dies.md) | A fleet-side fix: IMU covariances or the filter's config. Not reachable from this repo |
+| Local controller | DWB, on numbers | MPPI arm built and tested to differ in exactly one block; it aborted after ~0.5 m with its control loop at **4.8–11.8 Hz against a configured 20 Hz**. DWB reached B on five transits of five. [Evidence](evidence/robot-a-gate/NOTES-u3-controllers.md) | Retry MPPI at a smaller batch before drawing an algorithmic conclusion |
 | Communication-domain isolation | **Working** | A on ROS domain 42, P on 43, crossed only by a three-topic one-way allowlist. Proved with no GPU and no Isaac: the police domain cannot discover A's camera topic, no message crosses unbridged, and every negative is paired with a positive control that skips rather than passes. Forcing both probes onto one domain fails 2 of 3 DDS tests. [ADR 0020](adr/0020-communication-domain-isolation.md) | Confirm on the live Isaac path, which this branch does not requalify |
 
 ## Evidence boundary
