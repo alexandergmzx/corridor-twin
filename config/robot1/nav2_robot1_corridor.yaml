@@ -59,12 +59,28 @@
         yaw_goal_tolerance: 0.6
       FollowPath:
         plugin: "dwb_core::DWBLocalPlanner"
-        # Tracks: no lateral DOF; caps under the governor's [estimate] limits.
+        # Tracks: no lateral DOF; caps under the governor's MEASURED limits.
+        #
+        # The governor's real caps are max_speed 0.35 m/s, max_yaw 1.5 rad/s,
+        # and max_yaw_near 0.4 rad/s inside stop_distance 0.35 m
+        # (governor.py:43-51). In a corridor 1.26 m wide at the corner, a robot
+        # of radius 0.12 is within 0.35 m of a wall for most of the transit, so
+        # **max_yaw_near is the binding cap, not max_yaw**.
+        #
+        # max_vel_theta was 1.0, and runs commanded exactly that. The governor
+        # then clipped it to 0.4 near the walls, so DWB was predicting
+        # trajectories the robot would never execute -- its model of its own
+        # motion was wrong by a factor of 2.5 precisely where the corridor is
+        # tightest. Fast yaw is also what slips the wheels and smears the map:
+        # measured yaw scale ratios of 1.213 and 1.606 on transits, against
+        # +/-4% on a bare-twin pivot sweep.
+        #
+        # 0.4 makes Nav2 plan within what the governor will actually allow.
         min_vel_x: 0.0
         max_vel_x: 0.22
         min_vel_y: 0.0
         max_vel_y: 0.0
-        max_vel_theta: 1.0
+        max_vel_theta: 0.4
         min_speed_xy: 0.0
         max_speed_xy: 0.22
         min_speed_theta: 0.0
@@ -80,7 +96,20 @@
         sim_time: 1.5
         linear_granularity: 0.05
         angular_granularity: 0.025
-        transform_tolerance: 0.3
+        # 0.5 s, not the 0.3 s default. MEASURED: a 312 ms map->odom lag under
+        # Isaac + Nav2 + slam_toolbox on one box aborted follow_path with
+        # "Transform data too old when converting from odom to map"
+        # [nav-launch-robot1-nominal_m6_n3.log:143-148, 2026-08-11] -- the
+        # controller had a valid global plan and died on TF freshness alone.
+        # slam_toolbox publishes map->odom at 50 Hz (transform_publish_period
+        # 0.02), so this is CPU contention, not a configuration gap.
+        #
+        # The value is derived, not padded: staleness x max speed must stay
+        # under the goal tolerance, so 0.5 s x 0.22 m/s = 0.11 m < 0.15 m. That
+        # is the same rule the EKF-continuity bound uses. A larger tolerance
+        # would buy robustness by letting the controller steer on a pose stale
+        # enough to miss the goal.
+        transform_tolerance: 0.5
         xy_goal_tolerance: 0.15
         trans_stopped_velocity: 0.05
         short_circuit_trajectory_evaluation: true
@@ -127,7 +156,7 @@
       local_frame: odom
       global_frame: map
       robot_base_frame: base_footprint
-      transform_tolerance: 0.3
+      transform_tolerance: 0.5
       # Recovery motions also go through the governor (cmd_vel remapped in
       # launch); reverse is capped there at 0.10 m/s — backup obeys the cap.
       max_rotational_vel: 0.8
@@ -150,6 +179,7 @@
         publish_frequency: 2.0
         global_frame: odom
         robot_base_frame: base_footprint
+        transform_tolerance: 0.5
         rolling_window: true
         # 3 x 3 m held the whole 12 m-scale corridor in view; at robot scale
         # the corridor is 2.4 m long, so a 3 m window is the entire world and
@@ -213,12 +243,14 @@
         # before allow_unknown ever gets a chance to plan through unknown cells
         # [measured 2026-08-11]. 10 m around the robot contains the whole
         # scenario at robot scale (B is ~3.7 m from spawn).
+        transform_tolerance: 0.5
         rolling_window: true
-        # 16 m spans the whole scenario around the robot. B stands 6.2 m from
-        # A's spawn at this scale, so a 10 m window (+/-5 m) would put the goal
-        # outside its own costmap and reproduce the "outside bounds" refusal.
-        width: 16
-        height: 16
+        # MUST span the goal. At the 0.5 scale the delivery standoff sits
+        # 8.76 m from A's spawn, so a 16 m window (+/-8 m) puts the goal
+        # outside its own costmap and reproduces the "outside bounds" refusal
+        # this rolling window exists to prevent. 24 m gives +/-12 m.
+        width: 24
+        height: 24
         track_unknown_space: true
         plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
         static_layer:
