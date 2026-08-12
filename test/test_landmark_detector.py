@@ -228,3 +228,39 @@ def test_out_of_range_returns_are_dropped_not_placed_at_the_origin() -> None:
 def test_the_radius_must_be_positive() -> None:
     with pytest.raises(ValueError):
         LandmarkDetector(0.0)
+
+
+def test_a_post_shaped_wall_edge_is_rejected_by_ISOLATION() -> None:
+    """The phantom that hijacked two runs, as a unit test.
+
+    A wall feature 0.874 m from the robot fitted a circle of radius 0.1276
+    against an authored 0.12, with a good residual and a post-sized chord. It
+    passed every SHAPE test the detector had and confirmed 3-of-5, while the
+    real post stood five metres away.
+
+    No curve-fitting can separate these: the feature genuinely is post-shaped.
+    What separates them is context -- this arc is ATTACHED to a wall that runs
+    on at similar range, where a real post has open space behind it.
+    """
+
+    detector = LandmarkDetector(RADIUS)
+    # A post-shaped convex nub at 0.9 m, with wall continuing away on one side
+    # at a similar range: exactly a corridor's wall edge.
+    nub = [
+        (0.9 + RADIUS * math.cos(math.radians(a)), RADIUS * math.sin(math.radians(a)))
+        for a in range(-60, 61, 8)
+    ]
+    wall = [(0.95, y) for y in [0.16 + 0.02 * i for i in range(14)]]
+
+    found = detector.candidates(nub + wall)
+
+    assert found == [], f"a wall edge was accepted as the post: {found}"
+
+
+def test_the_real_post_still_passes_the_extent_check() -> None:
+    """The guard must not reject the thing it guards."""
+
+    found = LandmarkDetector(RADIUS).candidates(_points(_circle_hit(1.2, 0.0, RADIUS)))
+
+    assert found, "the extent check rejected the actual post"
+    assert math.dist((found[0]["x"], found[0]["y"]), (1.2, 0.0)) < 0.05

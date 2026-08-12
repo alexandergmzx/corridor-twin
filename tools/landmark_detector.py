@@ -60,6 +60,31 @@ MAX_RESIDUAL_FRACTION = 0.30
 #: low-residual circle of the wrong size, and this is what rejects it.
 MAX_RADIUS_ERROR_FRACTION = 0.40
 
+#: The post's chord has to be the post's SIZE. Cheap, and it costs nothing to
+#: keep, but note it cannot catch the phantom below: an arc of radius r has a
+#: maximum chord of 2r by construction, so "right radius, long chord" does not
+#: exist.
+MAX_CHORD_FACTOR = 1.4
+
+#: ISOLATION, which is the check that actually separates a post from a corner.
+#:
+#: A wall feature 0.874 m from the robot fitted a radius of 0.1276 against an
+#: authored 0.12, with a good residual and a post-sized chord. It passed every
+#: SHAPE test the detector had, confirmed 3-of-5, and re-aimed an entire mission
+#: while the real post stood five metres away. It happened twice. The feature is
+#: genuinely post-shaped -- it is the convex edge where the corridor wall begins,
+#: and no amount of curve-fitting will tell it apart from a post.
+#:
+#: What separates them is CONTEXT, not shape. A free-standing post has open space
+#: behind it on both sides: the beams just past its edges fly on and hit
+#: something much further away, or nothing. A corner is attached to a wall, so on
+#: at least one side the next beams land at a similar range and keep going.
+#:
+#: 0.30 m is the step a beam must make past the cluster's edge for that side to
+#: count as open. It is well above the scan's own noise and well below the
+#: distances that separate real objects in this scene.
+ISOLATION_STEP_M = 0.30
+
 #: Points further apart than this along the scan start a new cluster. It is
 #: expressed in multiples of the landmark's diameter so that it, too, rescales.
 CLUSTER_GAP_FACTOR = 1.5
@@ -106,6 +131,30 @@ def cluster(points, max_gap_m: float) -> list[list[tuple[float, float]]]:
     if current:
         clusters.append(current)
     return clusters
+
+
+def is_isolated(points, start: int, end: int, step_m: float = ISOLATION_STEP_M) -> bool:
+    """Does this run of points stand proud of its surroundings on BOTH sides?
+
+    `points` is the whole angularly-ordered scan; `start`/`end` bound the run.
+
+    A free-standing post has open space behind it: the first beam past either
+    edge flies on and lands much further away, or lands nowhere. A corner is
+    part of a wall, so on at least one side the neighbouring beams land at a
+    similar range and the surface simply continues.
+
+    That is the only test here that uses CONTEXT rather than shape, and it is
+    the one that rejects the wall edge a circle fit cannot tell from a post.
+    An edge of the scan counts as open: nothing was seen there.
+    """
+
+    def reaches_past(index: int) -> bool:
+        if index < 0 or index >= len(points):
+            return True
+        inner = math.hypot(*points[max(start, min(end, index))])
+        return math.hypot(*points[index]) - inner > step_m
+
+    return reaches_past(start - 1) and reaches_past(end + 1)
 
 
 def fit_circle(points) -> tuple[float, float, float, float] | None:
@@ -170,7 +219,10 @@ class LandmarkDetector:
         """Every cluster in this frame that fits a circle of the right size."""
 
         found = []
+        cursor = 0
         for group in cluster(points, self.radius_m * 2.0 * CLUSTER_GAP_FACTOR):
+            start, end = cursor, cursor + len(group) - 1
+            cursor = end + 1
             if len(group) < MIN_POINTS:
                 continue
             fit = fit_circle(group)
@@ -180,6 +232,15 @@ class LandmarkDetector:
             if residual > self.radius_m * MAX_RESIDUAL_FRACTION:
                 continue
             if abs(radius - self.radius_m) > self.radius_m * MAX_RADIUS_ERROR_FRACTION:
+                continue
+            # EXTENT, not just shape. The visible chord of a post of this radius
+            # cannot exceed its diameter by much, whatever a circle fit says
+            # about a slice of something larger.
+            if math.dist(group[0], group[-1]) > self.radius_m * 2.0 * MAX_CHORD_FACTOR:
+                continue
+            # CONTEXT, and the only test that separates a post from a corner:
+            # both must be free-standing, not attached to a wall that continues.
+            if not is_isolated(points, start, end):
                 continue
             found.append({
                 "x": round(cx, 4), "y": round(cy, 4),
