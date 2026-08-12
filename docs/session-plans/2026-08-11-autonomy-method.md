@@ -365,3 +365,67 @@ The quantity that did catch every bad transit is the transit audit's
 **`max_yaw_error_deg`** — the instantaneous estimate-vs-truth heading error,
 137.9° and 148.6° on the two audited runs. That is the criterion the gate
 should carry; it is not yet wired in.
+
+## The finding that reframes the night: A DOES reach B
+
+Measured from simulator truth on `20260812-001443-isaac-d67`, against the
+delivery standoff at world `(6.453, −3.360)`:
+
+| t | truth position | distance to standoff |
+|---|---|---|
+| 0.0 s | (+0.022, +0.003) | 7.257 m |
+| 88.7 s | (+3.898, +0.512) | 4.639 m |
+| **119.8 s** | **(+5.687, −3.303)** | **0.768 m** ← closest |
+| 132.5 s | (+5.403, −4.040) | 1.251 m |
+| 265.1 s | (+2.640, +0.924) | 5.735 m |
+| 530.2 s | (−1.053, +1.028) | 8.695 m ← parked back at spawn |
+
+**A turned the corner and arrived at the delivery point.** It then drove all
+the way back to its spawn and sat there for the remaining 300 s.
+
+That is not a navigation failure. Governed Nav2 on a live SLAM map, with no
+authored route, took A from the corridor mouth around the corner to within
+0.77 m of B — the emergent route the method was supposed to produce. It is a
+**localization** failure wearing a navigation failure's clothes: the diverged
+map moves the goal out from under the robot, and Nav2 then correctly drives to
+a goal that no longer corresponds to where B is.
+
+### Every map-frame number reported this session is suspect
+
+The same run's nav gate reported `travelled_m: 1.32` and a 6–7 m goal error,
+for a robot that physically drove the whole corridor and reached 0.768 m. Both
+are computed in the frame SLAM owns. **A map-frame goal error of 0.15 m would
+be just as meaningless in the other direction** — which is why the arrival gate
+cannot be trusted until the map is trusted, and why the evaluation plane now
+measures delivery in world coordinates (`a93ad04`).
+
+`walked_away_m` is reported beside `closest_approach_m` because the final
+position alone cannot distinguish "never arrived" from "arrived and left", and
+those are completely different defects.
+
+### What helped, measured
+
+| config | duplicate wall extent | closest approach |
+|---|---|---|
+| `max_vel_theta` 1.0 | 1.920 m | — |
+| `max_vel_theta` 0.4 | 2.680 m | — |
+| **+ `acc_lim_theta` 0.5** | **0.740 m** | **0.768 m** |
+
+Both are the best transit figures of the night, and both are n=1.
+
+### The yaw chain: sound everywhere except under driven motion
+
+| condition | EKF/truth |
+|---|---|
+| bare twin, pivot sweep 0.3–1.5 rad/s both ways | 0.958 – 1.041 |
+| **full nav stack running, no goal sent** | 0.936 – 1.094 |
+| Nav2-driven transit | **1.213, 1.606, −1.707** |
+
+Calibration, rate dependence, an inverted channel, simulator slowdown (RTF
+1.001) and system load are each ruled out by a measurement. What remains is
+something about driven motion itself — the shaky yaw oscillation, whose
+reduction produced the best run above. Raw `/imu` reads 1.153× truth over a
+transit and 0.94–1.09 across both sweeps, and `/imu/data` matches `/imu` to
+0.01° (−48.42 vs −48.43), so **madgwick is not the amplifier**: ~15 points
+enter at the sensor and ~40 more at `robot_localization`, which has only that
+one yaw input. That last step is unexplained.
