@@ -39,8 +39,10 @@ ALLOW_CONTRACT_FAIL=0
 # transit is allowed to take, not an independent number that can silently
 # truncate a slow delivery.
 GATE_SECONDS=""
-# Gate runs are unattended; --rviz restores it for a run somebody is watching.
-RVIZ_FLAG="--no-rviz"
+# RViz ON by default: these runs are watched, and the viewport is how a
+# divergence gets noticed at all -- the ghosting that started this whole
+# sequence was seen there first. --no-rviz for a genuinely unattended run.
+RVIZ_FLAG=""
 NAV_TIMEOUT=300
 
 while [ $# -gt 0 ]; do
@@ -53,6 +55,7 @@ while [ $# -gt 0 ]; do
     --gate-seconds) GATE_SECONDS="$2"; shift 2 ;;
     --nav-timeout) NAV_TIMEOUT="$2"; shift 2 ;;
     --rviz) RVIZ_FLAG=""; shift ;;
+    --no-rviz) RVIZ_FLAG="--no-rviz"; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -153,14 +156,12 @@ echo "=== simctl start ==="
 # patrol commanded the same topic simultaneously -- the "square patrol" the
 # robot was observed doing. The mission's motion policy is one source: Nav2.
 #
-# --no-rviz is a HYPOTHESIS UNDER TEST, not a settled tuning. The yaw chain
-# measures within +/-4% of truth across 0.3-1.5 rad/s in both directions on a
-# bare twin (docs/evidence/robot-a-gate/yaw-sweep.json), yet the same chain
-# reports a 1.213 yaw scale ratio during a transit, alongside EKF output gaps
-# of 0.483 s and 4.138 s. A calibration fault would have shown in the sweep;
-# starvation would not. RViz renders map, scan and both costmaps live on the
-# machine already running Isaac, Nav2 and SLAM, and a gate run has nobody
-# watching it. Removing it is the cheapest way to move the hypothesis.
+# RViz was briefly removed to test a starvation hypothesis. That hypothesis is
+# WITHDRAWN: the EKF gaps it rested on were an artifact of this repo's own
+# recorder timing itself on the wall clock while blocking on a growing /map
+# (2727c0c). Measured from the bag, the EKF's worst gap was 0.398 s with none
+# over threshold. RViz is back on by default -- the viewport is how the
+# ghosting was noticed in the first place.
 "$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" \
   --no-patrol $RVIZ_FLAG || {
   echo "**INFRASTRUCTURE: simctl start failed for $PROFILE**" >&2; exit 3; }
