@@ -296,6 +296,7 @@ nav_pid=""
 slam_pid=""
 lens_pid=""
 recorder_pid=""
+probe_pid=""
 watchdog_pid=""
 WATCHDOG_FLAG="$(mktemp -u)"
 stopped=0
@@ -306,6 +307,7 @@ teardown() {
   echo "=== stopping $PROFILE on domain $DOMAIN ==="
   [ -n "$nav_pid" ] && kill -TERM "$nav_pid" 2>/dev/null || true
   [ -n "$recorder_pid" ] && kill -TERM "$recorder_pid" 2>/dev/null || true
+  [ -n "$probe_pid" ] && kill -TERM "$probe_pid" 2>/dev/null || true
   [ -n "$slam_pid" ] && kill -TERM "$slam_pid" 2>/dev/null || true
   # TERM, never -9: the lens writes its metric history on a clean stop.
   [ -n "$lens_pid" ] && kill -TERM "$lens_pid" 2>/dev/null || true
@@ -629,6 +631,18 @@ if [ "$LENS" = 1 ]; then
   echo "=== lens: http://127.0.0.1:8765/  (map, scan, 3 pose ghosts, landmark) ==="
 fi
 
+# WHO COMMANDED THAT? Started BEFORE the goal, because the question is about
+# what happens before the goal. Nothing in either repository subscribed to
+# /behavior_tree_log, so three explanations for A turning on the spot at startup
+# have been offered across two sessions and none was ever checked against a log.
+GOAL_MARKER="$RUN_DIR/.goal-sent"
+rm -f "$GOAL_MARKER"
+python3 "$REPO/tools/corridor_startup_probe.py" --seconds "$GATE_SECONDS" \
+  --goal-marker "$GOAL_MARKER" \
+  --out "$RUN_DIR/startup.json" \
+  >"$RUN_DIR/startup.log" 2>&1 &
+probe_pid=$!
+
 echo "=== T3.3a transit recorder (observe-only, ${GATE_SECONDS}s) ==="
 python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
   --profile "$PROFILE" --robot "$ROBOT" $GATED --observe-only \
@@ -639,6 +653,7 @@ python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
 recorder_pid=$!
 
 echo "=== T3.3b governed Nav2 goal A->B ==="
+: > "$GOAL_MARKER"
 python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT" $GATED $DOCK \
   ${CONTRACT_CAVEAT:+--caveat "$CONTRACT_CAVEAT"} \
   --manifest "$MANIFEST" \
@@ -650,6 +665,14 @@ python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT"
 # the recorder's full window.
 echo "=== transit recorder verdict ==="
 wait "$recorder_pid" || status=1
+# Not a gate yet -- U2 measures first and decides after. Printed so the answer
+# is in front of whoever watched the run.
+kill -TERM "$probe_pid" 2>/dev/null || true
+wait "$probe_pid" 2>/dev/null || true
+if [ -f "$RUN_DIR/startup.json" ]; then
+  echo "=== startup: what was commanded before the goal ==="
+  sed -n "/\"summary\"/,/^  }/p" "$RUN_DIR/startup.log" | sed 's/^/    /'
+fi
 sed 's/^/    /' "$RUN_DIR/gate.log" | tail -20
 
 # SAVE THE MAP OURSELVES when we own SLAM. simctl's map-save step belongs to
