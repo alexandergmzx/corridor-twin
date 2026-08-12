@@ -243,6 +243,43 @@ sed 's/^/    /' "$EVIDENCE/gate-$ROBOT-$PROFILE.log" | tail -20
 teardown || status=1
 trap - EXIT INT TERM
 
+# --- map quality, measured, not eyeballed -----------------------------------
+# "The walls look single-lined" is not a result. Full SLAM divergence was missed
+# once by exactly that check, and every number derived from a diverged map
+# (free widths, costmap costs, reachability) is void -- so the map is scored
+# before any of them are quoted.
+#
+# TWO ROWS ONLY, and deliberately: `duplicate wall extent` is the same wall
+# drawn twice, which IS the ghosting signature, and `median wall thickness` is
+# the smear. --reference is NOT passed: score_slam_map.py:28-30 says its span
+# rows measure occupied extent along an axis, which is valid for a convex room
+# and NOT for an L-shaped space like this corridor. Saying so here is what that
+# docstring asks for instead of quietly scoring the wrong thing.
+#
+# --self-test runs first every time. An instrument whose negative controls are
+# checked once at authoring time is an instrument nobody is checking.
+echo "=== map quality ==="
+SCORER=/home/alexmint/Development/robot-fleet/src/yahboomcar-ros2/tools/score_slam_map.py
+if ! python3 "$SCORER" --self-test >"$EVIDENCE/map-selftest-$ROBOT-$PROFILE.txt" 2>&1; then
+  echo "**INFRASTRUCTURE: map scorer self-test FAILED; its verdicts are not trustworthy**" >&2
+  status=1
+else
+  SAVED_MAP=$(ls -t \
+    "$HOME"/Development/MicroROS/MicroROS-assets/logs/sessions/*-d"$DOMAIN"/map-*.yaml \
+    "$HOME"/Development/robot-fleet/src/MicroROS/MicroROS-assets/logs/sessions/*-d"$DOMAIN"/map-*.yaml \
+    2>/dev/null | head -1)
+  if [ -z "$SAVED_MAP" ]; then
+    echo "**no saved map for domain $DOMAIN: SLAM produced nothing to score**" >&2
+    status=1
+  else
+    echo "  scoring $SAVED_MAP"
+    cp "$SAVED_MAP" "${SAVED_MAP%.yaml}.pgm" "$EVIDENCE/" 2>/dev/null || true
+    python3 "$SCORER" --map "$SAVED_MAP" \
+      --json "$EVIDENCE/map-score-$ROBOT-$PROFILE.json" \
+      | tee "$EVIDENCE/map-score-$ROBOT-$PROFILE.txt" || status=1
+  fi
+fi
+
 if [ "$status" = 0 ]; then
   echo "=== $PROFILE: PASS ==="
 else
