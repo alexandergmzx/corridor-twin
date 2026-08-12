@@ -500,27 +500,34 @@ def street_drive_center_x_m(scenario: Scenario) -> float:
 def landmark_xyz(scenario: Scenario) -> Vec3:
     """Where B's lidar-detectable post stands.
 
-    BESIDE B, along the street's axis -- not between B and the street.
+    BESIDE B, SOUTH along the street. Three constraints fix that, and every one
+    of them was found by a wrong answer rather than by reasoning.
 
-    Two constraints fix this, and both were found by construction rather than
-    guessed. Offsetting toward the street would put the post ON A's approach
-    line, where it is an obstacle between A and its goal: the post is
-    lidar-visible for exactly the reason B is. And the offset has to exceed
-    B's own half-width plus the post's radius plus the detector's clustering
-    gap, or the two merge into a single cluster and the circle fit sees a box
-    with a bump rather than a cylinder -- at the committed scale that floor is
-    0.0945 + 0.063 + 0.189 = 0.347 m, and the authored 0.9 m gives 0.378 m.
+    **Not toward the street.** The post is lidar-visible for exactly the reason
+    B is, so offsetting it that way puts an obstacle on A's approach line,
+    between A and its goal.
 
-    The lateral direction is +y, the side A arrives from: A comes down the
-    corridor and turns east, so a post north of B enters the scan before B
-    does.
+    **Not north.** The east wall stub sits immediately north of B by
+    construction -- that is what `gap_north_of_b_m` means -- so a post offset
+    north lands INSIDE it. Measured: `is_clear` False at (5.038, -1.800)
+    against a stub spanning y -2.085 to -1.767. South is the open side, and the
+    street runs 6 m that way.
+
+    **Far enough to be its own cluster.** The offset must exceed B's half-width
+    plus the post's radius plus the detector's clustering gap, or the two merge
+    and the circle fit sees a box with a bump instead of a cylinder. At the
+    current scale that floor is 0.0675 + 0.12 + 0.36 = 0.548 m, and 0.6 clears
+    it.
+
+    `validate_layout` checks the result, because two of the three mistakes above
+    shipped in a scene that nothing objected to.
 
     One function, so the authored prop and the manifest the detector reads can
     never describe two different places.
     """
 
     b_x, b_y, b_z = person_b_xyz(scenario)
-    return (b_x, b_y + scenario.actors.landmark_offset_m, b_z)
+    return (b_x, b_y - scenario.actors.landmark_offset_m, b_z)
 
 
 def person_b_xyz(scenario: Scenario) -> Vec3:
@@ -690,6 +697,40 @@ def validate_layout(scenario: Scenario, profile: CorridorProfile) -> None:
     if pmin[1] < scenario.street_south_m + clearance:
         raise ValueError(
             f"profile {profile.name}: P reaches y={pmin[1]:.3f}, past the street's south end"
+        )
+
+    # B's post must stand in FREE SPACE, footprint and all.
+    #
+    # This check exists because the post shipped inside a wall twice and nothing
+    # objected: offset north it landed in the east wall stub (`is_clear` False at
+    # (5.038, -1.800) against a stub spanning y -2.085 to -1.767), and the prop's
+    # size stopped scaling with the scene while its neighbours kept scaling. A
+    # landmark inside geometry is worse than no landmark -- the detector cannot
+    # see it, and the delivery has a marker that is not there.
+    post_x, post_y, _ = landmark_xyz(scenario)
+    radius = scenario.actors.landmark_radius_m
+    for index in range(12):
+        bearing = index * math.pi / 6.0
+        probe_x = post_x + radius * math.cos(bearing)
+        probe_y = post_y + radius * math.sin(bearing)
+        if not is_clear(scenario, profile, probe_x, probe_y):
+            raise ValueError(
+                f"profile {profile.name}: B's landmark post at "
+                f"({post_x:.3f}, {post_y:.3f}) r={radius} is not in free space -- "
+                f"blocked at bearing {math.degrees(bearing):.0f} deg"
+            )
+
+    # And far enough from B that the detector sees two objects rather than one.
+    # Closer than this they merge into a single cluster and the circle fit is
+    # given a box with a bump on it.
+    half_width = max(scenario.actors.b_size_xyz_m[0], scenario.actors.b_size_xyz_m[1]) / 2.0
+    cluster_gap = radius * 2.0 * 1.5
+    floor = half_width + radius + cluster_gap
+    separation = math.dist((post_x, post_y), person_b_xyz(scenario)[:2])
+    if separation < floor:
+        raise ValueError(
+            f"profile {profile.name}: B's post is {separation:.3f} m from B, inside the "
+            f"{floor:.3f} m the detector needs to cluster them apart"
         )
     # P's body must not overlap the corner screen that hides it. Guaranteed by
     # construction -- corner_screen_bounds derives its east face from P's own

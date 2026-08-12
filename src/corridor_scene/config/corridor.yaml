@@ -189,11 +189,15 @@ actors:
   # block the delivery. The offset must also exceed B's half-width + the post's
   # radius + the detector's clustering gap, or the two merge into one cluster
   # and the fit sees a box with a bump instead of a cylinder.
-  # Also absolute, and it must clear B's own footprint plus the detector's
-  # clustering gap or the two merge into one cluster: B's half-width (0.0675 at
-  # the current scale) + the post's radius (0.12) + the cluster gap (0.36) is
-  # 0.55, so 0.6 leaves margin.
-  landmark_offset_m: 0.6
+  # Also absolute, and SOUTH of B (geometry.landmark_xyz): north is where the
+  # east wall stub sits, and a post offset north lands inside it.
+  #
+  # 0.8 because the separation floor moves with scale while the post does not.
+  # The floor is B's half-width + the post's radius + the detector's clustering
+  # gap: 0.705 m at the authored scale where B is 0.45 m wide, 0.548 m at the
+  # 0.30 factor where B is 0.135 m. 0.8 clears both, and validate_layout
+  # enforces it rather than trusting this comment.
+  landmark_offset_m: 0.8
 
 police:
   # P stands inside the next street's east side, on the near (inner) side of
