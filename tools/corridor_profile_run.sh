@@ -288,11 +288,37 @@ status=0
 # That startup race is why nominally identical runs alternated between reaching
 # 0.24 m of B and never leaving the spawn.
 if [ -n "$SLAM_PARAMS" ]; then
-  echo "=== slam_toolbox (corridor params: $(basename "$SLAM_PARAMS")) ==="
-  ros2 launch yahboomcar_config slam_launch.py "params_file:=$SLAM_PARAMS" \
-    >"$EVIDENCE/slam-$ROBOT-$PROFILE.log" 2>&1 &
-  slam_pid=$!
-  sleep 10
+  # VERIFY, and retry once. slam_toolbox's lifecycle activation misses its
+  # own service response intermittently -- "failed to send response to
+  # /slam_toolbox/change_state (timeout)" -- and a SLAM that configured but
+  # never activated publishes no map->odom, so the TF wait below then fails
+  # after 120 s and the whole run is lost to a silent bringup miss. Same
+  # defect and same bounded remedy as bt_navigator.
+  slam_attempt=0
+  slam_ready=0
+  while [ "$slam_attempt" -lt 2 ] && [ "$slam_ready" != 1 ]; do
+    slam_attempt=$((slam_attempt + 1))
+    echo "=== slam_toolbox (corridor params: $(basename "$SLAM_PARAMS"), attempt $slam_attempt) ==="
+    ros2 launch yahboomcar_config slam_launch.py "params_file:=$SLAM_PARAMS" \
+      >"$EVIDENCE/slam-$ROBOT-$PROFILE-attempt$slam_attempt.log" 2>&1 &
+    slam_pid=$!
+    for _ in $(seq 1 12); do
+      sleep 5
+      sstate=$(ros2 lifecycle get /slam_toolbox 2>/dev/null | head -1) || true
+      case "$sstate" in
+        *active*) slam_ready=1; echo "  slam_toolbox active (attempt $slam_attempt)"; break ;;
+      esac
+    done
+    if [ "$slam_ready" != 1 ]; then
+      echo "  ** slam_toolbox never reached ACTIVE (last state: ${sstate:-unknown}) **"
+      kill -TERM "$slam_pid" 2>/dev/null || true
+      sleep 5
+    fi
+  done
+  if [ "$slam_ready" != 1 ]; then
+    echo "**INFRASTRUCTURE: slam_toolbox never activated in $slam_attempt attempts**" >&2
+    exit 3
+  fi
 fi
 
 echo "=== waiting for the TF chain ==="
