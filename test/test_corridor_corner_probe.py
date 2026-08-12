@@ -89,3 +89,35 @@ def test_a_slow_crawl_is_moving_not_blocked() -> None:
     rows = [_row(t, 0.05, 0.22) for t in range(60)]
 
     assert find_wedge(rows)["wedged"] is False
+
+
+def test_a_robot_rotating_in_place_is_not_wedged() -> None:
+    """The false positive that reported an 80 s wedge on a robot finishing.
+
+    Linear truth speed is zero throughout -- as it is for any pivot -- while
+    Nav2 rotates to satisfy its yaw goal tolerance. Judging a commanded YAW
+    rate against a LINEAR speed calls that blocked. It is a robot turning.
+    """
+
+    rows = []
+    for t in range(60):
+        row = _row(t, 0.0, 0.0)
+        row["commanded_wz"], row["truth_wz"] = 0.4, 0.38
+        rows.append(row)
+
+    assert find_wedge(rows)["wedged"] is False
+
+
+def test_a_robot_commanded_to_rotate_that_does_not_IS_wedged() -> None:
+    """The other half: blocked in yaw is still blocked."""
+
+    rows = []
+    for t in range(60):
+        row = _row(t, 0.0, 0.0, ratio=24.0, min_scan=0.7, x=6.7, y=-4.16)
+        row["commanded_wz"], row["truth_wz"] = 0.4, 0.001
+        rows.append(row)
+
+    verdict = find_wedge(rows)
+
+    assert verdict["wedged"] is True
+    assert verdict["peak_wheel_truth_ratio"] == 24.0

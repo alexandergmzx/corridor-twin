@@ -3,16 +3,16 @@
   "seconds": 321,
   "wedge": {
     "wedged": true,
-    "longest_blocked_s": 41,
-    "from_t": 228.0,
-    "to_t": 268.0,
+    "longest_blocked_s": 6,
+    "from_t": 133.0,
+    "to_t": 138.0,
     "at_position": [
-      5.2626,
-      -4.3142
+      5.821,
+      -3.2326
     ],
-    "min_clearance_m": 0.2284,
-    "peak_wheel_truth_ratio": 22.879,
-    "commanded_through_it_mps": 0.038
+    "min_clearance_m": 0.5579,
+    "peak_wheel_truth_ratio": 9.632,
+    "commanded_through_it_mps": 0.22
   },
   "peak_wheel_truth_ratio": 22.879,
   "blocked_regime_seconds": 151,

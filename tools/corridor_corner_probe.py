@@ -54,6 +54,14 @@ from rosbag2_py import ConverterOptions, SequentialReader, StorageOptions
 COMMANDED_MPS = 0.05
 STOPPED_MPS = 0.03
 
+#: The ROTATIONAL pair. Blocked has to be judged per degree of freedom: a robot
+#: commanded to rotate in place has a linear truth speed of zero and is not
+#: blocked at all, it is turning. Comparing a commanded yaw rate against a
+#: linear speed reported an 80 s wedge on a run whose last 70 s were Nav2
+#: rotating to satisfy its yaw goal tolerance, which is a robot finishing.
+COMMANDED_RAD_S = 0.10
+STOPPED_RAD_S = 0.05
+
 #: The free-floor encoder lie is ~2.9x on this chassis; the blocked regime runs
 #: 6-26x. 3.0 separates them, and is quoted from the near-wall study rather than
 #: chosen here.
@@ -185,10 +193,12 @@ def find_wedge(rows: list[dict]) -> dict:
     best_start = best_len = 0
     run_start = None
     for index, row in enumerate(rows):
-        blocked = (
-            max(row["commanded_mps"], row["commanded_wz"]) > COMMANDED_MPS
-            and row["truth_mps"] < STOPPED_MPS
+        pushing = row["commanded_mps"] > COMMANDED_MPS and row["truth_mps"] < STOPPED_MPS
+        turning = (
+            row["commanded_wz"] > COMMANDED_RAD_S
+            and abs(row["truth_wz"]) < STOPPED_RAD_S
         )
+        blocked = pushing or turning
         if blocked:
             run_start = index if run_start is None else run_start
             if index - run_start + 1 > best_len:
