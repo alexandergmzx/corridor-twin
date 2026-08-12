@@ -299,6 +299,20 @@ def main() -> int:
             # The pose is used to EXPRESS the goal, never to decide whether to
             # dock: arming is on the detected range alone (corridor_dock.armed).
             refined = machine.step((pose_x, pose_y), pose_yaw, gate.last_verdict)
+
+            # ARRIVING MEANS STOPPING. Reaching DOCKED used to only stop the
+            # machine ISSUING goals, while Nav2 carried on executing the last
+            # one it had -- a map-frame goal that keeps drifting. Measured: A
+            # came within 0.0993 m of B, docked on a real detection at 0.522 m,
+            # and then walked 3.43 m away to chase the stale goal. Cancelling
+            # is the difference between arriving and passing through.
+            if machine.state == machine.DOCKED:
+                print(f"  dock: DOCKED at {gate.last_verdict['candidate']['range_m']:.3f} m "
+                      f"from the post -- cancelling the goal so A stays")
+                cancel = handle.cancel_goal_async()
+                rclpy.spin_until_future_complete(gate, cancel, timeout_sec=10.0)
+                break
+
             if refined is None:
                 continue
             print(f"  dock: refine {machine.refinements} -> "
@@ -323,6 +337,11 @@ def main() -> int:
 
     status = result_future.result().status
     report["action_status"] = STATUS_NAMES.get(status, status)
+    # A goal this gate cancelled ITSELF, because docking said A had arrived, is
+    # not a navigation failure. Recording it as one would report a successful
+    # delivery as ABORTED.
+    if dock_report.get("state") == "DOCKED":
+        report["docked_and_cancelled"] = True
     report["travelled_m"] = round(gate.travelled_m(), 3)
 
     try:
@@ -336,7 +355,7 @@ def main() -> int:
     report["goal_error_m"] = round(error_m, 4)
 
     failures = []
-    if status != STATUS_SUCCEEDED:
+    if status != STATUS_SUCCEEDED and not report.get("docked_and_cancelled"):
         failures.append(f"action status {report['action_status']}, not SUCCEEDED")
     if error_m > GOAL_TOLERANCE_M:
         failures.append(
