@@ -83,12 +83,27 @@ isaac_lock_acquire() {
 
   # Belt and braces: the lock says nobody owns Isaac, so nothing Isaac-shaped
   # should be running. If something is, the lock is lying and we do not start.
-  local strays
-  strays="$(pgrep -af 'sim_runner\.py|rasptank_twin_runner\.py|isaac_5_1_ros_camera|isaac-sim|/kit/kit' 2>/dev/null \
-            | grep -v "^$$ " || true)"
+  #
+  # Matched on the process EXECUTABLE, not the command line. A cmdline match
+  # false-positived three times on shells that merely MENTIONED the pattern --
+  # this repo's own paths contain "omniverse", and any caller that types
+  # sim_runner.py on the same line puts it in their own cmdline. Excluding
+  # ancestors is not enough either, because such a shell can be a sibling. A
+  # real twin runs as python3 or kit; a shell pretending to be one runs as
+  # bash. That distinction is exact and does not depend on process topology.
+  local strays=""
+  local candidate comm
+  for candidate in $(pgrep -f 'sim_runner\.py|rasptank_twin_runner\.py|isaac_5_1_ros_camera|isaac-sim|/kit/kit' 2>/dev/null); do
+    [ "$candidate" = "$$" ] && continue
+    comm="$(cat "/proc/$candidate/comm" 2>/dev/null || true)"
+    case "$comm" in
+      bash|sh|dash|zsh|""|pgrep|grep) continue ;;
+    esac
+    strays="$strays$candidate $comm"$'\n'
+  done
   if [ -n "$strays" ]; then
     echo "**isaac lock: lock is free but Isaac-shaped processes are running -- refusing**" >&2
-    echo "$strays" >&2
+    printf '%s' "$strays" | sed 's/^/    /' >&2
     return 3
   fi
 

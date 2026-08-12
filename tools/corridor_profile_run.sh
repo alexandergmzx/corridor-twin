@@ -138,21 +138,28 @@ echo "=== simctl start ==="
 # Contract numbers are PER-ROBOT and do not transfer. robot2 is checked with
 # --imu-hz 60; robot1's checker carries its own WANT_HZ (scan 12 / odom_raw 11
 # / imu 25, check_isaac_contract.py:51) and takes no rate flags at all.
+# The two checkers do not share a CLI. robot2's takes --imu-hz and --json;
+# robot1's takes neither -- its flags are only --seconds/--speed/--turn/--domain
+# (check_isaac_contract.py:54-58) and it prints a human table, so its artifact
+# is text and its verdict is the exit code.
 if [ "$ROBOT" = robot1 ]; then
   CONTRACT_ARGS=(--domain "$DOMAIN")
+  CONTRACT_OUT="$EVIDENCE/contract-$ROBOT-$PROFILE.txt"
 else
-  CONTRACT_ARGS=(--imu-hz 60)
+  CONTRACT_ARGS=(--imu-hz 60 --json)
+  CONTRACT_OUT="$EVIDENCE/contract-$ROBOT-$PROFILE.json"
 fi
 echo "=== precondition: $ROBOT contract (${CONTRACT_ARGS[*]}) ==="
 # stdout only into the JSON: the checker appends a human summary and its
 # FAIL lines after the document, which made every artifact unparseable exactly
 # when it mattered most -- on the failures.
-if ! python3 "$CONTRACT" "${CONTRACT_ARGS[@]}" --json >"$EVIDENCE/contract-$ROBOT-$PROFILE.json" \
+if ! python3 "$CONTRACT" "${CONTRACT_ARGS[@]}" >"$CONTRACT_OUT" \
      2>"$EVIDENCE/contract-$ROBOT-$PROFILE.err"; then
-  echo "**INFRASTRUCTURE: contract check failed for $PROFILE; twin not fit to gate**" >&2
+  echo "**INFRASTRUCTURE: contract check failed for $ROBOT/$PROFILE; twin not fit to gate**" >&2
+  sed 's/^/    /' "$CONTRACT_OUT" 2>/dev/null | tail -12 >&2
   exit 3
 fi
-echo "  contract PASS -> $EVIDENCE/contract-$ROBOT-$PROFILE.json"
+echo "  contract PASS -> $CONTRACT_OUT"
 
 status=0
 
