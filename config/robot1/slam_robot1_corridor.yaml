@@ -1,3 +1,10 @@
+# slam_toolbox for robot1 IN THE CORRIDOR -- NOT IN USE, kept as a record.
+#
+# **This configuration measured no better and was observed worse.** It is off by
+# default; --corridor-slam opts back in. See the loop-closing note below: the
+# reasoning that produced it was wrong, and the fleet canonical (loop closure
+# ON, via simctl's own SLAM step) is what runs.
+#
 # slam_toolbox for robot1 IN THE CORRIDOR.
 #
 # COPIED from yahboomcar-ros2/yahboomcar_config/param/slam_toolbox.yaml, which

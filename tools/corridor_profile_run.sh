@@ -39,9 +39,17 @@ ALLOW_CONTRACT_FAIL=0
 # transit is allowed to take, not an independent number that can silently
 # truncate a slow delivery.
 GATE_SECONDS=""
-# Corridor-local slam_toolbox params, launched by us. Empty restores the fleet
-# canonical via simctl's own SLAM step.
-SLAM_PARAMS="$REPO/config/robot1/slam_robot1_corridor.yaml"
+# FLEET CANONICAL SLAM by default -- simctl's own step, loop closure ON.
+#
+# This was briefly pointed at config/robot1/slam_robot1_corridor.yaml, which
+# turns loop closing OFF. That was my change and it is reverted: the operator
+# observed SLAM behaving worse with it, and the argument for it ("a single-pass
+# delivery has no loop to close") was wrong -- slam_toolbox also closes against
+# recent scan chains, which is how it corrects accumulated drift. One metric
+# failed to move and I treated that as permission.
+#
+# --corridor-slam opts back in for a deliberate A/B.
+SLAM_PARAMS=""
 # U3: which local controller. dwb is the shipped arm; mppi is the comparison.
 CONTROLLER="dwb"
 # Terminal docking: drive the final approach from the LANDMARK instead of the
@@ -85,7 +93,7 @@ while [ $# -gt 0 ]; do
     --sim-max-s) SIM_MAX_S="$2"; shift 2 ;;
     --controller) CONTROLLER="$2"; shift 2 ;;
     --no-dock) DOCK=""; shift ;;
-    --fleet-slam) SLAM_PARAMS=""; shift ;;
+    --corridor-slam) SLAM_PARAMS="$REPO/config/robot1/slam_robot1_corridor.yaml"; shift ;;
     --rviz) RVIZ_FLAG=""; shift ;;
     --no-rviz) RVIZ_FLAG="--no-rviz"; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
