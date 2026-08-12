@@ -840,6 +840,25 @@ else
   fi
 fi
 
+# THE STARTUP CRITERION, from ground truth, on every run. The circle was
+# diagnosed three times from the wrong signal -- twice from what something
+# commanded and once from a topic the offending driver was not using -- so its
+# acceptance is measured from what the robot actually did.
+SESSION_BAG=$(find \
+  "$HOME"/Development/MicroROS/MicroROS-assets/bags \
+  "$HOME"/Development/robot-fleet/src/MicroROS/MicroROS-assets/bags \
+  -maxdepth 1 -name "*-isaac-d$DOMAIN" -newer "$RUN_DIR/run.json" 2>/dev/null | sort | tail -1)
+if [ -n "$SESSION_BAG" ]; then
+  echo "=== startup criterion (ground truth, $(basename "$SESSION_BAG")) ==="
+  "$REPO/.venv/bin/python" "$REPO/tools/startup_acceptance.py" \
+    --bag "$SESSION_BAG" --gate "$RUN_DIR/gate.json" \
+    --out "$RUN_DIR/startup-acceptance.json" | sed 's/^/    /' || status=1
+  manifest --set "session_bag=$SESSION_BAG"
+else
+  echo "  **no session bag found on domain $DOMAIN; startup criterion unmeasured**" >&2
+  manifest_error "no session bag found; the startup criterion was not measured"
+fi
+
 # A run the watchdog killed is INFRASTRUCTURE, never a verdict about the robot:
 # it was stopped mid-transit by the clock, so its gate failures describe an
 # interrupted run and nothing else.
