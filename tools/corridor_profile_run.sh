@@ -393,6 +393,20 @@ echo "=== transit recorder verdict ==="
 wait "$recorder_pid" || status=1
 sed 's/^/    /' "$EVIDENCE/gate-$ROBOT-$PROFILE.log" | tail -20
 
+# SAVE THE MAP OURSELVES when we own SLAM. simctl's map-save step belongs to
+# simctl's own SLAM launch; under --no-slam it saves nothing, and the scorer
+# then correctly reports that this session produced no map -- which would leave
+# every corridor-params run unscoreable.
+if [ -n "$SLAM_PARAMS" ]; then
+  echo "=== saving the map (we own SLAM) ==="
+  OWN_MAP="$EVIDENCE/map-$ROBOT-$PROFILE"
+  timeout 60 ros2 run nav2_map_server map_saver_cli -f "$OWN_MAP" \
+    --ros-args -p save_map_timeout:=20.0 \
+    >"$EVIDENCE/map-save-$ROBOT-$PROFILE.log" 2>&1 \
+    && echo "  saved $OWN_MAP.yaml" \
+    || echo "  **map save failed; see map-save-$ROBOT-$PROFILE.log**" >&2
+fi
+
 teardown || status=1
 trap - EXIT INT TERM
 
@@ -421,11 +435,15 @@ else
   # otherwise silently score the PREVIOUS session's, and report its verdict as
   # this run's. That happened -- two consecutive runs reported an identical
   # 0.800 m duplicate-wall extent because the second produced no map at all.
+  if [ -n "$SLAM_PARAMS" ] && [ -f "$EVIDENCE/map-$ROBOT-$PROFILE.yaml" ]; then
+    SAVED_MAP="$EVIDENCE/map-$ROBOT-$PROFILE.yaml"
+  else
   SAVED_MAP=$(find \
     "$HOME"/Development/MicroROS/MicroROS-assets/logs/sessions \
     "$HOME"/Development/robot-fleet/src/MicroROS/MicroROS-assets/logs/sessions \
     -maxdepth 2 -name 'map-*.yaml' -path "*-d$DOMAIN/*" -newer "$SESSION_MARKER" \
     2>/dev/null | head -1)
+  fi
   rm -f "$SESSION_MARKER"
   if [ -z "$SAVED_MAP" ]; then
     echo "**THIS session saved no map on domain $DOMAIN: SLAM produced nothing to score**" >&2
