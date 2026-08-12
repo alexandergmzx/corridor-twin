@@ -1,0 +1,156 @@
+{
+  "instrument": "corridor_yaw_audit",
+  "pivot_s": 6.0,
+  "streams_present": {
+    "odom_raw": true,
+    "odom": true,
+    "truth": true
+  },
+  "legs": [
+    {
+      "commanded_rad_s": 0.3,
+      "turned_rad": {
+        "odom_raw": 6.6041,
+        "odom": 1.7051,
+        "truth": 1.6383
+      },
+      "samples": {
+        "odom_raw": 68,
+        "odom": 61,
+        "truth": 68
+      },
+      "ratio_vs_truth": {
+        "odom_raw": 4.0311,
+        "odom": 1.0408
+      }
+    },
+    {
+      "commanded_rad_s": -0.3,
+      "turned_rad": {
+        "odom_raw": -6.2323,
+        "odom": -1.7239,
+        "truth": -1.6998
+      },
+      "samples": {
+        "odom_raw": 68,
+        "odom": 61,
+        "truth": 68
+      },
+      "ratio_vs_truth": {
+        "odom_raw": 3.6665,
+        "odom": 1.0142
+      }
+    },
+    {
+      "commanded_rad_s": 0.6,
+      "turned_rad": {
+        "odom_raw": 9.9602,
+        "odom": 3.2274,
+        "truth": 3.1927
+      },
+      "samples": {
+        "odom_raw": 68,
+        "odom": 62,
+        "truth": 68
+      },
+      "ratio_vs_truth": {
+        "odom_raw": 3.1197,
+        "odom": 1.0109
+      }
+    },
+    {
+      "commanded_rad_s": -0.6,
+      "turned_rad": {
+        "odom_raw": -10.4446,
+        "odom": -3.0261,
+        "truth": -3.1598
+      },
+      "samples": {
+        "odom_raw": 67,
+        "odom": 62,
+        "truth": 68
+      },
+      "ratio_vs_truth": {
+        "odom_raw": 3.3055,
+        "odom": 0.9577
+      }
+    },
+    {
+      "commanded_rad_s": 1.0,
+      "turned_rad": {
+        "odom_raw": 14.9086,
+        "odom": 5.4324,
+        "truth": 5.3338
+      },
+      "samples": {
+        "odom_raw": 68,
+        "odom": 62,
+        "truth": 67
+      },
+      "ratio_vs_truth": {
+        "odom_raw": 2.7951,
+        "odom": 1.0185
+      }
+    },
+    {
+      "commanded_rad_s": -1.0,
+      "turned_rad": {
+        "odom_raw": -15.6664,
+        "odom": -5.3718,
+        "truth": -5.3194
+      },
+      "samples": {
+        "odom_raw": 68,
+        "odom": 62,
+        "truth": 67
+      },
+      "ratio_vs_truth": {
+        "odom_raw": 2.9451,
+        "odom": 1.0099
+      }
+    },
+    {
+      "commanded_rad_s": 1.5,
+      "turned_rad": {
+        "odom_raw": 19.5306,
+        "odom": 7.7073,
+        "truth": 7.9402
+      },
+      "samples": {
+        "odom_raw": 67,
+        "odom": 62,
+        "truth": 67
+      },
+      "ratio_vs_truth": {
+        "odom_raw": 2.4597,
+        "odom": 0.9707
+      }
+    },
+    {
+      "commanded_rad_s": -1.5,
+      "turned_rad": {
+        "odom_raw": -19.8668,
+        "odom": -7.9782,
+        "truth": -8.1718
+      },
+      "samples": {
+        "odom_raw": 68,
+        "odom": 62,
+        "truth": 68
+      },
+      "ratio_vs_truth": {
+        "odom_raw": 2.4311,
+        "odom": 0.9763
+      }
+    }
+  ],
+  "ekf_ratio_min": 0.9577,
+  "ekf_ratio_max": 1.0408,
+  "ekf_ratio_spread": 0.0831,
+  "rate_dependent": true,
+  "negative_control_fired": true,
+  "control_note": "wheel odometry is wrong as expected; the EKF was genuinely under test",
+  "ekf_ratio_tolerance": 0.15,
+  "failures": [],
+  "pass": true
+}

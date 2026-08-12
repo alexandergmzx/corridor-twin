@@ -62,6 +62,8 @@ def test_rotation_through_pi_is_not_lost() -> None:
 
 
 def test_a_full_revolution_is_a_full_revolution() -> None:
+    """One direction throughout, so signed and absolute agree -- and it wraps."""
+
     track = [(i * 2.0 * math.pi / 100.0 + math.pi) % (2.0 * math.pi) - math.pi
              for i in range(101)]
 
@@ -72,18 +74,34 @@ def test_a_stationary_robot_turns_nothing() -> None:
     assert total_turned_rad([0.7] * 50) == 0.0
 
 
-def test_reversing_direction_accumulates_rather_than_cancels() -> None:
-    """Absolute deltas, deliberately: a pivot out and back travelled both ways.
+def test_reversing_direction_cancels_and_that_is_why_legs_are_separate() -> None:
+    """Signed, deliberately -- and it is why the sweep never mixes directions.
 
-    Signed accumulation would score an out-and-back pivot zero, and a zero
-    denominator makes every ratio in the report undefined exactly when the
-    robot moved the most.
+    An out-and-back pivot sums to zero here, which is correct: the robot ended
+    where it started. It also makes the ratio undefined, so the sweep drives
+    each rate as its OWN leg in one direction and computes one ratio per leg.
+    Averaging a bidirectional pivot would divide a small number by a small
+    number and report noise as a scale error.
+
+    The absolute alternative is worse than merely different: it is blind to an
+    inverted yaw channel, scoring a perfectly reversed signal as a flawless
+    1.0, and it accumulates per-sample noise instead of cancelling it.
     """
 
     out = [i * 0.1 for i in range(11)]
     back = [1.0 - i * 0.1 for i in range(1, 11)]
 
-    assert total_turned_rad(out + back) == pytest.approx(2.0, abs=1e-9)
+    assert total_turned_rad(out + back) == pytest.approx(0.0, abs=1e-9)
+    assert total_turned_rad(out) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_an_inverted_yaw_channel_is_detected() -> None:
+    """The defect the absolute sum could not see, pinned so it cannot return."""
+
+    truth = [i * 0.1 for i in range(11)]
+    inverted = [-yaw for yaw in truth]
+
+    assert total_turned_rad(inverted) / total_turned_rad(truth) == pytest.approx(-1.0)
 
 
 def test_the_tolerance_admits_noise_but_not_the_wheel_error() -> None:
