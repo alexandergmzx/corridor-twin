@@ -574,6 +574,26 @@ colcon build 4 packages, colcon test **132 tests, 0 errors, 0 failures**.
 - Both with index row and decision-map node in the same commit, per
   `test_repository_contract.py`.
 
+## The anomaly, characterised before handing it over
+
+Analysed offline across four bags (`NOTES-fusion-anomaly.md`), so the morning
+starts from measurement rather than from the symptom:
+
+**It never jumps.** At 10 Hz a robot capped at 0.4 rad/s cannot move more than
+~0.06 rad between `/odom` samples; zero to two samples per run exceed 0.3 rad.
+The filter is not resetting or relocalising — the error accumulates smoothly at
+2–3× truth's own rate. That kills the reset hypotheses and leaves integration.
+
+**And it surfaced a second, separable problem underneath.** Truth itself peaks
+at **0.94–1.42 rad/s** while Nav2 commands at most **0.4**. The robot physically
+over-rotates by up to 3.5× relative to command — consistent with wheel slip on a
+differential chassis, or with the composer's drive conversion (effective wheel
+radius 0.0458 m against a geometric 0.0245).
+
+Two stacked problems, separable: the twin over-rotates relative to command, and
+the fusion over-reports relative to truth on top of that. **The second is what
+destroys the map.**
+
 ## Morning decisions — parked, not taken
 
 1. **The fusion anomaly needs a fleet change.** Session rules confine writes to
