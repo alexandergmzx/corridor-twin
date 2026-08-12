@@ -112,6 +112,25 @@ SETTLE_S = 1.5
 MAX_CONSECUTIVE_WITHHELD = 5
 MAX_MIDPOINT_DRIFT_FRACTION = 0.05
 
+#: The gate had NO yaw criterion, and passed a transit whose heading ended
+#: 138 deg wrong: longitudinal drift was 4.9% (green) while the estimate
+#: believed it had turned 365 deg against truth's 227 -- a 1.61 scale error.
+#: Distance and heading are independent failure modes and a map is destroyed by
+#: the second one first, because a yaw error compounds with every turn.
+#: 0.10 admits the +/-4% measured across the pivot sweep with margin, and
+#: excludes the 1.15-1.61 measured across transits.
+MAX_YAW_SCALE_ERROR = 0.10
+
+
+def _yaw_of(q) -> float:
+    """Planar yaw from a quaternion. Kept module-level for the same reason the
+    rest of the arithmetic is: a figure that needs a GPU session to reproduce
+    is a figure nobody can check."""
+
+    return math.atan2(
+        2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    )
+
 
 # --- pure geometry, kept out of the node ------------------------------------
 # These are what ADR 0027's numbers are computed from, so they are module-level
@@ -127,6 +146,44 @@ def path_length_m(track: list[tuple[float, float, float]]) -> float:
         math.dist((a[1], a[2]), (b[1], b[2]))
         for a, b in zip(track, track[1:], strict=False)
     )
+
+
+def yaw_scale(
+    truth: list[tuple],
+    estimate: list[tuple],
+) -> dict:
+    """Estimated rotation divided by true rotation over the run.
+
+    SIGNED cumulative rotation on both sides. An absolute sum is blind to an
+    inverted channel and accumulates per-sample noise instead of cancelling
+    it -- it once scored fifteen revolutions for a robot that turned 810 deg.
+
+    Reported as unavailable rather than as a pass when the robot barely turned:
+    a ratio of two small numbers is noise, and a transit that never turned says
+    nothing about a yaw scale error either way.
+    """
+
+    def turned(track: list[tuple]) -> float:
+        return sum(
+            (later[3] - earlier[3] + math.pi) % (2.0 * math.pi) - math.pi
+            for earlier, later in zip(track, track[1:], strict=False)
+        )
+
+    if len(truth) < 2 or len(estimate) < 2:
+        return {"available": False, "reason": "no truth or estimate track"}
+    truth_turned = turned(truth)
+    if abs(truth_turned) < math.radians(45.0):
+        return {
+            "available": False,
+            "reason": f"the robot turned only {math.degrees(truth_turned):.1f} deg",
+        }
+    estimated = turned(estimate)
+    return {
+        "available": True,
+        "truth_deg": round(math.degrees(truth_turned), 2),
+        "estimated_deg": round(math.degrees(estimated), 2),
+        "ratio": round(estimated / truth_turned, 4),
+    }
 
 
 def midpoint_drift(
@@ -311,6 +368,7 @@ class CorridorGate(Node):
                 now,
                 message.pose.pose.position.x,
                 message.pose.pose.position.y,
+                _yaw_of(message.pose.pose.orientation),
             )
         )
 
@@ -324,6 +382,7 @@ class CorridorGate(Node):
                 self._stamp_s(message),
                 message.pose.pose.position.x,
                 message.pose.pose.position.y,
+                _yaw_of(message.pose.pose.orientation),
             )
         )
 
@@ -491,6 +550,7 @@ def main() -> int:
         "max_ekf_gap_s_limit": MAX_EKF_GAP_S,
         "first_odom_laser_station_m": gate.first_odom_laser_station_m,
         "midpoint_drift": midpoint_drift(gate.truth, gate.estimate),
+        "yaw_scale": yaw_scale(gate.truth, gate.estimate),
         "midpoint_covariance": covariance_at_midpoint(gate.covariance_trace, truth_distance),
         # The degeneracy study's primary artifact. Kept whole: it is a few
         # hundred rows, and downsampling the one trace the study rests on would
@@ -511,9 +571,9 @@ def main() -> int:
     if gate.counts["ekf"] < arguments.seconds * 10:
         failures.append("EKF output too slow or absent")
     if not tf_odom_base:
-        failures.append("TF robot2/odom->robot2/base_footprint missing")
+        failures.append(f"TF {target['odom_frame']}->{target['base_frame']} missing")
     if not tf_map_odom:
-        failures.append("TF map->robot2/odom missing")
+        failures.append(f"TF map->{target['odom_frame']} missing")
     if occupied is None or occupied < 200:
         failures.append(f"map missing or too sparse (occupied={occupied})")
     if truth_distance < 1.0:
@@ -536,6 +596,13 @@ def main() -> int:
                 f"EKF output gap {worst_ekf_gap_s:.3f} s exceeds {MAX_EKF_GAP_S} s "
                 f"(0.35 m/s governor cap x that gap must stay under the 0.15 m tolerance)"
             )
+    turning = report["yaw_scale"]
+    if turning.get("available") and abs(turning["ratio"] - 1.0) > MAX_YAW_SCALE_ERROR:
+        failures.append(
+            f"yaw scale {turning['ratio']} (estimated {turning['estimated_deg']} deg vs "
+            f"truth {turning['truth_deg']} deg) exceeds 1.0 +/- {MAX_YAW_SCALE_ERROR}"
+        )
+
     drift = report["midpoint_drift"]
     if drift.get("available") and drift["drift_fraction"] > MAX_MIDPOINT_DRIFT_FRACTION:
         failures.append(

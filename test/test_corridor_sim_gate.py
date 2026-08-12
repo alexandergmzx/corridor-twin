@@ -14,6 +14,7 @@ degenerate.
 
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 
@@ -22,6 +23,7 @@ import pytest
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
+import corridor_sim_gate  # noqa: E402
 from corridor_sim_gate import (  # noqa: E402
     covariance_at_midpoint,
     max_consecutive_withheld,
@@ -214,3 +216,67 @@ def test_the_scan_rate_default_follows_the_robot() -> None:
 
     assert ROBOT_TARGETS["robot2"]["scan_hz"] == 10.0
     assert ROBOT_TARGETS["robot1"]["scan_hz"] == 12.0
+
+
+# --- yaw scale ---------------------------------------------------------------
+# Added after the gate PASSED a transit whose heading ended 138 deg wrong: its
+# longitudinal drift was 4.9% (green) while the estimate believed it had turned
+# 365 deg against truth's 227. Distance and heading are independent failure
+# modes, and a map is destroyed by the second one first.
+
+
+def _yaw_track(yaws, start=0.0):
+    return [(float(i), start, 0.0, yaw) for i, yaw in enumerate(yaws)]
+
+
+def test_a_faithful_estimate_scores_one() -> None:
+    yaws = [i * 0.1 for i in range(120)]
+
+    result = corridor_sim_gate.yaw_scale(_yaw_track(yaws), _yaw_track(yaws))
+
+    assert result["available"] is True
+    assert result["ratio"] == pytest.approx(1.0)
+
+
+def test_the_measured_transit_error_is_caught() -> None:
+    """The real numbers from 20260811-233949: 365.4 deg believed, 227.5 true."""
+
+    truth = _yaw_track([math.radians(i * 227.45 / 100.0) for i in range(101)])
+    estimate = _yaw_track([math.radians(i * 365.37 / 100.0) for i in range(101)])
+
+    result = corridor_sim_gate.yaw_scale(truth, estimate)
+
+    assert result["ratio"] == pytest.approx(1.606, abs=1e-3)
+    assert abs(result["ratio"] - 1.0) > corridor_sim_gate.MAX_YAW_SCALE_ERROR
+
+
+def test_the_pivot_sweep_result_still_passes() -> None:
+    """+/-4% was measured on a healthy chain; the criterion must not fail it."""
+
+    for ratio in (0.9577, 1.0408):
+        truth = _yaw_track([math.radians(i * 2.0) for i in range(101)])
+        estimate = _yaw_track([math.radians(i * 2.0 * ratio) for i in range(101)])
+
+        result = corridor_sim_gate.yaw_scale(truth, estimate)
+
+        assert abs(result["ratio"] - 1.0) <= corridor_sim_gate.MAX_YAW_SCALE_ERROR
+
+
+def test_a_run_that_barely_turned_is_unavailable_not_a_pass() -> None:
+    """A ratio of two small numbers is noise, and noise must not read green."""
+
+    truth = _yaw_track([math.radians(i * 0.1) for i in range(101)])
+    estimate = _yaw_track([math.radians(i * 0.3) for i in range(101)])
+
+    result = corridor_sim_gate.yaw_scale(truth, estimate)
+
+    assert result["available"] is False
+
+
+def test_an_inverted_yaw_channel_is_caught() -> None:
+    yaws = [math.radians(i * 2.0) for i in range(101)]
+
+    result = corridor_sim_gate.yaw_scale(_yaw_track(yaws), _yaw_track([-yaw for yaw in yaws]))
+
+    assert result["ratio"] == pytest.approx(-1.0)
+    assert abs(result["ratio"] - 1.0) > corridor_sim_gate.MAX_YAW_SCALE_ERROR
