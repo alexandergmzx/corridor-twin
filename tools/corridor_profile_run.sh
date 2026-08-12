@@ -379,6 +379,26 @@ watchdog_pid=$!
 SESSION_START_S=$(date +%s)
 echo "  watchdog armed: ${SIM_MAX_S}s cap covers bring-up AND the transit"
 
+# THE SCAN FILTER NEEDS TO KNOW WHICH ROOM IT IS IN.
+#
+# The twin's scan_frame_relay drops phase-corrupted lidar revolutions by asking
+# whether a beam returns from beyond the wall it should have hit -- against
+# `segments_room()`, the stock 4 x 4 m yahboom arena, which this corridor is
+# not. Measured across 56 of 62 -isaac-d67 sessions: /scan publishes NOTHING for
+# the ~21 s it takes to fill the fail-open window, and then the filter disables
+# itself and passes raw scans, corrupted revolutions included, for the rest of
+# the run. That blackout is also the window in which SLAM has no scans and
+# Nav2's costmaps are empty.
+#
+# The walls come from the MANIFEST, per profile: same source as the arena.
+export SCAN_RELAY_WALLS_JSON="$RUN_DIR/scan-walls.json"
+if ! "$REPO/.venv/bin/python" "$REPO/tools/export_scan_walls.py" \
+     --manifest "$MANIFEST" --profile "$PROFILE" \
+     --out "$SCAN_RELAY_WALLS_JSON"; then
+  rerun "could not export the scan filter's wall model from $MANIFEST"
+fi
+manifest --set "scan_walls=$SCAN_RELAY_WALLS_JSON"
+
 echo "=== simctl start ==="
 # --no-patrol is NOT optional. simctl's step 7 launches sim_patrol, which drives
 # 1.0 m legs at 0.18 m/s on /cmd_vel_raw for the life of the session. Every
