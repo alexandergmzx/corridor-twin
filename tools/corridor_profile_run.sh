@@ -43,7 +43,10 @@ GATE_SECONDS=""
 # divergence gets noticed at all -- the ghosting that started this whole
 # sequence was seen there first. --no-rviz for a genuinely unattended run.
 RVIZ_FLAG=""
-NAV_TIMEOUT=300
+# The full simulation window. A transit through a 5 m corridor with a corner
+# needs room to recover and replan; a short window reports a still-navigating
+# run as a failure.
+NAV_TIMEOUT=420
 
 while [ $# -gt 0 ]; do
   case "$1" in
