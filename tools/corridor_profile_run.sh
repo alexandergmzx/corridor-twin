@@ -309,7 +309,14 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
 # server the runner had just called ready. Ask the lifecycle state instead.
   echo "  waiting for bt_navigator to reach ACTIVE..."
   for _ in $(seq 1 14); do
-    state=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1)
+    # `|| true` is load-bearing under `set -e`: a bare assignment from a
+    # command substitution that FAILS aborts the script, and `ros2 lifecycle
+    # get` fails outright while the node is still coming up -- which is exactly
+    # when this loop polls. Without it the run died on the first poll and
+    # reported nothing, and the runs that appeared to "work" were the ones
+    # where bt_navigator happened to be up before the first poll. That is the
+    # whole of the nondeterminism this loop was blamed for.
+    state=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1) || true
     case "$state" in
       *active*) nav_ready=1; echo "  bt_navigator active (attempt $nav_attempt)"; break ;;
     esac
