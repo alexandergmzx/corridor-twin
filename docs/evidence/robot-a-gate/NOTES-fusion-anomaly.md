@@ -18,23 +18,30 @@ consecutive `/odom` samples. **Zero to two samples per run exceed 0.3 rad**, so
 the estimate is not jumping and the filter is not relocalising or resetting. The
 error accumulates smoothly, at rates 2–3× truth's own.
 
-## And truth is ALSO too fast
+## The twin does NOT over-rotate — a correction
 
-Nav2's `max_vel_theta` is 0.4 rad/s and the governor's ceiling is 1.5 (0.4 near
-walls). **Truth peaks at 0.94–1.42 rad/s** — the robot physically rotates up to
-3.5× faster than anything commands it to.
+Truth peaks at 0.94–1.42 rad/s against Nav2's 0.4 rad/s cap, and this document
+first read that as the twin physically over-rotating by up to 3.5×. **That
+reading was wrong.** Peak-versus-cap conflates a transient with a scale factor.
 
-So there are two stacked problems, and they are separable:
+Measured properly, over samples with a steady yaw command (>0.15 rad/s) and
+real rotation (>0.05 rad/s), so a curved path's geometry cannot contaminate it:
 
-1. **The twin over-rotates relative to command.** Consistent with wheel slip on
-   a differential chassis during a turn, or with the composer's drive
-   conversion — the effective wheel radius used to drive robot1 is 0.0458 m
-   against a geometric 0.0245, a factor established in an earlier session.
-2. **The fusion over-reports relative to truth**, on top of that, from an input
-   (`/imu`, `/imu/data`) that measures 0.987–0.993 of truth.
+| bag | n | truth/commanded yaw, median | mean | max |
+|---|---|---|---|---|
+| `20260812-002857` | 159 | **0.506** | 0.653 | 1.87 |
+| `20260812-031251` | 184 | **0.565** | 0.675 | 1.87 |
+| `20260812-032055` | 49 | **0.724** | 0.810 | 1.74 |
 
-Layer 2 is the one that destroys the map, and it is the one nothing in this
-repository can reach.
+The twin turns at roughly **half to three-quarters** of the rate it is told to,
+which is under-rotation — the ordinary signature of wheel slip and of the
+governor clamping near walls. The 1.42 rad/s peaks are transients.
+
+So the drive conversion is **not** implicated, and the composer's effective
+wheel radius (0.0458 m against a geometric 0.0245) is not a suspect on this
+evidence. **There is one problem, not two**: the fusion over-reports relative to
+truth, from an input measuring 0.987–0.993 of truth, and nothing in this
+repository can reach it.
 
 ## What is already excluded
 

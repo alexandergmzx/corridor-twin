@@ -584,15 +584,16 @@ starts from measurement rather than from the symptom:
 The filter is not resetting or relocalising — the error accumulates smoothly at
 2–3× truth's own rate. That kills the reset hypotheses and leaves integration.
 
-**And it surfaced a second, separable problem underneath.** Truth itself peaks
-at **0.94–1.42 rad/s** while Nav2 commands at most **0.4**. The robot physically
-over-rotates by up to 3.5× relative to command — consistent with wheel slip on a
-differential chassis, or with the composer's drive conversion (effective wheel
-radius 0.0458 m against a geometric 0.0245).
+**A second problem was suspected underneath, and then disproved.** Truth peaks
+at 0.94–1.42 rad/s against a 0.4 rad/s command cap, which read as the twin
+over-rotating by 3.5×. Measured properly — over samples with a steady yaw
+command, so a curved path cannot contaminate the ratio — truth/commanded yaw has
+a median of **0.506 / 0.565 / 0.724** across three bags. The twin turns at half
+to three-quarters of what it is told; the peaks were transients. The drive
+conversion is **not** implicated.
 
-Two stacked problems, separable: the twin over-rotates relative to command, and
-the fusion over-reports relative to truth on top of that. **The second is what
-destroys the map.**
+**There is one problem, not two**: the fusion over-reports relative to truth,
+from an input measuring 0.987–0.993 of truth.
 
 ## Morning decisions — parked, not taken
 
