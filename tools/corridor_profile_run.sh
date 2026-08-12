@@ -133,12 +133,48 @@ for path in "$SIMCTL" "$CONTRACT" "$WS_SETUP"; do
 done
 
 EVIDENCE="$REPO/out/evidence/robot-a-gate"
+# ONE DIRECTORY PER RUN, and the directory name IS the correlation id.
+#
+# Every artifact used to be named `<what>-<robot>-<profile>.<ext>` in one flat
+# directory, so each run overwrote the last -- except on the paths where a run
+# died before writing, which left the PREVIOUS run's file in place and made the
+# directory read as though this run had succeeded. It was demonstrably mixed:
+# map-robot1-nominal_m6_n3.pgm saved at 12:48 sat beside a gate JSON written at
+# 13:16, and nav-launch-...-attempt2.log from 03:39 was older than -attempt1.log
+# from 13:12, because an attempt counter is not a session id.
+#
+# Mixing is now structurally impossible rather than merely discouraged, and
+# `latest-<robot>-<profile>` keeps the convenience of a stable path (the fleet's
+# `latest-d<domain>` precedent, _session_record.py:67).
+RUN_ID="$(date +%Y%m%d-%H%M%S)-$ROBOT-$PROFILE"
+RUN_DIR="$EVIDENCE/$RUN_ID"
+RUN_JSON="$RUN_DIR/run.json"
+mkdir -p "$RUN_DIR"
+ln -sfn "$RUN_ID" "$EVIDENCE/latest-$ROBOT-$PROFILE"
+
+# The manifest helpers. Fail-open on every one of them: recording a problem
+# must never become the problem.
+manifest() { python3 "$REPO/tools/run_manifest.py" set --path "$RUN_JSON" "$@" || true; }
+manifest_error() { python3 "$REPO/tools/run_manifest.py" error --path "$RUN_JSON" --message "$1" || true; }
+classify() {
+  python3 "$REPO/tools/run_manifest.py" classify --path "$RUN_JSON" \
+    --classification "$1" --cause "${2:-}" || true
+}
+digest() { python3 "$REPO/tools/run_manifest.py" digest --file "$1" 2>/dev/null || echo ""; }
+# INFRASTRUCTURE, said once. Every exit-3 site classifies before it leaves, so
+# a rerun is a fact in the artifact rather than an exit code somebody has to
+# have witnessed.
+rerun() {
+  echo "**INFRASTRUCTURE: $1**" >&2
+  classify rerun "$1"
+  exit 3
+}
+
 # robot1's runner reads the SAME env var name as robot2's -- YAHBOOM_ARENA_USD
 # for sim_runner.py:41-46, RASPTANK_ARENA_USD for the rasptank runner. Both are
 # exported; each runner reads only its own, so this is harmless and keeps one
 # code path (fleet F9: simctl exports neither back to us).
 export YAHBOOM_ARENA_USD="$ARENA"
-mkdir -p "$EVIDENCE"
 
 export ROS_DOMAIN_ID="$DOMAIN"
 export RASPTANK_ARENA_USD="$ARENA"
@@ -148,6 +184,33 @@ echo "=== corridor profile run: $PROFILE ${GATED:+(GATED)}${GATED:-(reported onl
 echo "  domain : $ROS_DOMAIN_ID"
 echo "  robot  : $ROBOT"
 echo "  arena  : $ARENA"
+echo "  run    : $RUN_DIR"
+
+# WHICH SCENARIO, not merely which paths. The arena and the manifest are hashed
+# because they came apart once and no artifact could show it: runs after the
+# rescale loaded a 12 m arena while planning from a 0.30-scale manifest, and
+# every number they produced was about a world nobody meant to run.
+manifest \
+  --set "run_id=$RUN_ID" \
+  --set "started_utc=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" \
+  --set "robot=$ROBOT" \
+  --set "profile=$PROFILE" \
+  --set "domain=$DOMAIN" \
+  --set "controller=$CONTROLLER" \
+  --set "arena=$ARENA" \
+  --set "arena_sha256=$(digest "$ARENA")" \
+  --set "manifest=$MANIFEST" \
+  --set "manifest_sha256=$(digest "$MANIFEST")" \
+  --set "slam_params=${SLAM_PARAMS:-}" \
+  --set "slam_params_sha256=$(digest "${SLAM_PARAMS:-/nonexistent}")" \
+  --set "flags={\"gated\":$([ -n "$GATED" ] && echo true || echo false),\"dock\":$([ -n "$DOCK" ] && echo true || echo false),\"lens\":$([ "$LENS" = 1 ] && echo true || echo false),\"rviz\":$([ "$RVIZ_FLAG" = "--no-rviz" ] && echo false || echo true),\"allow_contract_fail\":$([ "$ALLOW_CONTRACT_FAIL" = 1 ] && echo true || echo false)}" \
+  --set "sim_max_s=$SIM_MAX_S"
+python3 - "$RUN_JSON" "$REPO" <<'PY' || true
+import json, sys, pathlib
+sys.path.insert(0, str(pathlib.Path(sys.argv[2]) / "tools"))
+from run_manifest import git_commit, merge
+merge(sys.argv[1], {"git": git_commit(pathlib.Path(sys.argv[2]))})
+PY
 
 occupants() {
   local ancestry=" $$ " walk=$PPID
@@ -172,7 +235,8 @@ fi
 # that start seconds apart. Exit 3 (infrastructure), never a robot result.
 # shellcheck disable=SC1091
 source "$REPO/tools/isaac_lock.sh"
-isaac_lock_acquire "corridor-profile-run $PROFILE (domain $DOMAIN)" || exit 3
+isaac_lock_acquire "corridor-profile-run $PROFILE (domain $DOMAIN)" \
+  || rerun "the machine-wide Isaac lock is held by another session"
 
 set +u
 # shellcheck disable=SC1090,SC1091
@@ -186,6 +250,7 @@ recorder_pid=""
 watchdog_pid=""
 WATCHDOG_FLAG="$(mktemp -u)"
 stopped=0
+teardown_verified=0
 teardown() {
   [ "$stopped" = 1 ] && return 0
   stopped=1
@@ -202,9 +267,28 @@ teardown() {
     echo "!! SESSION NOT DEAD:" >&2; occupants >&2; return 1
   fi
   echo "  verified dead"
+  teardown_verified=1
   isaac_lock_release
 }
-trap 'teardown || true' EXIT INT TERM
+# THE DEFAULT VERDICT IS `crash`, and that is the point.
+#
+# Classification is first-wins, so every path that knows what happened to it --
+# the exit-3 sites, the watchdog, the normal ending -- has already said so by
+# the time this runs, and this writes nothing. What it catches is the path that
+# said nothing: a component dying mid-run used to leave a directory holding the
+# PREVIOUS run's artifacts and no trace of the death at all. The
+# joint-velocities-None crash was invisible exactly this way.
+record_exit() {
+  classify crash "run ended without a verdict (exit $1)"
+  manifest --set "exit_status=$1" --set "teardown_verified=${teardown_verified:-0}"
+}
+on_exit() { local code=$?; teardown || true; record_exit "$code"; }
+# INT/TERM keep their original teardown-only behaviour deliberately: the
+# watchdog signals this script with TERM, the handler returns, and execution
+# continues to the flag check that classifies the run a rerun. Recording an exit
+# there would stamp `crash` over a kill the run already understands.
+trap on_exit EXIT
+trap 'teardown || true' INT TERM
 
 # INFRASTRUCTURE failures below exit 3, distinct from a red gate (exit 1). A
 # session that never came up is a rerun, not a result about the robot.
@@ -251,7 +335,7 @@ SLAM_FLAG=""
 [ -n "$SLAM_PARAMS" ] && SLAM_FLAG="--no-slam"
 "$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" \
   --no-patrol $RVIZ_FLAG $SLAM_FLAG || {
-  echo "**INFRASTRUCTURE: simctl start failed for $PROFILE**" >&2; exit 3; }
+  rerun "simctl start failed for $PROFILE"; }
 
 # Contract numbers are PER-ROBOT and do not transfer. robot2 is checked with
 # --imu-hz 60; robot1's checker carries its own WANT_HZ (scan 12 / odom_raw 11
@@ -262,18 +346,18 @@ SLAM_FLAG=""
 # is text and its verdict is the exit code.
 if [ "$ROBOT" = robot1 ]; then
   CONTRACT_ARGS=(--domain "$DOMAIN")
-  CONTRACT_OUT="$EVIDENCE/contract-$ROBOT-$PROFILE.txt"
+  CONTRACT_OUT="$RUN_DIR/contract.txt"
 else
   CONTRACT_ARGS=(--imu-hz 60 --json)
-  CONTRACT_OUT="$EVIDENCE/contract-$ROBOT-$PROFILE.json"
+  CONTRACT_OUT="$RUN_DIR/contract.json"
 fi
 echo "=== precondition: $ROBOT contract (${CONTRACT_ARGS[*]}) ==="
 # stdout only into the JSON: the checker appends a human summary and its
 # FAIL lines after the document, which made every artifact unparseable exactly
 # when it mattered most -- on the failures.
 if ! python3 "$CONTRACT" "${CONTRACT_ARGS[@]}" >"$CONTRACT_OUT" \
-     2>"$EVIDENCE/contract-$ROBOT-$PROFILE.err"; then
-  echo "**INFRASTRUCTURE: contract check failed for $ROBOT/$PROFILE; twin not fit to gate**" >&2
+     2>"$RUN_DIR/contract.err"; then
+  echo "**contract check failed for $ROBOT/$PROFILE; twin not fit to gate**" >&2
   sed 's/^/    /' "$CONTRACT_OUT" 2>/dev/null | tail -12 >&2
   if [ "$ALLOW_CONTRACT_FAIL" = 1 ]; then
     # Deliberate, visible override -- NOT a lowered threshold. The check still
@@ -286,7 +370,7 @@ if ! python3 "$CONTRACT" "${CONTRACT_ARGS[@]}" >"$CONTRACT_OUT" \
     CONTRACT_CAVEAT="PRECONDITION FAILED (recorded, overridden): see $(basename "$CONTRACT_OUT")"
     echo "  **proceeding under --allow-contract-fail; every artifact carries the caveat**" >&2
   else
-    exit 3
+    rerun "contract precondition failed for $ROBOT/$PROFILE; twin not fit to gate"
   fi
 else
   CONTRACT_CAVEAT=""
@@ -324,7 +408,7 @@ if [ -n "$SLAM_PARAMS" ]; then
     slam_attempt=$((slam_attempt + 1))
     echo "=== slam_toolbox (corridor params: $(basename "$SLAM_PARAMS"), attempt $slam_attempt) ==="
     ros2 launch yahboomcar_config slam_launch.py "params_file:=$SLAM_PARAMS" \
-      >"$EVIDENCE/slam-$ROBOT-$PROFILE-attempt$slam_attempt.log" 2>&1 &
+      >"$RUN_DIR/slam-attempt$slam_attempt.log" 2>&1 &
     slam_pid=$!
     for _ in $(seq 1 12); do
       sleep 5
@@ -340,15 +424,13 @@ if [ -n "$SLAM_PARAMS" ]; then
     fi
   done
   if [ "$slam_ready" != 1 ]; then
-    echo "**INFRASTRUCTURE: slam_toolbox never activated in $slam_attempt attempts**" >&2
-    exit 3
+    rerun "slam_toolbox never activated in $slam_attempt attempts"
   fi
 fi
 
 echo "=== waiting for the TF chain ==="
 if ! python3 "$REPO/tools/wait_for_tf.py" --target map --source base_footprint --timeout 120; then
-  echo "**INFRASTRUCTURE: map->base_footprint never appeared; twin TF is not up**" >&2
-  exit 3
+  rerun "map->base_footprint never appeared; twin TF is not up"
 fi
 
 # Let the box settle between SLAM and Nav2. The lifecycle service timeouts that
@@ -382,7 +464,7 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
   [ "$nav_attempt" -gt 1 ] && echo "  ** nav stack attempt $nav_attempt (previous never reached ACTIVE) **"
   # shellcheck disable=SC2086
   ros2 launch $NAV_LAUNCH \
-    >"$EVIDENCE/nav-launch-$ROBOT-$PROFILE-attempt$nav_attempt.log" 2>&1 &
+    >"$RUN_DIR/nav-launch-attempt$nav_attempt.log" 2>&1 &
   nav_pid=$!
 
 # WAIT FOR THE ACTION SERVER, never a fixed sleep. Lifecycle activation can
@@ -418,7 +500,7 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
         #
         # The manager's own abort line is definitive, so it is what decides.
         sleep 5
-        if grep -q 'Aborting bringup' "$EVIDENCE/nav-launch-$ROBOT-$PROFILE-attempt$nav_attempt.log" 2>/dev/null; then
+        if grep -q 'Aborting bringup' "$RUN_DIR/nav-launch-attempt$nav_attempt.log" 2>/dev/null; then
           echo "  bt_navigator went active then the manager aborted bringup"
           break
         fi
@@ -432,9 +514,8 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
   fi
 done
 if [ "$nav_ready" != 1 ]; then
-  echo "**INFRASTRUCTURE: bt_navigator never reached ACTIVE in $nav_attempt attempts (last state: ${state:-unknown})**" >&2
-  tail -5 "$EVIDENCE/nav-launch-$ROBOT-$PROFILE-attempt$nav_attempt.log" | sed 's/^/    /' >&2
-  exit 3
+  tail -5 "$RUN_DIR/nav-launch-attempt$nav_attempt.log" | sed 's/^/    /' >&2
+  rerun "bt_navigator never reached ACTIVE in $nav_attempt attempts (last state: ${state:-unknown})"
 fi
 NAV_ATTEMPTS="$nav_attempt"
 
@@ -448,8 +529,7 @@ if [ -z "$NAV_TIMEOUT" ]; then
   elapsed=$(( $(date +%s) - SESSION_START_S ))
   NAV_TIMEOUT=$(( SIM_MAX_S - elapsed - 20 ))
   if [ "$NAV_TIMEOUT" -lt 30 ]; then
-    echo "**INFRASTRUCTURE: bring-up used ${elapsed}s of the ${SIM_MAX_S}s cap; no window left to navigate**" >&2
-    exit 3
+    rerun "bring-up used ${elapsed}s of the ${SIM_MAX_S}s cap; no window left to navigate"
   fi
   echo "  nav window: ${NAV_TIMEOUT}s (cap ${SIM_MAX_S}s, bring-up took ${elapsed}s)"
 fi
@@ -457,8 +537,8 @@ fi
 if [ "$LENS" = 1 ]; then
   python3 "$REPO/tools/lens/corridor_lens.py" --domain "$DOMAIN" \
     --manifest "$MANIFEST" \
-    --dump "$EVIDENCE/lens-$ROBOT-$PROFILE.json" \
-    >"$EVIDENCE/lens-$ROBOT-$PROFILE.log" 2>&1 &
+    --dump "$RUN_DIR/lens.json" \
+    >"$RUN_DIR/lens.log" 2>&1 &
   lens_pid=$!
   sleep 3
   echo "=== lens: http://127.0.0.1:8765/  (map, scan, 3 pose ghosts, landmark) ==="
@@ -469,8 +549,8 @@ python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
   --profile "$PROFILE" --robot "$ROBOT" $GATED --observe-only \
   --manifest "$MANIFEST" \
   ${CONTRACT_CAVEAT:+--caveat "$CONTRACT_CAVEAT"} \
-  --out "$EVIDENCE/gate-$ROBOT-$PROFILE.json" \
-  >"$EVIDENCE/gate-$ROBOT-$PROFILE.log" 2>&1 &
+  --out "$RUN_DIR/gate.json" \
+  >"$RUN_DIR/gate.log" 2>&1 &
 recorder_pid=$!
 
 echo "=== T3.3b governed Nav2 goal A->B ==="
@@ -478,14 +558,14 @@ python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT"
   ${CONTRACT_CAVEAT:+--caveat "$CONTRACT_CAVEAT"} \
   --manifest "$MANIFEST" \
   --timeout "$NAV_TIMEOUT" \
-  --out "$EVIDENCE/nav-$ROBOT-$PROFILE.json" || status=1
+  --out "$RUN_DIR/nav.json" || status=1
 
 # The recorder's own verdict is a gate result too, so it is waited for rather
 # than killed -- but a nav gate that ended early must not hang the run behind
 # the recorder's full window.
 echo "=== transit recorder verdict ==="
 wait "$recorder_pid" || status=1
-sed 's/^/    /' "$EVIDENCE/gate-$ROBOT-$PROFILE.log" | tail -20
+sed 's/^/    /' "$RUN_DIR/gate.log" | tail -20
 
 # SAVE THE MAP OURSELVES when we own SLAM. simctl's map-save step belongs to
 # simctl's own SLAM launch; under --no-slam it saves nothing, and the scorer
@@ -493,16 +573,31 @@ sed 's/^/    /' "$EVIDENCE/gate-$ROBOT-$PROFILE.log" | tail -20
 # every corridor-params run unscoreable.
 if [ -n "$SLAM_PARAMS" ]; then
   echo "=== saving the map (we own SLAM) ==="
-  OWN_MAP="$EVIDENCE/map-$ROBOT-$PROFILE"
+  OWN_MAP="$RUN_DIR/map"
   timeout 60 ros2 run nav2_map_server map_saver_cli -f "$OWN_MAP" \
     --ros-args -p save_map_timeout:=20.0 \
-    >"$EVIDENCE/map-save-$ROBOT-$PROFILE.log" 2>&1 \
+    >"$RUN_DIR/map-save.log" 2>&1 \
     && echo "  saved $OWN_MAP.yaml" \
-    || echo "  **map save failed; see map-save-$ROBOT-$PROFILE.log**" >&2
+    || { echo "  **map save failed; see $RUN_DIR/map-save.log**" >&2
+         manifest_error "map save failed"; }
 fi
 
-teardown || status=1
-trap - EXIT INT TERM
+teardown || { status=1; manifest_error "teardown could not verify the session was dead"; }
+# The teardown is done; the recording half of the exit trap is not. Handing back
+# a bare `trap -` here left every artifact after this point outside the run's
+# own record, including its exit status.
+trap 'record_exit $?' EXIT
+trap - INT TERM
+
+# A traceback in a log is a component that DIED, and it must not be inferred
+# from a missing artifact three days later. Recorded as manifest errors; it does
+# not by itself decide the classification.
+for log in "$RUN_DIR"/*.log; do
+  [ -f "$log" ] || continue
+  if grep -q 'Traceback (most recent call last)' "$log" 2>/dev/null; then
+    manifest_error "traceback in $(basename "$log")"
+  fi
+done
 
 # --- map quality, measured, not eyeballed -----------------------------------
 # "The walls look single-lined" is not a result. Full SLAM divergence was missed
@@ -521,7 +616,7 @@ trap - EXIT INT TERM
 # checked once at authoring time is an instrument nobody is checking.
 echo "=== map quality ==="
 SCORER=/home/alexmint/Development/robot-fleet/src/yahboomcar-ros2/tools/score_slam_map.py
-if ! python3 "$SCORER" --self-test >"$EVIDENCE/map-selftest-$ROBOT-$PROFILE.txt" 2>&1; then
+if ! python3 "$SCORER" --self-test >"$RUN_DIR/map-selftest.txt" 2>&1; then
   echo "**INFRASTRUCTURE: map scorer self-test FAILED; its verdicts are not trustworthy**" >&2
   status=1
 else
@@ -529,8 +624,8 @@ else
   # otherwise silently score the PREVIOUS session's, and report its verdict as
   # this run's. That happened -- two consecutive runs reported an identical
   # 0.800 m duplicate-wall extent because the second produced no map at all.
-  if [ -n "$SLAM_PARAMS" ] && [ -f "$EVIDENCE/map-$ROBOT-$PROFILE.yaml" ]; then
-    SAVED_MAP="$EVIDENCE/map-$ROBOT-$PROFILE.yaml"
+  if [ -n "$SLAM_PARAMS" ] && [ -f "$RUN_DIR/map.yaml" ]; then
+    SAVED_MAP="$RUN_DIR/map.yaml"
   else
   SAVED_MAP=$(find \
     "$HOME"/Development/MicroROS/MicroROS-assets/logs/sessions \
@@ -544,10 +639,10 @@ else
     status=1
   else
     echo "  scoring $SAVED_MAP"
-    cp "$SAVED_MAP" "${SAVED_MAP%.yaml}.pgm" "$EVIDENCE/" 2>/dev/null || true
+    cp "$SAVED_MAP" "${SAVED_MAP%.yaml}.pgm" "$RUN_DIR/" 2>/dev/null || true
     python3 "$SCORER" --map "$SAVED_MAP" \
-      --json "$EVIDENCE/map-score-$ROBOT-$PROFILE.json" \
-      | tee "$EVIDENCE/map-score-$ROBOT-$PROFILE.txt" || status=1
+      --json "$RUN_DIR/map-score.json" \
+      | tee "$RUN_DIR/map-score.txt" || status=1
   fi
 fi
 
@@ -557,11 +652,27 @@ fi
 if [ -f "$WATCHDOG_FLAG" ]; then
   rm -f "$WATCHDOG_FLAG"
   echo "=== $PROFILE: **INFRASTRUCTURE -- killed at the ${SIM_MAX_S}s cap, not a result** ===" >&2
+  classify rerun "watchdog killed the session at the ${SIM_MAX_S}s cap"
   exit 3
 fi
+# A RESULT, red or green. `pass` and `classification` are separate fields on
+# purpose: a red gate is a statement about the robot, a rerun and a crash are
+# statements about the session, and collapsing them is how an interrupted run
+# came to be quoted as a verdict.
+classify result "$([ "$status" = 0 ] && echo "gates green" || echo "at least one gate red")"
+manifest \
+  --set "pass=$([ "$status" = 0 ] && echo true || echo false)" \
+  --set "stopped_utc=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" \
+  --set "duration_s=$(( $(date +%s) - SESSION_START_S ))" \
+  --set "nav_attempts=${NAV_ATTEMPTS:-0}" \
+  --set "gate_seconds=${GATE_SECONDS:-0}" \
+  --set "nav_timeout_s=${NAV_TIMEOUT:-0}" \
+  --set "contract_caveat=${CONTRACT_CAVEAT:-}"
+
 if [ "$status" = 0 ]; then
   echo "=== $PROFILE: PASS ==="
 else
-  echo "=== $PROFILE: **FAIL** (artifacts kept under $EVIDENCE) ==="
+  echo "=== $PROFILE: **FAIL** (artifacts kept under $RUN_DIR) ==="
 fi
+echo "  run record: $RUN_JSON"
 exit "$status"
