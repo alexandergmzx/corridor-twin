@@ -39,6 +39,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from pathlib import Path
 
 import rclpy
@@ -140,6 +141,38 @@ class NavGate(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.client = ActionClient(self, NavigateToPose, f"{namespace}/navigate_to_pose")
+        #: Set by main() when --dock is on. BEST_EFFORT because the twin offers
+        #: /scan with sensor QoS and a RELIABLE subscription matches nothing.
+        self.detector = None
+        self.last_verdict = None
+        if True:
+            from rclpy.qos import QoSProfile, ReliabilityPolicy
+            from sensor_msgs.msg import LaserScan
+
+            self.create_subscription(
+                LaserScan, f"{namespace}/scan", self._on_scan,
+                QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT),
+            )
+
+    def _on_scan(self, message) -> None:
+        if self.detector is None:
+            return
+        self.last_verdict = self.detector.feed(
+            message.ranges, message.angle_min, message.angle_increment,
+            message.range_min, message.range_max,
+        )
+
+    def map_pose_yaw(self) -> tuple[float, float, float]:
+        """(x, y, yaw) of base_footprint in map. A's own localization, not truth."""
+
+        transform = self.tf_buffer.lookup_transform(
+            "map", self.target["base_frame"], rclpy.time.Time()
+        ).transform
+        q = transform.rotation
+        yaw = math.atan2(
+            2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        )
+        return transform.translation.x, transform.translation.y, yaw
 
     def _on_truth(self, message: Odometry) -> None:
         position = message.pose.pose.position
@@ -170,6 +203,11 @@ def main() -> int:
     parser.add_argument("--robot", choices=sorted(ROBOT_TARGETS), default="robot2")
     parser.add_argument("--manifest", default="out/corridor.manifest.json")
     parser.add_argument("--out", required=True)
+    parser.add_argument(
+        "--dock",
+        action="store_true",
+        help="drive the final approach from the LANDMARK rather than the map goal",
+    )
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument(
         "--gated",
@@ -205,6 +243,17 @@ def main() -> int:
         # nominal_m6_n3 and wide_corner_m6_n4_5 only).
         return code if arguments.gated else 0
 
+    if arguments.dock:
+        radius = manifest.get("actors", {}).get("landmark_radius_m")
+        if radius:
+            sys.path.insert(0, str(Path(__file__).parent))
+            from landmark_detector import LandmarkDetector
+
+            gate.detector = LandmarkDetector(radius)
+            print(f"  dock: armed, expecting a landmark of radius {radius} m")
+        else:
+            print("  dock: requested but the scene authors no landmark; transit only")
+
     if not gate.client.wait_for_server(timeout_sec=30.0):
         report["failure"] = "navigate_to_pose action server absent; is the nav stack up?"
         return finish(1)
@@ -230,6 +279,40 @@ def main() -> int:
     report["goal_accepted"] = True
 
     result_future = handle.get_result_async()
+
+    # --- terminal docking ----------------------------------------------------
+    # While Nav2 executes the transit, watch for B's landmark and, once it is
+    # confirmed, re-aim at where A can SEE B rather than where the map thinks B
+    # is. Every metre is still driven by Nav2; this only chooses the goal.
+    dock_report = {"enabled": False}
+    if arguments.dock and gate.detector is not None:
+        from corridor_dock import DockingMachine
+
+        machine = DockingMachine(nominal_goal=(goal_x, goal_y))
+        deadline = time.monotonic() + arguments.timeout
+        while time.monotonic() < deadline and not result_future.done():
+            rclpy.spin_once(gate, timeout_sec=0.1)
+            try:
+                pose_x, pose_y, pose_yaw = gate.map_pose_yaw()
+            except Exception:  # noqa: BLE001 - TF gaps are normal mid-transit
+                continue
+            refined = machine.step((pose_x, pose_y), pose_yaw, gate.last_verdict)
+            if refined is None:
+                continue
+            print(f"  dock: refine {machine.refinements} -> "
+                  f"({refined[0]:.3f}, {refined[1]:.3f}) [map], "
+                  f"landmark seen at {gate.last_verdict['candidate']['range_m']:.3f} m")
+            goal.pose.pose.position.x, goal.pose.pose.position.y = refined
+            send = gate.client.send_goal_async(goal)
+            rclpy.spin_until_future_complete(gate, send, timeout_sec=20.0)
+            new_handle = send.result()
+            if new_handle is not None and new_handle.accepted:
+                handle = new_handle
+                result_future = handle.get_result_async()
+                goal_x, goal_y = refined
+        dock_report = {"enabled": True, **machine.report()}
+    report["docking"] = dock_report
+
     rclpy.spin_until_future_complete(gate, result_future, timeout_sec=arguments.timeout)
     if result_future.result() is None:
         report["failure"] = f"no action result within {arguments.timeout} s"

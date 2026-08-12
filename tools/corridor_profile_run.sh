@@ -44,6 +44,10 @@ GATE_SECONDS=""
 SLAM_PARAMS="$REPO/config/robot1/slam_robot1_corridor.yaml"
 # U3: which local controller. dwb is the shipped arm; mppi is the comparison.
 CONTROLLER="dwb"
+# Terminal docking: drive the final approach from the LANDMARK instead of the
+# drifting map goal. --no-dock runs transit-only, which is the configuration the
+# demonstration must still pass in.
+DOCK="--dock"
 # RViz ON by default: these runs are watched, and the viewport is how a
 # divergence gets noticed at all -- the ghosting that started this whole
 # sequence was seen there first. --no-rviz for a genuinely unattended run.
@@ -80,6 +84,7 @@ while [ $# -gt 0 ]; do
     --nav-timeout) NAV_TIMEOUT="$2"; shift 2 ;;
     --sim-max-s) SIM_MAX_S="$2"; shift 2 ;;
     --controller) CONTROLLER="$2"; shift 2 ;;
+    --no-dock) DOCK=""; shift ;;
     --fleet-slam) SLAM_PARAMS=""; shift ;;
     --rviz) RVIZ_FLAG=""; shift ;;
     --no-rviz) RVIZ_FLAG="--no-rviz"; shift ;;
@@ -389,7 +394,7 @@ python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
 recorder_pid=$!
 
 echo "=== T3.3b governed Nav2 goal A->B ==="
-python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT" $GATED \
+python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT" $GATED $DOCK \
   ${CONTRACT_CAVEAT:+--caveat "$CONTRACT_CAVEAT"} \
   --manifest "$MANIFEST" \
   --timeout "$NAV_TIMEOUT" \
