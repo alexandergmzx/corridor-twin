@@ -259,6 +259,20 @@ status=0
 # --observe-only and CONCURRENTLY with the transit, so it measures the mission
 # instead of a bench pattern that precedes it.
 
+# WAIT FOR TF BEFORE LAUNCHING NAV. Nav2's costmaps ask for map -> base_footprint
+# the instant they activate; if SLAM and the EKF have not published yet, the
+# lookups fail with "frame does not exist", bt_navigator's lifecycle transition
+# times out, lifecycle_manager aborts bringup, and every later goal is answered
+# "Action server is inactive. Rejecting the goal."
+#
+# That startup race is why nominally identical runs alternated between reaching
+# 0.24 m of B and never leaving the spawn.
+echo "=== waiting for the TF chain ==="
+if ! python3 "$REPO/tools/wait_for_tf.py" --target map --source base_footprint --timeout 120; then
+  echo "**INFRASTRUCTURE: map->base_footprint never appeared; twin TF is not up**" >&2
+  exit 3
+fi
+
 echo "=== nav stack ==="
 if [ "$ROBOT" = robot1 ]; then
   NAV_LAUNCH="$REPO/config/robot1/robot1_nav_corridor_launch.py"
@@ -277,16 +291,21 @@ nav_pid=$!
 # failure. It is not one: the robot was never asked to move. A stack that never
 # activates is INFRASTRUCTURE (exit 3), so it is rerun rather than recorded as
 # a result about the robot.
-echo "  waiting for navigate_to_pose to activate..."
+# ADVERTISED IS NOT ACTIVE. `ros2 action list` shows /navigate_to_pose while
+# bt_navigator is still inactive, so the old check passed on runs whose
+# lifecycle bringup had already aborted -- and the goal was then rejected by a
+# server the runner had just called ready. Ask the lifecycle state instead.
+echo "  waiting for bt_navigator to reach ACTIVE..."
 nav_ready=0
-for _ in $(seq 1 60); do
-  if ros2 action list 2>/dev/null | grep -q '/navigate_to_pose'; then
-    nav_ready=1; echo "  nav stack active"; break
-  fi
+for _ in $(seq 1 40); do
+  state=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1)
+  case "$state" in
+    *active*) nav_ready=1; echo "  bt_navigator active"; break ;;
+  esac
   sleep 5
 done
 if [ "$nav_ready" != 1 ]; then
-  echo "**INFRASTRUCTURE: navigate_to_pose never activated in 300 s**" >&2
+  echo "**INFRASTRUCTURE: bt_navigator never reached ACTIVE in 200 s (last state: ${state:-unknown})**" >&2
   tail -5 "$EVIDENCE/nav-launch-$ROBOT-$PROFILE.log" | sed 's/^/    /' >&2
   exit 3
 fi
