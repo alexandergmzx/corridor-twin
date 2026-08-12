@@ -52,8 +52,20 @@ class StartupProbe(Node):
         self.transitions: list[dict] = []
         self.goal_at_s: float | None = None
 
+        # BOTH topics, and this is the whole lesson of 2026-08-12. Watching
+        # /cmd_vel_raw alone, this probe reported "zero rotation before the
+        # goal" on three runs while the robot was physically turning 253 deg:
+        # the motion arrived on /cmd_vel, published straight to the simulator by
+        # a health check, bypassing the governor and therefore bypassing the
+        # topic every legitimate driver uses. An instrument that can only see
+        # the well-behaved path cannot find a misbehaving one.
         self.create_subscription(
-            Twist, f"{namespace}/cmd_vel_raw", self._on_command, 50
+            Twist, f"{namespace}/cmd_vel_raw",
+            lambda m: self._on_command(m, "cmd_vel_raw"), 50,
+        )
+        self.create_subscription(
+            Twist, f"{namespace}/cmd_vel",
+            lambda m: self._on_command(m, "cmd_vel"), 50,
         )
         try:
             from nav2_msgs.msg import BehaviorTreeLog
@@ -70,11 +82,12 @@ class StartupProbe(Node):
     def _elapsed(self) -> float:
         return round(time.monotonic() - self.t0, 3)
 
-    def _on_command(self, message: Twist) -> None:
+    def _on_command(self, message: Twist, topic: str) -> None:
         linear, angular = message.linear.x, message.angular.z
         moving = abs(linear) >= MOVING_MPS or abs(angular) >= MOVING_RAD_S
         self.commands.append({
             "t": self._elapsed(),
+            "topic": topic,
             "linear_mps": round(linear, 4),
             "angular_rad_s": round(angular, 4),
             "moving": moving,
@@ -94,6 +107,10 @@ class StartupProbe(Node):
 
 def summarise(probe: StartupProbe) -> dict:
     before = [row for row in probe.commands if row["before_goal"] and row["moving"]]
+    # Motion that never passed through the governor. /cmd_vel is the governor's
+    # OUTPUT; anything moving there without a matching /cmd_vel_raw upstream is
+    # a driver that went around it.
+    ungoverned = [row for row in probe.commands if row["moving"] and row["topic"] == "cmd_vel"]
     rotation = [row for row in before if abs(row["angular_rad_s"]) >= MOVING_RAD_S]
     # Integrated, not counted: one stray sample is noise and a sustained stream
     # is a pirouette, and only the integral tells them apart.
@@ -128,6 +145,13 @@ def summarise(probe: StartupProbe) -> dict:
         ),
         "bt_nodes_running_before_goal": running_before,
         "recovery_nodes_seen": recovery,
+        "moving_on_cmd_vel_directly": len(ungoverned),
+        "ungoverned_rotation_deg": round(
+            sum(
+                a["angular_rad_s"] * (b["t"] - a["t"])
+                for a, b in zip(ungoverned, ungoverned[1:], strict=False)
+            ) * 57.29577951, 2
+        ),
         # The acceptance U2 states, evaluated here so the artifact carries the
         # verdict rather than a reader recomputing it.
         "zero_rotation_before_goal": not rotation,

@@ -463,7 +463,29 @@ SLAM_FLAG=""
 # (check_isaac_contract.py:54-58) and it prints a human table, so its artifact
 # is text and its verdict is the exit code.
 if [ "$ROBOT" = robot1 ]; then
-  CONTRACT_ARGS=(--domain "$DOMAIN")
+  # --speed 0 --turn 0: THE PRECONDITION MUST NOT DRIVE THE MISSION'S ROBOT.
+  #
+  # This is the startup circle, and it was never navigation. check_isaac_contract
+  # drives vx 0.12 / wz 0.3 for the first half of its window to prove /cmd_vel
+  # moves the robot -- a 0.4 m-radius arc, 15 s at the default --seconds 30 --
+  # published straight to /cmd_vel, bypassing the governor, before SLAM or Nav2
+  # exist. Measured in the bag of run 20260812-164717: /cmd_vel carries 802
+  # moving commands at a constant (0.120, 0.300) from t=16.31 s to t=31.28 s,
+  # integrating to 182 deg and 1.27 m, while /cmd_vel_raw's FIRST message of any
+  # kind is at t=86.05 s. Ground truth turns 253 deg over 1.06 m and ends 0.2 m
+  # behind spawn.
+  #
+  # Three sessions read that as a Nav2 recovery, a stale behavior_server, and a
+  # DWB critic. It is the health check doing exactly what it says it does.
+  #
+  # WHAT IS LOST, stated rather than hidden: this run no longer proves /cmd_vel
+  # moves the robot. That proof exists twice elsewhere and closer to the metal --
+  # build_corridor_arena's forward-sign gate commands 0.2 m/s and measures ground
+  # truth on every arena build, and the transit itself moves the robot 7 m. The
+  # corridor also overrides this checker's verdict on every run
+  # (--allow-contract-fail, scan runs 14-16 Hz against a declared 12), so what it
+  # contributes here is a RATE REPORT, and a rate report does not need motion.
+  CONTRACT_ARGS=(--domain "$DOMAIN" --speed 0.0 --turn 0.0)
   CONTRACT_OUT="$RUN_DIR/contract.txt"
 else
   CONTRACT_ARGS=(--imu-hz 60 --json)

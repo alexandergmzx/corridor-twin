@@ -213,3 +213,39 @@ def test_the_digest_subcommand_prints_something_bash_can_capture(tmp_path: Path)
         check=True, capture_output=True, text=True,
     )
     assert absent.stdout.strip() == ""
+
+
+def test_the_precondition_does_not_drive_the_missions_robot() -> None:
+    """The startup circle, pinned so it cannot come back.
+
+    `check_isaac_contract.py` drives vx 0.12 / wz 0.3 for the first half of its
+    window -- a 0.4 m-radius arc -- published straight to /cmd_vel, bypassing
+    the governor, before SLAM or Nav2 exist. Measured in the bag of run
+    20260812-164717: 802 moving commands at a constant (0.120, 0.300) between
+    t=16.31 s and t=31.28 s, while /cmd_vel_raw's first message of any kind is
+    at t=86.05 s.
+
+    Three sessions read that as a Nav2 recovery, a stale behavior_server and a
+    DWB critic. It was the health check.
+    """
+
+    source = RUNNER.read_text(encoding="utf-8")
+    assert "--speed 0.0 --turn 0.0" in source or '--speed 0.0" "--turn 0.0' in source, (
+        "the robot1 contract check may not drive the mission's robot"
+    )
+    # And the reason travels with it.
+    assert "startup circle" in source
+
+
+def test_the_probe_watches_the_ungoverned_topic_too() -> None:
+    """An instrument that only sees the well-behaved path cannot find a bad one.
+
+    Watching /cmd_vel_raw alone, the probe reported "zero rotation before the
+    goal" on three runs while the robot was turning 253 deg on /cmd_vel.
+    """
+
+    probe = (ROOT / "tools/corridor_startup_probe.py").read_text(encoding="utf-8")
+    assert 'f"{namespace}/cmd_vel"' in probe
+    assert 'f"{namespace}/cmd_vel_raw"' in probe
+    assert "moving_on_cmd_vel_directly" in probe
+    assert "ungoverned_rotation_deg" in probe
