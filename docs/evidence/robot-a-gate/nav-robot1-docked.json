@@ -1,0 +1,64 @@
+{
+  "robot": "robot1",
+  "profile": "nominal_m6_n3",
+  "caveat": "PRECONDITION FAILED (recorded, overridden): see contract-robot1-nominal_m6_n3.txt",
+  "gated": true,
+  "goal_map_frame": [
+    5.9866,
+    -4.1345
+  ],
+  "tolerance_m": 0.15,
+  "goal_accepted": true,
+  "docking": {
+    "enabled": true,
+    "state": "REFINE",
+    "refinements": 2,
+    "landmark_map_frame": [
+      4.3321,
+      -1.5152
+    ],
+    "final_goal_map_frame": [
+      3.7475,
+      -1.6501
+    ],
+    "history": [
+      {
+        "event": "refine",
+        "n": 1,
+        "detected_range_m": 1.4705,
+        "landmark_map": [
+          4.4007,
+          -2.5399
+        ],
+        "goal_map": [
+          3.881,
+          -2.2401
+        ]
+      },
+      {
+        "event": "refine",
+        "n": 2,
+        "detected_range_m": 1.2266,
+        "landmark_map": [
+          4.3321,
+          -1.5152
+        ],
+        "goal_map": [
+          3.7475,
+          -1.6501
+        ]
+      }
+    ]
+  },
+  "action_status": "SUCCEEDED",
+  "travelled_m": 6.652,
+  "final_pose_map_frame": [
+    3.5142,
+    -1.7097
+  ],
+  "goal_error_m": 0.2408,
+  "failures": [
+    "map-frame goal error 241 mm exceeds 150 mm (ADR 0022)"
+  ],
+  "pass": false
+}
