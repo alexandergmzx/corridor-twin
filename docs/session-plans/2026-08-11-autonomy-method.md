@@ -536,6 +536,30 @@ Each produced a confident number that was false.
    handle a genuine activation failure never fired, because the script was
    already gone.
 
+## The map: one hypothesis tested and killed
+
+Loop closure was the obvious suspect -- a 2.83 m map→odom step cannot come from
+a correlative matcher bounded to ±0.3 m, and a single-pass delivery has no loop
+to close, so any accepted closure is false by construction.
+
+Tested with corridor-local params (`config/robot1/slam_robot1_corridor.yaml`,
+`do_loop_closing: false`, launched through `slam_launch.py params_file:=` with
+`simctl start --no-slam`, no fleet file touched):
+
+| map | duplicate wall extent |
+|---|---|
+| authored reference | 0.000 m |
+| loop closing ON, four transits | 0.740 – 2.680 m |
+| **loop closing OFF** | **1.740 m** |
+
+**Falsified.** Kept anyway, because the scenario argument stands on its own, and
+recorded as NOT a fix. `--fleet-slam` restores the canonical for an A/B.
+
+That leaves the fusion anomaly as the sole surviving explanation, now with seven
+samples: yaw scale **1.213, 1.606, −1.707, 23.434, 0.594, −1.518, 0.140** —
+spanning 0.14× to 23.4× **in both signs**, from a filter whose only yaw input
+measures 0.987–0.993 of truth.
+
 ## Verification
 
 `bash tools/check_workspace.sh` green: ruff clean, **312 passed / 1 skipped**,
