@@ -95,12 +95,30 @@ def test_the_render_contains_all_three_classes(rendered) -> None:
         assert values.count(value) > 100, f"almost no {name} cells: not a corridor"
 
 
-def test_the_authored_corridor_scores_zero_doubling() -> None:
+#: The authored corridor's own duplicate-wall reading. It is NOT zero any more:
+#: rescaling to 0.30 and lengthening the street moved it from 0.000 to 0.060 m.
+#: That is the floor a run's score has to be judged against -- a run reading
+#: 0.30 m is 0.24 m of error, not 0.30.
+AUTHORED_DUPLICATE_WALL_FLOOR_M = 0.060
+
+#: Where the metric stops working. Measured by sweeping street length at a fixed
+#: scale: the floor holds at 0.060 m out to a 6.0 m street and jumps to 0.820 m
+#: at 7.2 m, at which point the metric can no longer convict a bad map. The
+#: scenario's street is sized to stay below this.
+FLOOR_CEILING_M = 0.20
+
+
+def test_the_authored_corridor_scores_a_known_small_floor() -> None:
     """The control's actual result, pinned so a geometry change cannot erode it.
 
-    If a future scenario edit makes the AUTHORED corridor score doubled walls,
-    the run-map threshold stops meaning "divergence" and this fails here rather
-    than quietly forgiving a smeared map in a GPU run.
+    This test earned its keep: it caught a scenario edit that pushed the
+    authored floor from 0.000 m to 0.820 m, which would have left every run
+    compared against a threshold the empty scene already failed. The street was
+    sized down until the floor came back under control.
+
+    If a future edit pushes it past FLOOR_CEILING_M, the run-map threshold stops
+    meaning "divergence" and this fails here rather than quietly forgiving a
+    smeared map in a GPU run.
     """
 
     scorer = Path.home() / "Development/robot-fleet/src/yahboomcar-ros2/tools/score_slam_map.py"
@@ -122,4 +140,12 @@ def test_the_authored_corridor_scores_zero_doubling() -> None:
         )
 
     line = next(row for row in result.stdout.splitlines() if "duplicate wall extent" in row)
-    assert "0.000 m" in line, f"the authored corridor is no longer a zero floor: {line}"
+    measured = float(line.split()[3])
+
+    assert measured == pytest.approx(AUTHORED_DUPLICATE_WALL_FLOOR_M, abs=0.02), (
+        f"the authored floor moved: {line.strip()}"
+    )
+    assert measured < FLOOR_CEILING_M, (
+        f"the authored corridor now scores {measured} m of duplicate wall, so the "
+        f"metric can no longer convict a run: {line.strip()}"
+    )

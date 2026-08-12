@@ -28,7 +28,18 @@ geometry:
   west_margin_m: 2.0
   next_street:
     clear_width_m: 6.0
-    length_m: 10.0
+    # 20.0, from 10.0. The street grows SOUTHWARD, and southward is exactly
+    # where A was getting stuck: the south wall sat at y = -4.2 at robot scale
+    # and A stopped against it at y = -4.04 and y = -4.31 on the two runs that
+    # reached B. Moving that wall out leaves 6.72 m of open street south of B
+    # instead of 0.84 m -- room to turn, and room for the lidar to see B from
+    # several metres rather than from inside a pocket.
+    #
+    # This is the only street knob that is free: `clear_width_m` is capped at
+    # ~6.198 by test_trajectory.py:307-329, and it, `turn_radius_m`,
+    # `b_distance_m` and `corridor_length_m` each move the pinned route legs
+    # (test_route_legs_are_pinned, 24.601 m). Length alone leaves them.
+    length_m: 20.0
     turn_radius_m: 2.0
     b_distance_m: 8.0
     # B's lateral position across the street, measured from the drawing: the
@@ -53,6 +64,13 @@ geometry:
       gap_north_of_b_m: 1.05
   profiles:
     nominal_m6_n3:
+      # Left at the authored 6.0/3.0 deliberately. Narrowing the corridor by
+      # editing these instead of by the scale factor changes the scenario's
+      # RATIOS, and the geometric arguments are built on those: doing it broke
+      # the ADR 0019 occlusion certificate outright (P visible along the whole
+      # approach and arc) and moved the pinned route legs. The corridor is
+      # narrowed by the uniform scale factor instead, which preserves every
+      # ratio by construction.
       entry_width_m: 6.0
       corner_width_m: 3.0
       default: true
