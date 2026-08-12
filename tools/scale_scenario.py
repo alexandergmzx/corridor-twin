@@ -57,7 +57,24 @@ EXPLICIT_LENGTH_KEYS = {"maximum_width_m"}
 
 #: Keys that end in `_m` by coincidence of another unit, or that are lengths
 #: this tool must not touch.
-NOT_LENGTHS = {"limit_mps"}
+#:
+#: The landmark keys are here for the same reason the ROBOT is not scaled: they
+#: are a physical prop sized for a physical SENSOR, not a dimension of the
+#: scenario. Scaling them broke a run outright. At factor 0.30 the post shrank
+#: to 0.045 m radius -- a 9 cm object, on which an MS200 puts 1.7 beams at 3 m
+#: against the 4 the fitter needs -- so it became undetectable at range while
+#: staying small enough that ordinary corner geometry fits a circle that size.
+#: The detector confirmed a phantom at 0.910 m, docking re-aimed the mission at
+#: it, and Nav2 drove half a metre and reported "Reached the goal!".
+#:
+#: A landmark's size follows the lidar's angular resolution, and that does not
+#: change when the world does.
+NOT_LENGTHS = {
+    "limit_mps",
+    "landmark_radius_m",
+    "landmark_height_m",
+    "landmark_offset_m",
+}
 
 
 def is_length_key(key: str) -> bool:

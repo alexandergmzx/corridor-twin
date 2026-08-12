@@ -33,7 +33,7 @@ from landmark_detector import (  # noqa: E402
     scan_to_xy,
 )
 
-RADIUS = 0.063          # the authored landmark at the committed 0.42 scale
+RADIUS = 0.12           # the authored landmark; absolute, not scaled with the scene
 RANGE_MIN, RANGE_MAX = 0.12, 8.0
 BEAMS = 360             # MS200: 360 beams over 360 degrees
 
