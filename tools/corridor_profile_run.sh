@@ -34,7 +34,11 @@ ROBOT="${CORRIDOR_RUN_ROBOT:-robot2}"
 DOMAIN="${CORRIDOR_RUN_DOMAIN:-67}"
 GATED=""
 ALLOW_CONTRACT_FAIL=0
-GATE_SECONDS=90
+# Empty means "derive from NAV_TIMEOUT". The recorder now measures the transit
+# rather than a fixed bench window, so its length is a property of how long the
+# transit is allowed to take, not an independent number that can silently
+# truncate a slow delivery.
+GATE_SECONDS=""
 NAV_TIMEOUT=300
 
 while [ $# -gt 0 ]; do
@@ -117,12 +121,14 @@ source "$WS_SETUP"
 set -u
 
 nav_pid=""
+recorder_pid=""
 stopped=0
 teardown() {
   [ "$stopped" = 1 ] && return 0
   stopped=1
   echo "=== stopping $PROFILE on domain $DOMAIN ==="
   [ -n "$nav_pid" ] && kill -TERM "$nav_pid" 2>/dev/null || true
+  [ -n "$recorder_pid" ] && kill -TERM "$recorder_pid" 2>/dev/null || true
   "$SIMCTL" stop --domain "$DOMAIN" || true
   sleep 3
   if [ -n "$(occupants)" ]; then
@@ -136,7 +142,12 @@ trap 'teardown || true' EXIT INT TERM
 # INFRASTRUCTURE failures below exit 3, distinct from a red gate (exit 1). A
 # session that never came up is a rerun, not a result about the robot.
 echo "=== simctl start ==="
-"$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" || {
+# --no-patrol is NOT optional. simctl's step 7 launches sim_patrol, which drives
+# 1.0 m legs at 0.18 m/s on /cmd_vel_raw for the life of the session. Every
+# corridor run before 2026-08-11 carried it, so Nav2's controller and the
+# patrol commanded the same topic simultaneously -- the "square patrol" the
+# robot was observed doing. The mission's motion policy is one source: Nav2.
+"$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" --no-patrol || {
   echo "**INFRASTRUCTURE: simctl start failed for $PROFILE**" >&2; exit 3; }
 
 # Contract numbers are PER-ROBOT and do not transfer. robot2 is checked with
@@ -181,11 +192,13 @@ fi
 
 status=0
 
-echo "=== T3.3a drive-and-map gate (${GATE_SECONDS}s) ==="
-python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
-  --profile "$PROFILE" --robot "$ROBOT" $GATED \
-  ${CONTRACT_CAVEAT:+--caveat "$CONTRACT_CAVEAT"} \
-  --out "$EVIDENCE/gate-$ROBOT-$PROFILE.json" || status=1
+# NO WARM-UP DRIVE. The drive-and-map gate used to run here, driving straight
+# passes for GATE_SECONDS before Nav2 ever launched -- a second scripted motion
+# source, and exactly the "square patrol" shape the mission forbids.
+# slam_toolbox does not need a warm-up: it maps during transit, which is the
+# whole point of building the map live (ADR 0023). The gate is still run, but
+# --observe-only and CONCURRENTLY with the transit, so it measures the mission
+# instead of a bench pattern that precedes it.
 
 echo "=== nav stack ==="
 if [ "$ROBOT" = robot1 ]; then
@@ -197,7 +210,21 @@ fi
 ros2 launch $NAV_LAUNCH \
   >"$EVIDENCE/nav-launch-$ROBOT-$PROFILE.log" 2>&1 &
 nav_pid=$!
-sleep 25
+# The nav stack needs to finish lifecycle activation before a goal will be
+# answered; 25 s was not enough and cost a run to a phantom "goal not accepted".
+sleep 45
+
+# The recorder starts BEFORE the goal so the transit is measured from its first
+# metre, and outlives the nav gate's own timeout so it cannot truncate a slow
+# but successful delivery. It commands nothing (--observe-only).
+: "${GATE_SECONDS:=$((NAV_TIMEOUT + 30))}"
+echo "=== T3.3a transit recorder (observe-only, ${GATE_SECONDS}s) ==="
+python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
+  --profile "$PROFILE" --robot "$ROBOT" $GATED --observe-only \
+  ${CONTRACT_CAVEAT:+--caveat "$CONTRACT_CAVEAT"} \
+  --out "$EVIDENCE/gate-$ROBOT-$PROFILE.json" \
+  >"$EVIDENCE/gate-$ROBOT-$PROFILE.log" 2>&1 &
+recorder_pid=$!
 
 echo "=== T3.3b governed Nav2 goal A->B ==="
 python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT" $GATED \
@@ -205,6 +232,13 @@ python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT"
   --manifest "$MANIFEST" \
   --timeout "$NAV_TIMEOUT" \
   --out "$EVIDENCE/nav-$ROBOT-$PROFILE.json" || status=1
+
+# The recorder's own verdict is a gate result too, so it is waited for rather
+# than killed -- but a nav gate that ended early must not hang the run behind
+# the recorder's full window.
+echo "=== transit recorder verdict ==="
+wait "$recorder_pid" || status=1
+sed 's/^/    /' "$EVIDENCE/gate-$ROBOT-$PROFILE.log" | tail -20
 
 teardown || status=1
 trap - EXIT INT TERM

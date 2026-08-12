@@ -29,6 +29,17 @@ corner comes into view; the trace can.
 **Every run writes JSON.** Fleet finding F15: a gate whose number lives only in
 a README is a number nobody can re-check.
 
+**`--observe-only` exists because the mission has ONE motion source.** The
+drive schedule above is BENCH tooling: it characterises the matcher against a
+known input on a bare twin. It must never run during a delivery, because the
+delivery's motion policy is that A's motion is 100% governed Nav2
+`NavigateToPose` -- no warm-up, no patrol, no exploration. Every corridor run
+before 2026-08-11 violated that: this gate's forward passes, `sim_patrol`'s
+1.0 m legs, and Nav2's controller all published `/cmd_vel_raw` at once, and the
+resulting odometry described a robot being fought over by three writers.
+`--observe-only` keeps the instrument and drops the publisher -- literally: no
+publisher object is created, so the mode cannot regress into commanding motion.
+
 The truth topic is consumed HERE and nowhere else. This is evaluation tooling,
 so simulator truth is a permitted input (CLAUDE.md invariant 1); nothing A's
 stack subscribes to may read it.
@@ -39,6 +50,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import signal
 import sys
 import time
 from pathlib import Path
@@ -203,7 +215,7 @@ def max_consecutive_withheld(gaps_s: list[float], scan_period_s: float) -> int:
 
 
 class CorridorGate(Node):
-    def __init__(self, target: dict | None = None) -> None:
+    def __init__(self, target: dict | None = None, *, observe_only: bool = False) -> None:
         super().__init__("corridor_sim_gate")
         self.target = target or ROBOT_TARGETS["robot2"]
         namespace = self.target["namespace"]
@@ -235,7 +247,16 @@ class CorridorGate(Node):
         self.create_subscription(Odometry, ekf_topic, self._on_ekf, 10)
         self.create_subscription(OccupancyGrid, f"{namespace}/map", self._on_map, 10)
         self.create_subscription(Odometry, f"{namespace}/sim/ground_truth", self._on_truth, 10)
-        self.publisher = self.create_publisher(Twist, f"{namespace}/cmd_vel_raw", 10)
+        # No publisher AT ALL in observe-only mode. A flag consulted inside a
+        # drive loop would still leave the node able to command the robot if
+        # some later caller forgot to check it; withholding the object makes
+        # the guarantee structural, and `drive()` raises rather than crashing
+        # on a missing attribute.
+        self.observe_only = observe_only
+        self.publisher = (
+            None if observe_only
+            else self.create_publisher(Twist, f"{namespace}/cmd_vel_raw", 10)
+        )
 
     # --- callbacks ---------------------------------------------------------
     def _on_odom_laser(self, message: Odometry) -> None:
@@ -282,9 +303,48 @@ class CorridorGate(Node):
         )
 
 
-def drive(gate: CorridorGate, seconds: float) -> None:
-    """Straight passes with settles. No rotation: see the module docstring."""
+def observe(gate: CorridorGate, seconds: float) -> None:
+    """Record for `seconds` while SOMETHING ELSE moves the robot.
 
+    The mission's something-else is Nav2, and it is the only permitted one. The
+    metrics are identical to `drive()`'s -- same subscriptions, same clocks --
+    so an observe-only run and a bench drive run stay directly comparable; the
+    only difference is who commanded the motion being measured.
+    """
+
+    if gate.publisher is not None:
+        raise RuntimeError("observe() requires a gate constructed observe_only=True")
+
+    # SIGTERM ends the observation and still writes the report. The window is
+    # sized to the transit's worst case, so a delivery that succeeds in a
+    # quarter of it would otherwise hold the run open -- and killing the
+    # recorder outright would discard the very measurements of the successful
+    # run. Stopping early is a complete result, not a truncated one.
+    stopping = False
+
+    def _stop(_signum, _frame) -> None:
+        nonlocal stopping
+        stopping = True
+
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
+
+    gate.drive_started_s = time.monotonic()
+    end = time.monotonic() + seconds
+    while time.monotonic() < end and not stopping:
+        rclpy.spin_once(gate, timeout_sec=0.05)
+    gate.observed_s = round(time.monotonic() - gate.drive_started_s, 2)
+
+
+def drive(gate: CorridorGate, seconds: float) -> None:
+    """Straight passes with settles. No rotation: see the module docstring.
+
+    BENCH TOOLING. Never valid during a delivery: see the module docstring on
+    `--observe-only`.
+    """
+
+    if gate.publisher is None:
+        raise RuntimeError("drive() called on an observe-only gate")
     gate.drive_started_s = time.monotonic()
     end = time.monotonic() + seconds
     phase_end, phase = 0.0, "settle"
@@ -331,14 +391,23 @@ def main() -> int:
         action="store_true",
         help="This profile's result is a gate; without it the run is reported only.",
     )
+    parser.add_argument(
+        "--observe-only",
+        action="store_true",
+        help="Record without commanding motion. REQUIRED during a mission run: "
+             "A's motion is Nav2's alone.",
+    )
     arguments = parser.parse_args()
 
     target = ROBOT_TARGETS[arguments.robot]
     scan_hz = arguments.scan_hz if arguments.scan_hz is not None else target["scan_hz"]
 
     rclpy.init()
-    gate = CorridorGate(target)
-    drive(gate, arguments.seconds)
+    gate = CorridorGate(target, observe_only=arguments.observe_only)
+    if arguments.observe_only:
+        observe(gate, arguments.seconds)
+    else:
+        drive(gate, arguments.seconds)
 
     import tf2_ros
 
@@ -366,7 +435,15 @@ def main() -> int:
         "profile": arguments.profile,
         "caveat": arguments.caveat,
         "gated": arguments.gated,
+        # Who moved the robot while these numbers were taken. Not cosmetic: the
+        # same metric means something different under a bench drive than under
+        # Nav2, and every artifact before 2026-08-11 was silently a third thing
+        # (this gate + sim_patrol + Nav2 at once).
+        "motion_source": "nav2" if arguments.observe_only else "gate_bench_drive",
         "seconds": arguments.seconds,
+        # The window ASKED for, vs the window actually observed. They differ
+        # when the transit ended early and the recorder was stopped with it.
+        "observed_s": getattr(gate, "observed_s", None),
         "odom_laser_msgs": gate.counts["odom_laser"],
         "odom_laser_hz": round(gate.counts["odom_laser"] / arguments.seconds, 2),
         "ekf_msgs": gate.counts["ekf"],
