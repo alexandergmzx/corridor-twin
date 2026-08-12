@@ -63,6 +63,11 @@ CONTROLLER="dwb"
 # drifting map goal. --no-dock runs transit-only, which is the configuration the
 # demonstration must still pass in.
 DOCK="--dock"
+# The lens is a live browser view of map + scan + the three pose ghosts + the
+# landmark detector. It is ON by default because debugging this from JSON after
+# the fact repeatedly cost runs: a phantom detection that re-aimed a whole
+# mission was invisible in the metrics and obvious on the canvas.
+LENS=1
 # RViz ON by default: these runs are watched, and the viewport is how a
 # divergence gets noticed at all -- the ghosting that started this whole
 # sequence was seen there first. --no-rviz for a genuinely unattended run.
@@ -100,6 +105,7 @@ while [ $# -gt 0 ]; do
     --sim-max-s) SIM_MAX_S="$2"; shift 2 ;;
     --controller) CONTROLLER="$2"; shift 2 ;;
     --no-dock) DOCK=""; shift ;;
+    --no-lens) LENS=0; shift ;;
     --corridor-slam) SLAM_PARAMS="$REPO/config/robot1/slam_robot1_corridor.yaml"; shift ;;
     --rviz) RVIZ_FLAG=""; shift ;;
     --no-rviz) RVIZ_FLAG="--no-rviz"; shift ;;
@@ -175,6 +181,7 @@ set -u
 
 nav_pid=""
 slam_pid=""
+lens_pid=""
 recorder_pid=""
 watchdog_pid=""
 WATCHDOG_FLAG="$(mktemp -u)"
@@ -186,6 +193,8 @@ teardown() {
   [ -n "$nav_pid" ] && kill -TERM "$nav_pid" 2>/dev/null || true
   [ -n "$recorder_pid" ] && kill -TERM "$recorder_pid" 2>/dev/null || true
   [ -n "$slam_pid" ] && kill -TERM "$slam_pid" 2>/dev/null || true
+  # TERM, never -9: the lens writes its metric history on a clean stop.
+  [ -n "$lens_pid" ] && kill -TERM "$lens_pid" 2>/dev/null || true
   [ -n "$watchdog_pid" ] && kill -TERM "$watchdog_pid" 2>/dev/null || true
   "$SIMCTL" stop --domain "$DOMAIN" || true
   sleep 3
@@ -445,6 +454,16 @@ if [ -z "$NAV_TIMEOUT" ]; then
   echo "  nav window: ${NAV_TIMEOUT}s (cap ${SIM_MAX_S}s, bring-up took ${elapsed}s)"
 fi
 : "${GATE_SECONDS:=$((NAV_TIMEOUT + 10))}"
+if [ "$LENS" = 1 ]; then
+  python3 "$REPO/tools/lens/corridor_lens.py" --domain "$DOMAIN" \
+    --manifest "$MANIFEST" \
+    --dump "$EVIDENCE/lens-$ROBOT-$PROFILE.json" \
+    >"$EVIDENCE/lens-$ROBOT-$PROFILE.log" 2>&1 &
+  lens_pid=$!
+  sleep 3
+  echo "=== lens: http://127.0.0.1:8765/  (map, scan, 3 pose ghosts, landmark) ==="
+fi
+
 echo "=== T3.3a transit recorder (observe-only, ${GATE_SECONDS}s) ==="
 python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
   --profile "$PROFILE" --robot "$ROBOT" $GATED --observe-only \

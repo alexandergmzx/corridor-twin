@@ -1,0 +1,6 @@
+# The lens is a VENDORED fleet tool (slam_lens.py + its core), carried here so
+# the corridor can extend it without editing yahboomcar-ros2. Its style is the
+# fleet's, and reformatting it would destroy the diff against upstream -- which
+# is the only way to see what this repo actually changed.
+[lint]
+ignore = ["E501", "I001", "E402", "N806", "C901", "PLR0912", "PLR0915", "PLR0913", "SIM108", "RUF005", "RUF100", "BLE001", "ASYNC230", "S104", "TRY300"]
