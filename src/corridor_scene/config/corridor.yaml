@@ -160,9 +160,12 @@ actors:
   # the manifest, never as a second literal.
   landmark_radius_m: 0.15
   landmark_height_m: 0.9
-  # Clear of B's own footprint so the post is not swallowed by the box it
-  # marks; placed on the street side, which is the side A approaches from.
-  landmark_offset_m: 0.4
+  # BESIDE B along the street, not between B and the street: the post is an
+  # obstacle for the same reason B is, so putting it on A's approach line would
+  # block the delivery. The offset must also exceed B's half-width + the post's
+  # radius + the detector's clustering gap, or the two merge into one cluster
+  # and the fit sees a box with a bump instead of a cylinder.
+  landmark_offset_m: 0.9
 
 police:
   # P stands inside the next street's east side, on the near (inner) side of

@@ -59,7 +59,7 @@ import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu, LaserScan
 
 #: Default target is robot2, so every artifact committed before this
 #: parameterization stays reproducible by re-running the same command.
@@ -197,6 +197,51 @@ def integrated_gyro_deg(series: list[tuple[float, float]]) -> float | None:
         for (earlier_t, rate), (later_t, _rate) in zip(series, series[1:], strict=False)
     )
     return round(math.degrees(total), 2)
+
+
+def landmark_report(gate, radius_m) -> dict:
+    """What A actually saw of B's post, in the LASER frame.
+
+    Reported, never gated, and deliberately so: the arrival gate is Nav2
+    SUCCEEDED within tolerance, and the demo must pass with this detector
+    switched off entirely. What this earns is a claim nothing else in the run
+    can make -- that A perceived B, rather than that A reached a coordinate a
+    diverged map believed in.
+    """
+
+    if radius_m is None:
+        return {"available": False, "reason": "scene authors no landmark"}
+    if not gate.landmark_hits:
+        return {
+            "available": True, "detected": False,
+            "scan_frames": gate.landmark_frames,
+            "expected_radius_m": radius_m,
+        }
+
+    first = gate.landmark_hits[0]
+    closest = min(gate.landmark_hits, key=lambda hit: hit["range_m"])
+    residuals = [hit["residual_m"] for hit in gate.landmark_hits]
+    radii = [hit["fitted_radius_m"] for hit in gate.landmark_hits]
+    return {
+        "available": True,
+        "detected": True,
+        "scan_frames": gate.landmark_frames,
+        "confirmed_frames": len(gate.landmark_hits),
+        "expected_radius_m": radius_m,
+        "first_detection": {
+            "range_m": first["range_m"], "bearing_rad": first["bearing_rad"],
+            "frames_to_confirm": first["frames_agreeing"],
+        },
+        "closest_detection_m": closest["range_m"],
+        "fitted_radius_m": {
+            "min": min(radii), "max": max(radii),
+            "mean": round(sum(radii) / len(radii), 4),
+        },
+        "residual_m": {
+            "min": min(residuals), "max": max(residuals),
+            "mean": round(sum(residuals) / len(residuals), 5),
+        },
+    }
 
 
 def world_frame_delivery(
@@ -376,6 +421,15 @@ class CorridorGate(Node):
             Imu, f"{namespace}/imu/data",
             lambda m: self.gyro["imu_data"].append((self._stamp_s(m), m.angular_velocity.z)), 500
         )
+        # B's landmark, if the scene carries one. This is the ONLY measurement
+        # of B in the whole system that does not pass through the SLAM map: it
+        # is taken in the laser frame, so it stays true while every map-frame
+        # number is fiction. Recorded, never acted on -- the detector reports,
+        # and nothing here steers.
+        self.landmark_detector = None
+        self.landmark_hits: list[dict] = []
+        self.landmark_frames = 0
+        self.create_subscription(LaserScan, f"{namespace}/scan", self._on_scan, 20)
         # No publisher AT ALL in observe-only mode. A flag consulted inside a
         # drive loop would still leave the node able to command the robot if
         # some later caller forgot to check it; withholding the object makes
@@ -442,6 +496,20 @@ class CorridorGate(Node):
                 _yaw_of(message.pose.pose.orientation),
             )
         )
+
+    def _on_scan(self, message: LaserScan) -> None:
+        if self.landmark_detector is None:
+            return
+        self.landmark_frames += 1
+        verdict = self.landmark_detector.feed(
+            message.ranges, message.angle_min, message.angle_increment,
+            message.range_min, message.range_max,
+        )
+        if verdict["confirmed"]:
+            hit = dict(verdict["candidate"])
+            hit["t"] = self._stamp_s(message)
+            hit["frames_agreeing"] = verdict["frames_agreeing"]
+            self.landmark_hits.append(hit)
 
     def _on_map(self, message: OccupancyGrid) -> None:
         self.counts["map"] += 1
@@ -566,8 +634,22 @@ def main() -> int:
     target = ROBOT_TARGETS[arguments.robot]
     scan_hz = arguments.scan_hz if arguments.scan_hz is not None else target["scan_hz"]
 
+    # Arm the landmark detector from the manifest, whose radius is the authored
+    # prop's own. A literal here would keep matching an old post after a rescale.
+    landmark_radius = None
+    if arguments.manifest:
+        actors = json.loads(
+            Path(arguments.manifest).read_text(encoding="utf-8")
+        ).get("actors", {})
+        landmark_radius = actors.get("landmark_radius_m")
+
     rclpy.init()
     gate = CorridorGate(target, observe_only=arguments.observe_only)
+    if landmark_radius:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from landmark_detector import LandmarkDetector
+
+        gate.landmark_detector = LandmarkDetector(landmark_radius)
     if arguments.observe_only:
         observe(gate, arguments.seconds)
     else:
@@ -637,6 +719,7 @@ def main() -> int:
         "midpoint_drift": midpoint_drift(gate.truth, gate.estimate),
         "yaw_scale": yaw_scale(gate.truth, gate.estimate),
         "world_frame_delivery": delivery,
+        "landmark": landmark_report(gate, landmark_radius),
         "yaw_chain_deg": {
             "imu_raw": integrated_gyro_deg(gate.gyro["imu"]),
             "imu_filtered": integrated_gyro_deg(gate.gyro["imu_data"]),
