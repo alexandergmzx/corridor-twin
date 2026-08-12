@@ -335,6 +335,11 @@ if ! python3 "$REPO/tools/wait_for_tf.py" --target map --source base_footprint -
   exit 3
 fi
 
+# Let the box settle between SLAM and Nav2. The lifecycle service timeouts that
+# abort this bringup are a contention symptom -- the EKF logs "Failed to meet
+# update rate!" in the same window -- and everything was starting at once.
+sleep 8
+
 echo "=== nav stack ==="
 if [ "$ROBOT" = robot1 ]; then
   NAV_LAUNCH="$REPO/config/robot1/robot1_nav_corridor_launch.py"
@@ -386,7 +391,22 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
     # whole of the nondeterminism this loop was blamed for.
     state=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1) || true
     case "$state" in
-      *active*) nav_ready=1; echo "  bt_navigator active (attempt $nav_attempt)"; break ;;
+      *active*)
+        # ACTIVE IS NOT ENOUGH ON ITS OWN. bt_navigator reaches active during
+        # the transition and the lifecycle manager can still abort the bringup
+        # a moment later -- "Failed to change state for node: bt_navigator.
+        # Exception: ... async_send_request failed" then "Failed to bring up
+        # all requested nodes. Aborting bringup" -- after which the server is
+        # inactive again and rejects the goal. The state poll caught the
+        # transient and reported a stack that was already dying.
+        #
+        # The manager's own abort line is definitive, so it is what decides.
+        sleep 5
+        if grep -q 'Aborting bringup' "$EVIDENCE/nav-launch-$ROBOT-$PROFILE-attempt$nav_attempt.log" 2>/dev/null; then
+          echo "  bt_navigator went active then the manager aborted bringup"
+          break
+        fi
+        nav_ready=1; echo "  bt_navigator active and bringup held (attempt $nav_attempt)"; break ;;
     esac
     sleep 5
   done
