@@ -439,6 +439,11 @@ mandatory deliverable, per the unattended rules.
 
 ## The headline
 
+**A perceives B, reproducibly (n=2).** Live geometric detection of B's
+landmark: acquired at **2.763 m** and **2.409 m** on two runs, confirmed in
+**exactly 3 frames** both times (the k-of-n minimum), fitted radius 0.0665 and
+0.0723 m against an authored 0.063. Details below; first run:
+
 **A perceives B.** First live geometric detection of B's landmark: from
 **2.763 m** at bearing 0.255 rad, confirmed in **exactly 3 frames** (the k-of-n
 minimum), tracked down to **0.309 m**, fitted radius **0.0665 m** against an
@@ -462,7 +467,10 @@ the corridor, and a map-frame number is meaningless while the frame is wrong.
 
 ## The unsolved core, stated plainly
 
-`robot_localization` reports rotation its own input does not contain:
+`robot_localization` reports rotation its own input does not contain, and it
+errs in BOTH directions across runs -- yaw scale **23.4x** on one and **0.594**
+on another (-275.85 deg estimated against -464.57 true). That two-sided
+variance is itself evidence: a calibration error has a sign, and this does not.
 
 | tap | rotation | ratio vs truth |
 |---|---|---|
@@ -517,6 +525,16 @@ Each produced a confident number that was false.
 5. **Editing a running bash script corrupted its execution.** Bash reads scripts
    lazily by byte offset; a mid-run edit shifted the offsets and the live process
    executed garbage. Cost one run. Do not edit a script while it is running.
+6. **The "nondeterministic bt_navigator activation" was `set -e`.**
+   `state=$(ros2 lifecycle get /bt_navigator ...)` is a bare assignment from a
+   command substitution, and under `set -e` a failing substitution aborts the
+   script. That command fails outright while the node is coming up -- exactly
+   when the loop polls -- so the run died on its FIRST poll and reported
+   nothing. The runs that appeared to work were the ones where bt_navigator
+   happened to be active before the first poll landed. **Several runs were
+   attributed to Nav2 flakiness that were this.** The bounded retry added to
+   handle a genuine activation failure never fired, because the script was
+   already gone.
 
 ## Verification
 
