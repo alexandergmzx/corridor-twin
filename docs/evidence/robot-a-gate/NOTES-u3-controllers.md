@@ -19,30 +19,43 @@ bash tools/corridor_profile_run.sh --robot robot1 --profile nominal_m6_n3 \
   --controller mppi --gated --allow-contract-fail --domain 67
 ```
 
-## Result
+## Result — **DWB stays**
 
-| arm | closest approach (world, truth) | landmark | note |
+| arm | closest approach (world, truth) | goal | outcome |
 |---|---|---|---|
-| DWB | 0.244 / 0.404 / 0.574 / 0.647 / 0.774 m | detected | five transits |
-| **MPPI** | **7.085 m — did not move** | not detected | goal not accepted |
+| DWB | **0.244 / 0.404 / 0.574 / 0.647 / 0.774 m** | accepted | five transits, reached B every time |
+| MPPI | **6.750 m** (spawn is 7.22) | accepted | ABORTED after ~0.5 m |
 
-**MPPI is not measured.** Two attempts were spent on a configuration error of
-mine (`CostCritic.consider_footprint: true` against a costmap that describes the
-robot as a circle, which aborts lifecycle bringup); the third brought
-`bt_navigator` to ACTIVE on the first try and then the goal was not accepted, so
-the robot never moved.
+**MPPI does not work on this hardware at these settings, and the log says why:**
 
-The map scored **0.000 m duplicate wall extent** on that run. That is a
-**degenerate pass** — a stationary robot maps one viewpoint perfectly — and must
-not be quoted as MPPI producing a better map.
+```
+controller_server: Control loop missed its desired rate of 20.0000 Hz.
+                   Current loop rate is 11.7759 Hz.
+                   ... 4.8195 Hz.  ... 5.0921 Hz.  ... 5.0610 Hz.
+```
 
-## What this does and does not support
+The optimizer runs at **4.8–11.8 Hz against the 20 Hz `controller_frequency`**
+it is configured for, at `batch_size: 2000` and `time_steps: 56` on a box that
+is simultaneously running Isaac Sim, SLAM and RViz. A controller sampling at a
+quarter of its intended rate steers badly, and the progress checker aborts it.
 
-It supports nothing about MPPI's behaviour in a narrow corridor. The arm is
-committed, tested and selectable with `--controller mppi`, so the comparison is
-one working run away; it was not obtained tonight.
+That is a hardware/settings result, not a verdict on MPPI as an algorithm. A
+smaller batch or fewer time steps might well change it, and that experiment is
+not run.
 
-DWB's numbers stand, and they are the arm the demonstration currently uses.
+**DWB stays**, on numbers rather than on inertia: it reached B on five transits
+out of five that got a goal.
+
+## An earlier attempt, and its degenerate pass
+
+Two earlier attempts were lost to a configuration error of mine
+(`CostCritic.consider_footprint: true` against a costmap that describes the robot
+as a circle, which aborts lifecycle bringup), and one run activated but had its
+goal refused and never moved.
+
+That stationary run scored **0.000 m duplicate wall extent**. It is recorded here
+as a **degenerate pass** — a robot that does not move maps one viewpoint
+perfectly — precisely so nobody later quotes it as MPPI improving the map.
 
 ## The honest caveat on any controller comparison right now
 

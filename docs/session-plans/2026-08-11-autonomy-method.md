@@ -604,12 +604,12 @@ from an input measuring 0.987–0.993 of truth.
    consumes it. One refinement, ever, and the demo must pass with it disabled.
 3. **Speed policy stays `[to pin after first profile run]`.** A speed derived
    from a diverged map is not a speed.
-4. **U3 (DWB vs MPPI) started and INCONCLUSIVE; U4 not started.** The MPPI arm
-   is committed, tested to differ from DWB in exactly one block, and selectable
-   with `--controller mppi` — but it never produced a transit (two attempts lost
-   to a `consider_footprint` misconfiguration, then a refused goal). Its map
-   scored 0.000 m duplicate wall, which is a **degenerate pass from a stationary
-   robot** and is recorded as such. The comparison is one working run away.
-   U4 is not meaningful until the map holds.
+4. **U3 (DWB vs MPPI) MEASURED — DWB stays. U4 not started.** MPPI accepted its
+   goal and aborted after ~0.5 m, and the log gives the reason: its control loop
+   ran at **4.8–11.8 Hz against the configured 20 Hz**, at batch_size 2000 on a
+   box also running Isaac, SLAM and RViz. DWB reached B on five transits of five.
+   That is a hardware/settings result, not a verdict on MPPI — a smaller batch
+   might change it, and that experiment is not run. U4 is not meaningful until
+   the map holds.
 5. **`slam_toolbox` parameter tuning is NOT the next move.** The fleet's
    near-wall study falsified it at verdict level on three bags.
