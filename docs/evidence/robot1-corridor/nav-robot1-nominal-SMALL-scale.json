@@ -1,0 +1,24 @@
+{
+  "robot": "robot1",
+  "profile": "nominal_m6_n3",
+  "caveat": "PRECONDITION FAILED (recorded, overridden): see contract-robot1-nominal_m6_n3.txt",
+  "gated": true,
+  "goal_map_frame": [
+    3.1343,
+    -2.0042
+  ],
+  "tolerance_m": 0.15,
+  "goal_accepted": true,
+  "action_status": "ABORTED",
+  "travelled_m": 0.592,
+  "final_pose_map_frame": [
+    0.585,
+    -0.1239
+  ],
+  "goal_error_m": 3.1678,
+  "failures": [
+    "action status ABORTED, not SUCCEEDED",
+    "map-frame goal error 3168 mm exceeds 150 mm (ADR 0022)"
+  ],
+  "pass": false
+}

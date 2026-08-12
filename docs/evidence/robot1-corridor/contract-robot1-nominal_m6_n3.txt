@@ -1,0 +1,13 @@
+topic          msgs      Hz   want
+scan            456    15.2   12.0  <-- OFF
+odom_raw        335    11.1   11.0
+imu             756    25.2   25.0
+battery          35     1.2    1.0
+
+scan: 360 beams, 1.0000 deg, -180.0..179.0 deg, 0.120-8.000 m, frame 'laser_frame'
+imu:  orientation_covariance[0]=-1.0 (-1 means "not provided"), accel_z mean 9.800 std 0.0130
+odom: travelled 0.316 m during the run
+batt: raw 83 -> 8.3 V
+
+=== 1 CONTRACT FAILURES ===
+  - scan at 15.2 Hz, want ~12.0

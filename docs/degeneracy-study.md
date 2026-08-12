@@ -100,6 +100,51 @@ architectures, and cannot be attributed to either alone. The comparison that
 survives the confound is the **dependency** one: whether localization continues
 when the matcher does not.
 
+## The scale finding: the corridor was 37x the robot
+
+**Added 2026-08-11, and it reframes everything above.**
+
+The authored corridor is 12 m long and 6 m wide. The robot is 0.20 x 0.16 m. The
+drawing carries no scale bar, so those metres were always demo choices -- and
+they were chosen before any robot existed. A corridor 37 times the robot's width
+does not merely exaggerate the degeneracy; it *is* the degeneracy. The walls sit
+3 m away, the end wall 11.5 m away, and robot1's MS200 (8.0 m) cannot range that
+wall at all until station 3.5 m.
+
+Scaling every length by 0.2 -- preserving every ratio, and therefore every
+geometric argument in the scenario -- gives a 2.4 m corridor, 1.2 m at the entry
+and 0.6 m at the corner, which is 3.8x the robot's width. The end wall then
+stands 2.3 m from A's spawn, inside lidar range from station 0.
+
+The effect on the same robot, same stack, same instrument:
+
+| | 6 m corridor | robot-scale corridor |
+|---|---|---|
+| First `odom_laser` at station | **9.66 m** | **0.03 m** |
+| `odom_laser` messages / rate | 12 / 0.13 Hz | **1052 / 11.69 Hz** |
+| Max consecutive withheld | 936 | 8-35 |
+| Worst EKF gap | 1.46 s | 0.36-0.54 s |
+| Nav2 map-frame goal error | 18.46 m | **3.17 m** |
+
+The matcher acquires essentially immediately and then runs at its full rate.
+**The corridor degeneracy measured across this study is, to a large extent, an
+artifact of a scene built at the wrong scale for its robot** -- not a property
+of corridors, and not a property of either chassis.
+
+That does not retract the robot2 measurements: they are true of the scene as
+authored, and ADR 0027's decision was taken against that scene. It does mean the
+~18x anisotropy is a measurement of a 6 m corridor, and a re-run of robot2 at
+robot scale is the obvious next experiment. It has not been done.
+
+What did NOT come right with scale: Nav2 still aborts. The planner reaches
+"Failed to create plan" through the 0.6 m corner rather than the earlier
+"outside bounds", so the remaining blocker is path feasibility through a narrow
+turn, which is a nav-tuning question and not a localization one.
+
+Drift also did not settle: 0.125 on one small-scale run and 0.049 on another,
+against a 0.05 bound. **One run passing and one failing is not a pass**, and n=2
+does not establish which is representative.
+
 ## Methods note: two instrument defects
 
 Both were found by running the gate, not by reading it, and both would have
