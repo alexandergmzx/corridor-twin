@@ -166,6 +166,26 @@ trap 'teardown || true' EXIT INT TERM
 # session that never came up is a rerun, not a result about the robot.
 # Marker for "which artifacts belong to THIS run".
 SESSION_MARKER=$(mktemp)
+
+# The cap covers the WHOLE session, Isaac's load included. Loading holds the GPU
+# and the machine-wide lock exactly as navigating does, and a hang during load
+# is the same problem for every other session on this box. Arming after bring-up
+# would have made the real wall time cap + load, which is not what a cap means.
+#
+# $$ inside the subshell is THIS script's pid, not the subshell's -- bash keeps
+# it across subshells -- so the watchdog signals the run and its EXIT trap tears
+# the session down on the normal path. The flag file survives the signal so the
+# exit code can say INFRASTRUCTURE rather than report a killed run as a robot
+# failure.
+( sleep "$SIM_MAX_S"
+  : > "$WATCHDOG_FLAG"
+  echo "" >&2
+  echo "**WATCHDOG: session exceeded the ${SIM_MAX_S}s cap -- tearing down**" >&2
+  kill -TERM $$ 2>/dev/null ) &
+watchdog_pid=$!
+SESSION_START_S=$(date +%s)
+echo "  watchdog armed: ${SIM_MAX_S}s cap covers bring-up AND the transit"
+
 echo "=== simctl start ==="
 # --no-patrol is NOT optional. simctl's step 7 launches sim_patrol, which drives
 # 1.0 m legs at 0.18 m/s on /cmd_vel_raw for the life of the session. Every
@@ -182,23 +202,6 @@ echo "=== simctl start ==="
 "$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" \
   --no-patrol $RVIZ_FLAG || {
   echo "**INFRASTRUCTURE: simctl start failed for $PROFILE**" >&2; exit 3; }
-
-# The session now exists and holds the GPU and the machine-wide lock. From here
-# a hang costs every other session on this machine, so the cap is armed.
-#
-# $$ inside the subshell is THIS script's pid, not the subshell's -- bash keeps
-# it across subshells -- so the watchdog signals the run, whose EXIT trap then
-# tears the session down on the normal path. A flag file survives the signal so
-# the exit code can say INFRASTRUCTURE rather than reporting a killed run as a
-# robot failure.
-( sleep "$SIM_MAX_S"
-  : > "$WATCHDOG_FLAG"
-  echo "" >&2
-  echo "**WATCHDOG: session exceeded the ${SIM_MAX_S}s cap -- tearing down**" >&2
-  kill -TERM $$ 2>/dev/null ) &
-watchdog_pid=$!
-SESSION_START_S=$(date +%s)
-echo "  watchdog armed: ${SIM_MAX_S}s cap"
 
 # Contract numbers are PER-ROBOT and do not transfer. robot2 is checked with
 # --imu-hz 60; robot1's checker carries its own WANT_HZ (scan 12 / odom_raw 11
