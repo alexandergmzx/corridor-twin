@@ -429,3 +429,119 @@ transit and 0.94–1.09 across both sweeps, and `/imu/data` matches `/imu` to
 0.01° (−48.42 vs −48.43), so **madgwick is not the amplifier**: ~15 points
 enter at the sensor and ~40 more at `robot_localization`, which has only that
 one yaw input. That last step is unexplained.
+
+---
+
+# HANDBACK — night session, 2026-08-12 (00:59 → 08:00)
+
+Budget declared 00:59, ends 08:00, no new unit after 07:30. Written as the
+mandatory deliverable, per the unattended rules.
+
+## The headline
+
+**A perceives B.** First live geometric detection of B's landmark: from
+**2.763 m** at bearing 0.255 rad, confirmed in **exactly 3 frames** (the k-of-n
+minimum), tracked down to **0.309 m**, fitted radius **0.0665 m** against an
+authored 0.063 (+5.5%), mean residual 9.3 mm over 207 confirmed frames of 3740
+scans. Evidence: `docs/evidence/robot-a-gate/NOTES-landmark.md`.
+
+The measurement is taken in the **laser frame**. Every other "where is B" in this
+system passes through the SLAM map, and the map diverged on that run exactly as
+it had all night. This one is true regardless.
+
+**And the navigation is dramatically better.** Correcting `robot_radius` from
+an inherited 0.12 to robot1's measured 0.128 m, with inflation 0.16 → 0.30,
+moved world-frame closest approach from **0.769 m to 0.244 m** and cut
+`walked_away` from 4.21 m to 0.85 m.
+
+## What is still red
+
+**The arrival gate has never passed**, and it is unchanged: Nav2 `SUCCEEDED`
+within 0.15 m map-frame. It stays red because the map diverges at the far end of
+the corridor, and a map-frame number is meaningless while the frame is wrong.
+
+## The unsolved core, stated plainly
+
+`robot_localization` reports rotation its own input does not contain:
+
+| tap | rotation | ratio vs truth |
+|---|---|---|
+| `/sim/ground_truth` | −155.57° | — |
+| `/imu` raw | −153.52° | **0.987** |
+| `/imu/data` after madgwick | −154.46° | **0.993** |
+| `/odom` after fusion | **−3645.69°** | **23.4** |
+
+Every structural explanation was eliminated by measurement, including the two I
+most expected to be the answer:
+
+- The running EKF's parameters were **dumped live**: `odom0_config` enables index
+  6 only (wheel vx), `imu0_config` index 11 only (IMU yaw-rate). Wheel yaw is
+  excluded at runtime, not merely in a file.
+- `laser_odometry` holds only a `Buffer` and a `TransformListener` and never
+  broadcasts, so there is exactly **one** publisher of `odom → base_footprint`.
+
+This is the top open item and the fix, if it is one, is **outside this repo** —
+`robot_localization`'s configuration or the twin's IMU covariances
+(`orientation_covariance[0] = -1`, "not provided").
+
+## Where the map actually dies
+
+`slam_lens` (the operator's suggestion, run unmodified — its defaults are
+robot1's contract) measured through the corridor: scan-to-map fit **0.752–1.000**
+and SLAM-pose-vs-truth divergence **0.000–0.022 m**. Two centimetres. The
+corridor is clean; the failure is at the far end, after A reaches the standoff.
+
+Two of its six tiles are not applicable here and were not quoted: duplicate-scans
+does not catch Isaac (0/3330 measured), and content-lag scores against a
+hardcoded 4 × 4 m room, not this corridor.
+
+## Instrument defects found and fixed, all load-bearing
+
+Each produced a confident number that was false.
+
+1. **The session had no ceiling.** Runs hung holding the GPU and the machine-wide
+   lock. Now a watchdog caps the whole session, bring-up included, and a killed
+   run is INFRASTRUCTURE rather than a verdict about the robot. 300 s was tried
+   and measured too tight — bring-up alone costs 140–200 s — so it is 420 s.
+2. **A startup race made every other run a no-op.** Nav2 launched before
+   `map → base_footprint` existed, bt_navigator's lifecycle transition timed out,
+   bringup aborted, and goals were rejected by an advertised-but-inactive server.
+   The readiness check polled `ros2 action list`, which cannot tell those apart.
+   Fixed by waiting for the transform and asking the lifecycle state.
+3. **The wedge detector compared yaw commands against linear speed** and reported
+   40 s and 80 s wedges for a robot rotating in place. Corrected to per-DOF; the
+   real blocked stretches are 3–6 s with half a metre of clearance. **This
+   withdrew a finding I had already committed** — `93e4066` corrects `b556c21`.
+4. **`/scan` was subscribed RELIABLE** against a BEST_EFFORT publisher, so the
+   detector received nothing and said nothing (fleet OI-20).
+5. **Editing a running bash script corrupted its execution.** Bash reads scripts
+   lazily by byte offset; a mid-run edit shifted the offsets and the live process
+   executed garbage. Cost one run. Do not edit a script while it is running.
+
+## Verification
+
+`bash tools/check_workspace.sh` green: ruff clean, **312 passed / 1 skipped**,
+colcon build 4 packages, colcon test **132 tests, 0 errors, 0 failures**.
+
+## Records landed
+
+- **ADR 0028** — A is told B's address, never the route. States plainly that
+  adoption preceded measurement, and that the arrival gate stays red.
+- **ADR 0029** — the corridor is clean, the corner is where the map dies; the
+  fusion anomaly; the landmark's adoption.
+- Both with index row and decision-map node in the same commit, per
+  `test_repository_contract.py`.
+
+## Morning decisions — parked, not taken
+
+1. **The fusion anomaly needs a fleet change.** Session rules confine writes to
+   this repo, so it is written up, not applied. It is the one thing standing
+   between the method and a green arrival gate.
+2. **Terminal docking is specified and unbuilt.** The detector reports; nothing
+   consumes it. One refinement, ever, and the demo must pass with it disabled.
+3. **Speed policy stays `[to pin after first profile run]`.** A speed derived
+   from a diverged map is not a speed.
+4. **U3 (DWB vs MPPI) and U4 (three profile runs) not started.** U4 is not
+   meaningful until the map holds.
+5. **`slam_toolbox` parameter tuning is NOT the next move.** The fleet's
+   near-wall study falsified it at verdict level on three bags.
