@@ -429,7 +429,18 @@ class CorridorGate(Node):
         self.landmark_detector = None
         self.landmark_hits: list[dict] = []
         self.landmark_frames = 0
-        self.create_subscription(LaserScan, f"{namespace}/scan", self._on_scan, 20)
+        # BEST_EFFORT, not the default RELIABLE. The twin offers /scan with
+        # sensor QoS, and a RELIABLE subscription does not match a BEST_EFFORT
+        # offer at all -- it simply receives nothing, silently, which is what
+        # made the first landmark run report scan_frames: 0 with the detector
+        # correctly armed. BEST_EFFORT matches any offer; the reverse starves
+        # (fleet OI-20).
+        from rclpy.qos import QoSProfile, ReliabilityPolicy
+
+        self.create_subscription(
+            LaserScan, f"{namespace}/scan", self._on_scan,
+            QoSProfile(depth=20, reliability=ReliabilityPolicy.BEST_EFFORT),
+        )
         # No publisher AT ALL in observe-only mode. A flag consulted inside a
         # drive loop would still leave the node able to command the robot if
         # some later caller forgot to check it; withholding the object makes
