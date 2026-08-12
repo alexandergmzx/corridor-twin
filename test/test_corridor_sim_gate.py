@@ -113,10 +113,16 @@ def test_both_rate_floors_pass_the_truncated_run_on_the_observed_basis() -> None
     assert corridor_sim_gate.MIN_EKF_HZ > TRUNCATED_RUN_EKF_MSGS / TRUNCATED_RUN_REQUESTED_S
 
 
-def test_the_ekf_rate_floor_is_the_filters_configured_frequency() -> None:
-    """10.0 Hz is ekf_sim_pnfix.yaml:86, not a number chosen to make a run pass."""
+def test_the_ekf_rate_floor_leaves_room_for_the_filter_to_be_healthy() -> None:
+    """A floor at nominal is arithmetic, not a gate.
 
-    assert corridor_sim_gate.MIN_EKF_HZ == 10.0
+    Set to 10.0 first, it failed three consecutive runs at 9.98-9.99 Hz: a
+    filter running exactly at its configured rate measures a hair under it. 9.0
+    still catches one missing a tenth of its updates.
+    """
+
+    assert corridor_sim_gate.MIN_EKF_HZ == 9.0
+    assert corridor_sim_gate.MIN_EKF_HZ < 10.0, "the EKF's configured frequency"
     assert corridor_sim_gate.MIN_ODOM_LASER_HZ_FRACTION == 0.5
 
 

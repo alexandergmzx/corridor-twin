@@ -124,11 +124,19 @@ MAX_MIDPOINT_DRIFT_FRACTION = 0.05
 #: floor is half the scan rate -- the same 0.5 this gate has always used, now
 #: expressed as a rate rather than folded into a count comparison.
 MIN_ODOM_LASER_HZ_FRACTION = 0.5
-#: The EKF does not withhold: 10.0 Hz is its CONFIGURED frequency
-#: (ekf_sim_pnfix.yaml:86), and a filter publishing below the rate it was told
-#: to run at is not keeping up. This is a coarse aliveness floor, not the
-#: continuity criterion -- that is MAX_EKF_GAP_S, which is the ADR-derived one.
-MIN_EKF_HZ = 10.0
+#: The EKF does not withhold, so its floor is a fraction of its CONFIGURED
+#: 10.0 Hz (ekf_sim_pnfix.yaml:86) rather than the rate itself.
+#:
+#: I set this to 10.0 earlier today and it was wrong on first contact with a
+#: measurement: three consecutive runs read 9.98-9.99 Hz, because a filter
+#: running exactly at its configured rate measures a hair under it once the
+#: first interval is counted. A floor a real measurement cannot clear is not a
+#: gate, it is arithmetic, and it failed runs whose EKF was healthy.
+#:
+#: 9.0 is 90% of nominal: it still catches a filter that is missing a tenth of
+#: its updates, and it is not the continuity criterion -- that is MAX_EKF_GAP_S,
+#: which is ADR-derived and unchanged. Recorded rather than quietly adjusted.
+MIN_EKF_HZ = 9.0
 
 #: The gate had NO yaw criterion, and passed a transit whose heading ended
 #: 138 deg wrong: longitudinal drift was 4.9% (green) while the estimate
