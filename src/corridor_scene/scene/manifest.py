@@ -17,6 +17,7 @@ from .geometry import (
     a_start_xyz,
     all_surveys,
     building_footprints,
+    landmark_xyz,
     occluders,
     person_b_xyz,
     police_bounds,
@@ -106,6 +107,12 @@ def manifest_data(
             # stand off from it. A consumer cannot derive that from b_xyz_m
             # alone, so the size travels with the position.
             "b_size_xyz_m": scenario.actors.b_size_xyz_m,
+            # The landmark detector's ONLY source for the radius it fits. A
+            # second literal in the detector would silently keep matching an
+            # old prop after a scenario rescale.
+            "landmark_xyz_m": list(landmark_xyz(scenario)),
+            "landmark_radius_m": scenario.actors.landmark_radius_m,
+            "landmark_height_m": scenario.actors.landmark_height_m,
         },
         "fiducials": {
             "dictionary": scenario.fiducials.dictionary,

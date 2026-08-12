@@ -132,6 +132,12 @@ class ActorSpec:
 
     b_size_xyz_m: Vec3
     a_size_xyz_m: Vec3
+    #: B's lidar-detectable landmark. Radius is the detector's single source of
+    #: truth: it reaches the detector through the manifest so the expected size
+    #: and the authored size can never drift apart into two literals.
+    landmark_radius_m: float
+    landmark_height_m: float
+    landmark_offset_m: float
 
 
 @dataclass(frozen=True)
@@ -270,6 +276,9 @@ def load_scenario(path: Path | None = None) -> Scenario:
     actors = ActorSpec(
         b_size_xyz_m=_xyz(actors_raw["b_size_xyz_m"], "actors.b_size_xyz_m"),
         a_size_xyz_m=_xyz(actors_raw["a_size_xyz_m"], "actors.a_size_xyz_m"),
+        landmark_radius_m=float(actors_raw["landmark_radius_m"]),
+        landmark_height_m=float(actors_raw["landmark_height_m"]),
+        landmark_offset_m=float(actors_raw["landmark_offset_m"]),
     )
     police_raw = raw["police"]
     police = PoliceSpec(

@@ -144,6 +144,25 @@ actors:
   # is placed (the twin IS A in v2), but the size is authored here so the
   # scenario has no hardcoded lengths left in the actor block.
   a_size_xyz_m: [0.65, 0.45, 0.5]
+  # B carries a landmark A can SENSE: a cylindrical post beside B, standing in
+  # the lidar's plane. It is the thing that lets A confirm it has arrived at a
+  # person rather than at a coordinate, and it is the only measurement of B
+  # that survives a diverged map -- it is taken in the laser frame, so it does
+  # not care what the map believes.
+  #
+  # GEOMETRIC, never reflective. A cylinder is circular in section, so it
+  # returns an arc of known radius from every bearing, which a flat wall and a
+  # convex corner do not. Detecting by RETURN INTENSITY was considered and
+  # rejected: sim-vs-real intensity fidelity is an unowned contract question,
+  # and a detector that works only in Isaac proves nothing about the robot.
+  #
+  # The radius is the detector's single source of truth and reaches it through
+  # the manifest, never as a second literal.
+  landmark_radius_m: 0.15
+  landmark_height_m: 0.9
+  # Clear of B's own footprint so the post is not swallowed by the box it
+  # marks; placed on the street side, which is the side A approaches from.
+  landmark_offset_m: 0.4
 
 police:
   # P stands inside the next street's east side, on the near (inner) side of

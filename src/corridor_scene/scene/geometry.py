@@ -497,6 +497,26 @@ def street_drive_center_x_m(scenario: Scenario) -> float:
     return (scenario.street_west_m + stub_west) / 2.0
 
 
+def landmark_xyz(scenario: Scenario) -> Vec3:
+    """Where B's lidar-detectable post stands.
+
+    Offset from B's centre TOWARD THE STREET CENTRELINE, which is the side A
+    approaches from and the side B's own box would otherwise hide the post on.
+    The direction is derived the same way the delivery standoff derives its own
+    (`corridor_nav_gate.delivery_standoff_world`) -- from the street geometry,
+    never from the authored route, because taking a bearing from the authored
+    waypoints is the level indicator ADR 0022 removed.
+
+    One function, so the authored prop and the manifest the detector reads can
+    never describe two different places.
+    """
+
+    b_x, b_y, b_z = person_b_xyz(scenario)
+    lane_offset = scenario.street_center_x_m - b_x
+    direction = math.copysign(1.0, lane_offset) if lane_offset else -1.0
+    return (b_x + direction * scenario.actors.landmark_offset_m, b_y, b_z)
+
+
 def person_b_xyz(scenario: Scenario) -> Vec3:
     """Return B's position in the pocket behind the east-wall stub.
 

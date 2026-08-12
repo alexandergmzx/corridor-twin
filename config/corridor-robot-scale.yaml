@@ -103,6 +103,9 @@ actors:
   - 0.273
   - 0.189
   - 0.21
+  landmark_radius_m: 0.063
+  landmark_height_m: 0.378
+  landmark_offset_m: 0.168
 police:
   body_size_xyz_m:
   - 0.252

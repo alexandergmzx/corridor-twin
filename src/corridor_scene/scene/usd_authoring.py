@@ -11,6 +11,7 @@ from .geometry import (
     all_surveys,
     building_footprints,
     corridor_faces,
+    landmark_xyz,
     person_b_xyz,
     plate_backing_corners,
     police_bounds,
@@ -52,6 +53,34 @@ def _marker_material(stage: Usd.Stage, marker_id: int) -> UsdShade.Material:
     surface.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(1.0)
     material.CreateSurfaceOutput().ConnectToSource(surface.ConnectableAPI(), "surface")
     return material
+
+
+def _cylinder(
+    stage: Usd.Stage,
+    path: str,
+    radius: float,
+    height: float,
+    center_xyz: tuple[float, float, float],
+    material: UsdShade.Material,
+) -> UsdGeom.Cylinder:
+    """A vertical post. Circular in section, which is the whole point.
+
+    A cylinder returns an arc of KNOWN RADIUS from every bearing, which is what
+    makes it separable from a flat wall and from a convex corner in a single
+    scan -- and separable without ever consulting return intensity, whose
+    sim-to-real fidelity nobody in this project owns.
+    """
+
+    cylinder = UsdGeom.Cylinder.Define(stage, path)
+    cylinder.CreateRadiusAttr(radius)
+    cylinder.CreateHeightAttr(height)
+    cylinder.CreateAxisAttr("Z")
+    cylinder.CreateExtentAttr(
+        [(-radius, -radius, -height / 2.0), (radius, radius, height / 2.0)]
+    )
+    UsdGeom.Xformable(cylinder).AddTranslateOp().Set(Gf.Vec3d(*center_xyz))
+    UsdShade.MaterialBindingAPI(cylinder).Bind(material)
+    return cylinder
 
 
 def _cube(
@@ -275,6 +304,19 @@ def _author_shared_actors(
     bx, by, bz = person_b_xyz(scenario)
     b_size = scenario.actors.b_size_xyz_m
     _cube(stage, "/World/Actors/B", b_size, (bx, by, bz + b_size[2] / 2.0), actor_material)
+
+    # B's landmark: the post A senses. Placed by geometry.landmark_xyz so the
+    # prop and the manifest the detector reads cannot describe two places.
+    lx, ly, lz = landmark_xyz(scenario)
+    actors = scenario.actors
+    _cylinder(
+        stage,
+        "/World/Actors/BLandmark",
+        actors.landmark_radius_m,
+        actors.landmark_height_m,
+        (lx, ly, lz + actors.landmark_height_m / 2.0),
+        actor_material,
+    )
 
 
 def _author_profile_actors(
