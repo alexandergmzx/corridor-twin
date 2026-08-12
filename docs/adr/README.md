@@ -45,11 +45,10 @@ Three status strings differ between a file and this index, each deliberately:
 | [0025](0025-fleet-workspace-membership.md) | Accepted | Join the fleet workspace by symlink and pin; domains 42/43 stand, 44 reserved |
 | [0026](0026-isolation-verification.md) | Accepted | Verify the committed isolation mechanism: producer + crossing gates, certificate green, mutation red |
 | [0027](0027-robot-a-selection-outcome.md) | Accepted | **Corridor gate FAILED on both gated profiles; robot A stays robot1** (ADR 0022 fallback) |
+| [0028](0028-goal-directed-navigation-on-a-live-map.md) | Accepted | A is told B's address, never the route; goal is a standoff beside B. **Method validated in world frame; the arrival gate stays red** |
 
-Reserved, written only when their evidence exists: **0026** (isolation
-verification under the 0021 crossing — protocol in
-[`docs/v2-plan.md`](../v2-plan.md) §5) and **0027** (robot-A selection outcome
-and degeneracy study — protocol in [`docs/v2-plan.md`](../v2-plan.md) §6).
+0026 and 0027 have since landed with their evidence and are listed above; the
+line that reserved them is retired rather than left to read as pending.
 
 ## Decision map
 
@@ -117,6 +116,8 @@ flowchart LR
 
     A8 --> A25["0025<br/>Fleet workspace<br/>membership"]
     A22 --> A27["0027<br/>Robot A outcome<br/>GATE FAILED"]
+    A23 --> A28["0028<br/>Address not route<br/>goal = standoff beside B"]
+    A27 --> A28
     A20 --> A26["0026<br/>Isolation<br/>VERIFIED"]
     A21 --> A26
     A20 --> A25
@@ -137,6 +138,7 @@ flowchart LR
     A25 --> Demo
     A26 --> Demo
     A27 --> Demo
+    A28 --> Demo
 
     classDef source fill:#1f3d5c,color:#ffffff,stroke:#6bb6ff,stroke-width:2px;
     classDef superseded fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
