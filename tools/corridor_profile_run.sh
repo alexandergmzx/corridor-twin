@@ -39,6 +39,9 @@ ALLOW_CONTRACT_FAIL=0
 # transit is allowed to take, not an independent number that can silently
 # truncate a slow delivery.
 GATE_SECONDS=""
+# Corridor-local slam_toolbox params, launched by us. Empty restores the fleet
+# canonical via simctl's own SLAM step.
+SLAM_PARAMS="$REPO/config/robot1/slam_robot1_corridor.yaml"
 # RViz ON by default: these runs are watched, and the viewport is how a
 # divergence gets noticed at all -- the ghosting that started this whole
 # sequence was seen there first. --no-rviz for a genuinely unattended run.
@@ -74,6 +77,7 @@ while [ $# -gt 0 ]; do
     --gate-seconds) GATE_SECONDS="$2"; shift 2 ;;
     --nav-timeout) NAV_TIMEOUT="$2"; shift 2 ;;
     --sim-max-s) SIM_MAX_S="$2"; shift 2 ;;
+    --fleet-slam) SLAM_PARAMS=""; shift ;;
     --rviz) RVIZ_FLAG=""; shift ;;
     --no-rviz) RVIZ_FLAG="--no-rviz"; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -147,6 +151,7 @@ source "$WS_SETUP"
 set -u
 
 nav_pid=""
+slam_pid=""
 recorder_pid=""
 watchdog_pid=""
 WATCHDOG_FLAG="$(mktemp -u)"
@@ -157,6 +162,7 @@ teardown() {
   echo "=== stopping $PROFILE on domain $DOMAIN ==="
   [ -n "$nav_pid" ] && kill -TERM "$nav_pid" 2>/dev/null || true
   [ -n "$recorder_pid" ] && kill -TERM "$recorder_pid" 2>/dev/null || true
+  [ -n "$slam_pid" ] && kill -TERM "$slam_pid" 2>/dev/null || true
   [ -n "$watchdog_pid" ] && kill -TERM "$watchdog_pid" 2>/dev/null || true
   "$SIMCTL" stop --domain "$DOMAIN" || true
   sleep 3
@@ -205,8 +211,14 @@ echo "=== simctl start ==="
 # (2727c0c). Measured from the bag, the EKF's worst gap was 0.398 s with none
 # over threshold. RViz is back on by default -- the viewport is how the
 # ghosting was noticed in the first place.
+# --no-slam when we supply our own params: simctl's SLAM step hardcodes its
+# launch string and takes no config hook, but slam_launch.py itself declares
+# `params_file` (replay_slam_bag.py is the standing precedent for using it). So
+# the corridor supplies corridor params without editing a single fleet file.
+SLAM_FLAG=""
+[ -n "$SLAM_PARAMS" ] && SLAM_FLAG="--no-slam"
 "$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" \
-  --no-patrol $RVIZ_FLAG || {
+  --no-patrol $RVIZ_FLAG $SLAM_FLAG || {
   echo "**INFRASTRUCTURE: simctl start failed for $PROFILE**" >&2; exit 3; }
 
 # Contract numbers are PER-ROBOT and do not transfer. robot2 is checked with
@@ -267,6 +279,14 @@ status=0
 #
 # That startup race is why nominally identical runs alternated between reaching
 # 0.24 m of B and never leaving the spawn.
+if [ -n "$SLAM_PARAMS" ]; then
+  echo "=== slam_toolbox (corridor params: $(basename "$SLAM_PARAMS")) ==="
+  ros2 launch yahboomcar_config slam_launch.py "params_file:=$SLAM_PARAMS" \
+    >"$EVIDENCE/slam-$ROBOT-$PROFILE.log" 2>&1 &
+  slam_pid=$!
+  sleep 10
+fi
+
 echo "=== waiting for the TF chain ==="
 if ! python3 "$REPO/tools/wait_for_tf.py" --target map --source base_footprint --timeout 120; then
   echo "**INFRASTRUCTURE: map->base_footprint never appeared; twin TF is not up**" >&2
