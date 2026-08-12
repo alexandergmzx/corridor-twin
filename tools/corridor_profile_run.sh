@@ -406,7 +406,19 @@ if ! "$REPO/.venv/bin/python" "$REPO/tools/export_scan_walls.py" \
      --out "$SCAN_RELAY_WALLS_JSON"; then
   rerun "could not export the scan filter's wall model from $MANIFEST"
 fi
-manifest --set "scan_walls=$SCAN_RELAY_WALLS_JSON"
+# AND HOW MANY BEAMS COUNT AS A SCAN. The relay's other closed-room constant:
+# it wants 200 valid returns of 360, which every beam in a 4 x 4 m box provides
+# and an open corridor does not. Measured over 5293 scans of this scene: median
+# 175 valid, mean 181, min 72 -- so that gate alone rejects 64.3% of good scans
+# before geometry is even considered, which is why the filter still failed open
+# after it was handed the right walls.
+#
+# 120 is measured, not chosen to pass: 96.5% of this scene's scans clear it, and
+# the geometry test independently refuses to judge on fewer than 90 comparable
+# beams, so the "mostly sentinel is junk" guard this replaces still holds.
+export SCAN_RELAY_MIN_VALID_BEAMS=120
+manifest --set "scan_walls=$SCAN_RELAY_WALLS_JSON" \
+         --set "scan_min_valid_beams=$SCAN_RELAY_MIN_VALID_BEAMS"
 
 echo "=== simctl start ==="
 # --no-patrol is NOT optional. simctl's step 7 launches sim_patrol, which drives
