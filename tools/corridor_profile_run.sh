@@ -212,6 +212,28 @@ from run_manifest import git_commit, merge
 merge(sys.argv[1], {"git": git_commit(pathlib.Path(sys.argv[2]))})
 PY
 
+# THE ARENA MUST BE THE SCENARIO THE RUN WILL PLAN, and this is checked before
+# a single second of Isaac is spent on it.
+#
+# On 2026-08-12 it was not. The arenas on disk were the unscaled 12 m scene --
+# B at (16.79, -8.0), no landmark post in the stage at all -- while the nav gate
+# planned from the 0.30-scale manifest and put the goal at (4.11, -2.93).
+# Nothing failed: the goal was accepted, Nav2 drove to it and reported
+# SUCCEEDED, and the run recorded a 5.754 m delivery error and a landmark
+# "confirmed" at 1.06 m in a stage that contains no post.
+#
+# Correcting the two defaults that caused it is not enough by itself; the next
+# drift will come from somewhere else. This catches the class.
+#
+# .venv, not python3: `pxr` lives in this repo's venv, and the ROS workspace
+# this script sources does not carry it.
+echo "=== precondition: the arena is the scenario ==="
+if ! "$REPO/.venv/bin/python" "$REPO/tools/check_arena_matches_manifest.py" \
+     --arena "$ARENA" --manifest "$MANIFEST" --profile "$PROFILE" \
+     --json "$RUN_DIR/arena-check.json"; then
+  rerun "the arena and the manifest are different scenarios (see $RUN_DIR/arena-check.json)"
+fi
+
 occupants() {
   local ancestry=" $$ " walk=$PPID
   while [ -n "$walk" ] && [ "$walk" -gt 1 ] 2>/dev/null; do

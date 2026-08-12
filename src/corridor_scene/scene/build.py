@@ -17,7 +17,20 @@ from .usd_authoring import author_stage
 #: v1's abstract robot A was a 0.45 m box, so 0.3 m stood in for its half-width
 #: with margin. Kept as the default so every existing invocation is unchanged;
 #: a real robot passes its own (robot1: 0.16 m wide, 0.12 m circumscribed).
-ROUTE_MARGIN_DEFAULT_M = 0.3
+#: Half-width of the vehicle the route must admit, perpendicular to the heading.
+#:
+#: This describes the ROBOT, so it does not move when the scenario is scaled --
+#: which is exactly why 0.3 was wrong. 0.3 was a stand-in from the authored 12 m
+#: scene, where it cost nothing; it describes a vehicle 0.6 m across. robot1 is
+#: 0.20 x 0.16 m, and 0.128 m is its CIRCUMSCRIBED radius -- the same measured
+#: number ADR 0029 pinned as `robot_radius` in nav2_robot1_corridor.yaml, and
+#: the right one here for the same reason: the body turns.
+#:
+#: At the committed 0.30 factor the scaled route admits 0.2 m and rejects 0.3 m
+#: on all three profiles, so the old default made the scenario-as-run fail its
+#: own validator. 0.128 is chosen because it is the robot, not because it is the
+#: largest value that passes.
+ROUTE_MARGIN_DEFAULT_M = 0.128
 
 
 def _slug(value: float) -> str:

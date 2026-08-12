@@ -59,7 +59,7 @@ from police_observer.estimator import (  # noqa: E402
 )
 from police_observer.synthetic import SyntheticCamera  # noqa: E402
 from scene.build import build_scene  # noqa: E402
-from scene.model import load_scenario  # noqa: E402
+from scene.model import authored_config_path, load_scenario  # noqa: E402
 from scene.occlusion import _mesh_triangles, _segment_hits_triangle, opaque_mesh_prims  # noqa: E402
 from scene.trajectory import delivery_trajectory  # noqa: E402
 
@@ -129,7 +129,10 @@ def _run_one(
     # would multiply by the same field the estimator divides by, so an error in
     # it cancelled exactly and this report -- the primary accuracy instrument --
     # was blind to the one conversion the tapered corridor made necessary.
-    scenario = load_scenario()
+    # The v1 camera program's own scene. Its schedule windows are stated in
+    # authored metres, so it must not follow the default to the robot-scale
+    # scenario -- that would silently sample a corridor a third the length.
+    scenario = load_scenario(authored_config_path())
     trajectory = delivery_trajectory(scenario, scenario.profile(profile_name))
     triangles: list[Any] = []
     if check_visibility:
@@ -254,7 +257,14 @@ def run_report(
     """
 
     scratch_dir.mkdir(parents=True, exist_ok=True)
-    stage_path, manifest_path = build_scene(None, scratch_dir / "corridor.usda", 6.0, 3.0)
+    # The AUTHORED scene, explicitly: this report is the v1 camera program and
+    # its schedule windows are authored metres. Following the default to the
+    # robot-scale scenario would sample a corridor a third the length while
+    # still asking for (6.0, 3.0), which resolve_profiles appends as a new
+    # profile rather than refusing.
+    stage_path, manifest_path = build_scene(
+        authored_config_path(), scratch_dir / "corridor.usda", 6.0, 3.0
+    )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     schedule = schedule or Schedule(
         rate_hz=float(manifest["camera"]["rate_hz"]),

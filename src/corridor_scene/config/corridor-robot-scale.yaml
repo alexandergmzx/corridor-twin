@@ -31,6 +31,9 @@ geometry:
   building_height_m: 1.2
   wall_thickness_m: 0.15
   west_margin_m: 0.6
+  corner_screen:
+    north_margin_m: 0.12
+    width_m: 0.12
   next_street:
     clear_width_m: 1.8
     length_m: 6.0

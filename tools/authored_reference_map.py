@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the AUTHORED corridor as the map a perfect SLAM would have produced.
 
-    python3 tools/authored_reference_map.py --config config/corridor-robot-scale.yaml \\
+    python3 tools/authored_reference_map.py \\
         --profile nominal_m6_n3 --resolution 0.02 --out out/evidence/authored-map.yaml
 
 WHY THIS EXISTS
@@ -136,13 +136,16 @@ def write_map(grid, origin_x: float, origin_y: float, resolution: float, out: Pa
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--config", default="config/corridor-robot-scale.yaml")
+    # Default None -> scene.model.default_config_path(), which IS the scenario
+    # as run. Hardcoding the path here made this tool a second place that had
+    # to be told which scenario was current.
+    parser.add_argument("--config", default=None)
     parser.add_argument("--profile", default="nominal_m6_n3")
     parser.add_argument("--resolution", type=float, default=0.02)
     parser.add_argument("--out", required=True)
     arguments = parser.parse_args()
 
-    scenario = load_scenario(Path(arguments.config))
+    scenario = load_scenario(Path(arguments.config) if arguments.config else None)
     profile = next(p for p in scenario.profiles if p.name == arguments.profile)
 
     grid, origin_x, origin_y = render(scenario, profile, arguments.resolution)

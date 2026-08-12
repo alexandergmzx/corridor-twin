@@ -583,7 +583,10 @@ def police_bounds(scenario: Scenario, profile: CorridorProfile) -> tuple[Vec3, V
 # of clearance up to m=10), and it is a proxy: ``validate_layout`` still
 # checks the built profile's actual route against the screen via ``is_clear``
 # rather than trusting this number alone.
-CORNER_SCREEN_NORTH_MARGIN_M = 0.4
+# MOVED TO THE SCENARIO YAML (geometry.corner_screen.north_margin_m). It is a
+# dimension of the scene, so it must scale with the scene; as a constant here
+# it stayed 0.4 m in a corridor whose corner is 0.9 m wide.
+# (see geometry.corner_screen in the scenario YAML)
 
 # The screen only has to separate P from a source that is already close to it
 # in X -- a ray from anywhere on the approach or the early turn crosses the
@@ -595,7 +598,8 @@ CORNER_SCREEN_NORTH_MARGIN_M = 0.4
 # profile; this is a wider, still-narrow margin, and it keeps clear of the
 # north-wall reference plates at along_m 13 and 15 (and 17, moved to 15.6 by
 # this same ADR), which a screen reaching further west would otherwise occlude.
-CORNER_SCREEN_WIDTH_M = 0.4
+# MOVED TO THE SCENARIO YAML (geometry.corner_screen.width_m), same reason.
+# (see geometry.corner_screen in the scenario YAML)
 
 
 def corner_screen_bounds(
@@ -633,9 +637,9 @@ def corner_screen_bounds(
     police_min, _ = police_bounds(scenario, profile)
     x_max = police_min[0] - scenario.police.minimum_clearance_m
     return (
-        max(0.0, x_max - CORNER_SCREEN_WIDTH_M),
+        max(0.0, x_max - scenario.corner_screen.width_m),
         x_max,
-        centerline_at_corner + CORNER_SCREEN_NORTH_MARGIN_M,
+        centerline_at_corner + scenario.corner_screen.north_margin_m,
         north_face,
     )
 

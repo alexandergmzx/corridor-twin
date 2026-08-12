@@ -26,6 +26,23 @@ geometry:
   building_height_m: 4.0
   wall_thickness_m: 0.5
   west_margin_m: 2.0
+  # ADR 0019's corner screen, authored HERE rather than as constants in
+  # geometry.py, because they are dimensions of the scene and must scale with
+  # it. They did not: at the committed 0.30 factor a 0.4 m north margin was
+  # still 0.4 m in a corridor whose corner is 0.9 m wide, so the screen sat
+  # most of a half-width north of where it belonged and stopped blocking
+  # anything. The certificate then failed on the scenario that actually runs --
+  # P visible for the whole approach and the first metre of the arc -- while
+  # passing on the authored one, which is the only scene anything tested.
+  corner_screen:
+    # South face clearance above the highest point A's own path reaches at the
+    # corner. A proxy for the trajectory solve this module cannot reach without
+    # an import cycle; validate_layout still checks the real route via is_clear.
+    north_margin_m: 0.4
+    # The screen only has to separate P from a source already close to it in X.
+    # 0.1 m already holds visible=() on nominal; 0.4 is the wider, still-narrow
+    # margin that keeps clear of the north-wall reference plates.
+    width_m: 0.4
   next_street:
     clear_width_m: 6.0
     # 20.0, from 10.0. The street grows SOUTHWARD, and southward is exactly

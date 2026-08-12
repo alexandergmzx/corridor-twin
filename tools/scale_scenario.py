@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Derive a robot-scale corridor config from the authored one.
 
-    python3 tools/scale_scenario.py --factor 0.2 --out config/corridor-robot-scale.yaml
+    python3 tools/scale_scenario.py --factor 0.3 \\
+        --out src/corridor_scene/config/corridor-robot-scale.yaml
 
 WHY THIS EXISTS
 ---------------

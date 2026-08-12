@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from police_observer.estimator import MarkerMap, normalized_speed_rules
 from scene.build import build_scene
+from scene.model import authored_config_path
 
 # The limits ADR 0016 fixes for the shipped configuration.
 EXPECTED_LIMITS = [(2.0, 1.5), (4.0, 1.2), (6.0, 1.2), (8.0, 0.8), (10.0, 0.8)]
@@ -26,7 +27,13 @@ EXPECTED_LIMITS = [(2.0, 1.5), (4.0, 1.2), (6.0, 1.2), (8.0, 0.8), (10.0, 0.8)]
 @pytest.fixture(scope="module")
 def manifest(tmp_path_factory: pytest.TempPathFactory) -> Path:
     output = tmp_path_factory.mktemp("speed_policy") / "corridor.usda"
-    _, manifest_path = build_scene(None, output, 6.0, 3.0)
+    # THE AUTHORED SCENE, explicitly. These tests describe the v1 camera
+    # enforcement program -- surveyed ArUco stations, the shipped speed policy's
+    # width thresholds -- and all of it is stated in authored metres. The
+    # default config is now the 0.30-scale scenario the robot drives, where
+    # (6.0, 3.0) is not a profile at all and resolve_profiles would append it
+    # as a 6 m entry inside a 3.6 m corridor.
+    _, manifest_path = build_scene(authored_config_path(), output, 6.0, 3.0)
     return manifest_path
 
 

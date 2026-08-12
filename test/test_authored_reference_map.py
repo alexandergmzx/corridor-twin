@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "src/corridor_scene"))
 from authored_reference_map import FREE, OCCUPIED, UNKNOWN, render  # noqa: E402
 from scene.model import load_scenario  # noqa: E402
 
-CONFIG = ROOT / "config/corridor-robot-scale.yaml"
+CONFIG = ROOT / "src/corridor_scene/config/corridor-robot-scale.yaml"
 
 
 @pytest.fixture(scope="module")
@@ -95,30 +95,49 @@ def test_the_render_contains_all_three_classes(rendered) -> None:
         assert values.count(value) > 100, f"almost no {name} cells: not a corridor"
 
 
-#: The authored corridor's own duplicate-wall reading. It is NOT zero any more:
-#: rescaling to 0.30 and lengthening the street moved it from 0.000 to 0.060 m.
-#: That is the floor a run's score has to be judged against -- a run reading
-#: 0.30 m is 0.24 m of error, not 0.30.
-AUTHORED_DUPLICATE_WALL_FLOOR_M = 0.060
+#: The authored corridor's own duplicate-wall reading, MEASURED 2026-08-12 at
+#: the corrected corner-screen geometry.
+#:
+#: It reads 0.340 m, and it used to read 0.060 m. Nothing about the map got
+#: worse: the corner screen's north margin was a code constant that did not
+#: scale, so in the 0.30 scene it sat 0.4 m north of the corner centreline
+#: instead of 0.12 m. That short screen left P visible for the whole approach --
+#: the occlusion certificate failed on the scenario that runs -- and it was also
+#: short enough that the scorer did not count it.
+#:
+#: At the correct length the screen is a 0.12 m partition running north-south,
+#: 0.33 m west of the east wall's inner face and parallel to it. A perfect map
+#: of this scene contains both, and `duplicate wall extent` cannot tell that
+#: pair apart from one wall drawn twice at 0.02 m resolution.
+#:
+#: Measured, margin against floor, everything else fixed:
+#:   north_margin 0.40 -> 0.060 m floor, occlusion certificate FAILS
+#:   north_margin 0.12 -> 0.340 m floor, occlusion certificate PASSES
+#: The screen width does not move it at all (0.12 and 0.40 both read the same).
+AUTHORED_DUPLICATE_WALL_FLOOR_M = 0.340
 
 #: Where the metric stops working. Measured by sweeping street length at a fixed
 #: scale: the floor holds at 0.060 m out to a 6.0 m street and jumps to 0.820 m
-#: at 7.2 m, at which point the metric can no longer convict a bad map. The
-#: scenario's street is sized to stay below this.
+#: at 7.2 m, at which point the metric can no longer convict a bad map.
+#:
+#: **THE FLOOR IS NOW ABOVE THIS CEILING, AND THAT IS A PARKED DECISION.**
+#: 0.20 m is an absolute number from the fleet's 4x4 m room. The corridor was
+#: rescaled by 0.30 and the threshold was not, so it is now 3.33x stricter in
+#: relative terms than where it was measured. Either the limit is re-derived at
+#: the corridor's scale, or a run is scored as (reading - floor). Both are
+#: threshold decisions, and a threshold is pinned by an ADR, not by a session
+#: that happened to trip over it. Until then `map score <= 0.20` is not a
+#: criterion this scenario can meet, and no run should be failed on it.
 FLOOR_CEILING_M = 0.20
 
 
 def test_the_authored_corridor_scores_a_known_small_floor() -> None:
     """The control's actual result, pinned so a geometry change cannot erode it.
 
-    This test earned its keep: it caught a scenario edit that pushed the
-    authored floor from 0.000 m to 0.820 m, which would have left every run
-    compared against a threshold the empty scene already failed. The street was
-    sized down until the floor came back under control.
-
-    If a future edit pushes it past FLOOR_CEILING_M, the run-map threshold stops
-    meaning "divergence" and this fails here rather than quietly forgiving a
-    smeared map in a GPU run.
+    This test earned its keep twice. It caught a scenario edit that pushed the
+    authored floor from 0.000 m to 0.820 m, and on 2026-08-12 it caught the
+    corner screen's north margin failing to scale -- a defect whose other half
+    was P visible along the entire approach.
     """
 
     scorer = Path.home() / "Development/robot-fleet/src/yahboomcar-ros2/tools/score_slam_map.py"
@@ -145,7 +164,12 @@ def test_the_authored_corridor_scores_a_known_small_floor() -> None:
     assert measured == pytest.approx(AUTHORED_DUPLICATE_WALL_FLOOR_M, abs=0.02), (
         f"the authored floor moved: {line.strip()}"
     )
-    assert measured < FLOOR_CEILING_M, (
-        f"the authored corridor now scores {measured} m of duplicate wall, so the "
-        f"metric can no longer convict a run: {line.strip()}"
+    # NOT asserted as `measured < FLOOR_CEILING_M`, because it is not, and
+    # writing the assertion the other way round would be choosing a threshold
+    # to make a suite green. The contradiction is pinned instead, so it stays
+    # loud until an ADR settles it.
+    assert measured > FLOOR_CEILING_M, (
+        "the floor came back under the ceiling; if that is a real geometry "
+        "improvement, this test and the parked threshold decision both need "
+        f"revisiting: {line.strip()}"
     )
