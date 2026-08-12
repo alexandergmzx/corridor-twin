@@ -91,13 +91,33 @@ def test_the_goal_tracks_the_landmark_even_when_the_map_pose_is_wrong() -> None:
 # --- arming ------------------------------------------------------------------
 
 
-def test_the_detector_is_ignored_far_from_the_goal() -> None:
-    """Corridor geometry is the only thing in range out there."""
+def test_a_far_detection_does_not_arm() -> None:
+    """Range-gated, in the LASER frame."""
 
-    machine = DockingMachine(nominal_goal=(50.0, 0.0))
+    machine = DockingMachine(nominal_goal=(0.0, 0.0))
 
-    assert machine.step((0.0, 0.0), 0.0, _verdict(2.0, 0.0)) is None
+    assert machine.step((0.0, 0.0), 0.0, _verdict(9.0, 0.0)) is None
     assert machine.state == DockingMachine.TRANSIT
+
+
+def test_arming_does_NOT_depend_on_the_map_pose() -> None:
+    """The bug that made docking never fire on a real run.
+
+    Arming used to compare the robot's MAP pose against the MAP goal. On a run
+    where A came within 0.49 m of B physically, its drifted map pose never came
+    within 3 m of the map goal, so the machine sat in TRANSIT with zero
+    refinements while the detector was confirming B the whole time.
+
+    Here the map pose is absurdly far from the nominal goal and docking must
+    still arm, because the LASER says B is two metres away.
+    """
+
+    machine = DockingMachine(nominal_goal=(500.0, -500.0))
+
+    goal = machine.step((0.0, 0.0), 0.0, _verdict(2.0, 0.0))
+
+    assert goal is not None
+    assert machine.refinements == 1
 
 
 def test_an_unconfirmed_verdict_never_moves_the_goal() -> None:
@@ -115,9 +135,11 @@ def test_refinement_is_bounded_and_then_stops() -> None:
 
     machine = DockingMachine(nominal_goal=(0.0, 0.0), max_refinements=2)
     issued = []
-    # Each step moves the apparent landmark far enough to justify a re-issue.
-    for step in range(8):
-        goal = machine.step((0.0, 0.0), 0.0, _verdict(3.0 + step * 0.5, 0.0))
+    # Ranges stay inside the arm radius and outside the docked band, and each
+    # moves the estimate 0.3 m -- past the 0.20 m re-issue threshold -- so every
+    # step would re-issue if nothing bounded it.
+    for step in range(6):
+        goal = machine.step((0.0, 0.0), 0.0, _verdict(2.9 - step * 0.3, 0.0))
         if goal is not None:
             issued.append(goal)
 

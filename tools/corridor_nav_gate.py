@@ -296,6 +296,8 @@ def main() -> int:
                 pose_x, pose_y, pose_yaw = gate.map_pose_yaw()
             except Exception:  # noqa: BLE001 - TF gaps are normal mid-transit
                 continue
+            # The pose is used to EXPRESS the goal, never to decide whether to
+            # dock: arming is on the detected range alone (corridor_dock.armed).
             refined = machine.step((pose_x, pose_y), pose_yaw, gate.last_verdict)
             if refined is None:
                 continue

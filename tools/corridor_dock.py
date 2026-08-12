@@ -45,9 +45,19 @@ from __future__ import annotations
 
 import math
 
-#: Arm only near the goal. Far from B, corridor geometry is the only thing in
-#: range and every candidate is a false one; this is what makes the k-of-n
-#: confirmation cheap rather than a running battle with the walls.
+#: Arm on the DETECTED RANGE, which is a laser-frame quantity.
+#:
+#: The first version armed on the map-frame distance from the robot to the
+#: nominal goal, which is precisely the number this whole mechanism exists to
+#: not trust: on a run where A came within 0.49 m of B physically, its drifted
+#: map pose never came within 3 m of the map goal, so docking never armed and
+#: the machine sat in TRANSIT with zero refinements.
+#:
+#: Gating a map-independent measurement on a map-frame number gives away the
+#: only property that made it worth having. The detector's own shape and radius
+#: tests are what reject corridor geometry -- proved against a wall, a convex
+#: corner and a wrong-radius cylinder -- and 3-of-5 agreement is what rejects a
+#: lucky frame. Range alone is enough of a gate on top of that.
 ARM_RADIUS_M = 3.0
 
 #: Where to stop, measured from the landmark's CENTRE. The post is lidar-visible
@@ -128,10 +138,12 @@ class DockingMachine:
         self.landmark_map: tuple[float, float] | None = None
         self.history: list[dict] = []
 
-    def armed(self, robot_xy: tuple[float, float]) -> bool:
-        """Only near the nominal goal. Far away, every candidate is a wall."""
+    def armed(self, verdict: dict | None) -> bool:
+        """Close enough to B, as measured by the LASER. No map frame involved."""
 
-        return math.dist(robot_xy, self.nominal_goal) <= self.arm_radius_m
+        if not verdict or not verdict.get("confirmed"):
+            return False
+        return verdict["candidate"]["range_m"] <= self.arm_radius_m
 
     def step(self, robot_xy: tuple[float, float], robot_yaw: float,
              verdict: dict | None) -> dict | None:
@@ -139,12 +151,10 @@ class DockingMachine:
 
         if self.state in (self.DOCKED, self.UNREFINED):
             return None
-        if not self.armed(robot_xy):
+        if not self.armed(verdict):
             return None
 
         self.state = self.ACQUIRE if self.state == self.TRANSIT else self.state
-        if not verdict or not verdict.get("confirmed"):
-            return None
 
         landmark = landmark_in_map(verdict["candidate"], robot_xy, robot_yaw)
         detected_range = verdict["candidate"]["range_m"]
