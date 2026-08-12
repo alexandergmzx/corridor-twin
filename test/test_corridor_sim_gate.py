@@ -29,11 +29,95 @@ from corridor_sim_gate import (  # noqa: E402
     max_consecutive_withheld,
     midpoint_drift,
     path_length_m,
+    stream_rate,
 )
 
 
 def _track(points: list[tuple[float, float]], start_s: float = 0.0) -> list:
     return [(start_s + index, x, y) for index, (x, y) in enumerate(points)]
+
+
+#: The run that exposed the defect, straight out of its committed artifact:
+#: out/evidence/robot-a-gate/gate-robot1-nominal_m6_n3.json, 2026-08-12 13:16.
+#: A 551.0 s window was REQUESTED; 256.11 s was observed, because the recorder
+#: stops when the transit does. Both streams were healthy and both were failed.
+TRUNCATED_RUN_REQUESTED_S = 551.0
+TRUNCATED_RUN_OBSERVED_S = 256.11
+TRUNCATED_RUN_ODOM_LASER_MSGS = 2946
+TRUNCATED_RUN_EKF_MSGS = 2595
+
+
+def test_a_rate_needs_two_stamps_to_have_a_span() -> None:
+    """One message is ABSENT, not slow. Dividing it by anything invents a rate."""
+
+    assert stream_rate(0, None, None) == {"msgs": 0, "span_s": None, "hz": None}
+    assert stream_rate(1, 10.0, 10.0) == {"msgs": 1, "span_s": None, "hz": None}
+
+
+def test_a_rate_divides_by_the_span_between_first_and_last_stamp() -> None:
+    """Ten stamps one second apart bound NINE intervals, so the rate is 1.0 Hz."""
+
+    measured = stream_rate(10, 100.0, 109.0)
+    assert measured["span_s"] == pytest.approx(9.0)
+    assert measured["hz"] == pytest.approx(1.0)
+
+
+def test_a_truncated_run_reports_the_rate_it_actually_observed() -> None:
+    """The 2026-08-12 13:16 regression, in the numbers that produced it.
+
+    2946 matcher messages over the 256.11 s observed is 11.50 Hz against a
+    12.0 Hz declared scan rate -- healthy. Divided by the 551.0 s REQUESTED it
+    read 5.35 Hz and the gate failed it as "too slow or absent".
+    """
+
+    first = 1_786_561_800.0
+    matcher = stream_rate(
+        TRUNCATED_RUN_ODOM_LASER_MSGS, first, first + TRUNCATED_RUN_OBSERVED_S
+    )
+    assert matcher["hz"] == pytest.approx(11.50, abs=0.01)
+
+    ekf = stream_rate(TRUNCATED_RUN_EKF_MSGS, first, first + TRUNCATED_RUN_OBSERVED_S)
+    assert ekf["hz"] == pytest.approx(10.13, abs=0.01)
+
+    # The requested basis is what the old code used. Kept as the NEGATIVE
+    # CONTROL: if this ever stops differing from the observed reading, the
+    # fixture has stopped exercising the defect.
+    requested_basis_hz = TRUNCATED_RUN_ODOM_LASER_MSGS / TRUNCATED_RUN_REQUESTED_S
+    assert requested_basis_hz == pytest.approx(5.35, abs=0.01)
+    assert matcher["hz"] > requested_basis_hz * 2.0
+
+
+def test_both_rate_floors_pass_the_truncated_run_on_the_observed_basis() -> None:
+    """The floors themselves, not just the arithmetic.
+
+    robot1 declares 12.0 Hz scan, so the matcher floor is 6.0 Hz; the EKF floor
+    is its own configured 10.0 Hz. Both streams of the 13:16 run clear them --
+    which is the point: two of that run's three gate failures were the
+    instrument, and only the drift row was real.
+    """
+
+    scan_hz = corridor_sim_gate.ROBOT_TARGETS["robot1"]["scan_hz"]
+    matcher_floor = scan_hz * corridor_sim_gate.MIN_ODOM_LASER_HZ_FRACTION
+    first = 1_786_561_800.0
+
+    matcher = stream_rate(
+        TRUNCATED_RUN_ODOM_LASER_MSGS, first, first + TRUNCATED_RUN_OBSERVED_S
+    )
+    ekf = stream_rate(TRUNCATED_RUN_EKF_MSGS, first, first + TRUNCATED_RUN_OBSERVED_S)
+
+    assert matcher["hz"] >= matcher_floor
+    assert ekf["hz"] >= corridor_sim_gate.MIN_EKF_HZ
+
+    # And the control: on the requested basis both floors reject them.
+    assert matcher_floor > TRUNCATED_RUN_ODOM_LASER_MSGS / TRUNCATED_RUN_REQUESTED_S
+    assert corridor_sim_gate.MIN_EKF_HZ > TRUNCATED_RUN_EKF_MSGS / TRUNCATED_RUN_REQUESTED_S
+
+
+def test_the_ekf_rate_floor_is_the_filters_configured_frequency() -> None:
+    """10.0 Hz is ekf_sim_pnfix.yaml:86, not a number chosen to make a run pass."""
+
+    assert corridor_sim_gate.MIN_EKF_HZ == 10.0
+    assert corridor_sim_gate.MIN_ODOM_LASER_HZ_FRACTION == 0.5
 
 
 def test_path_length_sums_planar_segments() -> None:

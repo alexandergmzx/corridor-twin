@@ -93,6 +93,44 @@ the runner exits 3 for these and 1 for a red gate. But the variance is a real
 finding: the corridor arenas load the twin closer to its limits than the
 RaspTank's own 4×4 room does, and nothing was tuned to make a run pass.
 
+## Rate basis — audited 2026-08-12, and what it changed
+
+Until 2026-08-12 the gate divided message counts by `--seconds`, the window it
+**asked** for, while `observed_s` — the window it actually watched — sat in the
+report unused. `--seconds` is a budget remainder (`corridor_profile_run.sh:456`
+derives it from what the watchdog cap has left after bring-up), so the two
+diverge whenever a transit ends before its worst case and the recorder stops
+with it. Rates are now `(n − 1) / (last stamp − first stamp)` **per stream**,
+and every artifact carries `"rate_basis"` so it says for itself which
+denominator produced it.
+
+Every gate artifact on disk was recomputed against its own `observed_s`. The
+result is narrow, and is recorded here rather than generalised:
+
+| artifact | requested | observed | reported | correct |
+|---|---|---|---|---|
+| `gate-robot1-landmark-run.json` | 263.0 s | 263.0 s | 13.37 / 10.15 Hz | unchanged |
+| `gate-robot1-landmark-run2.json` | 271.0 s | 271.01 s | 13.69 / 10.14 Hz | unchanged |
+| `gate-nominal_m6_n3.json`, `-uniform_m6_n6`, `-wide_corner_m6_n4_5` | 90.0 s | *(bench drive)* | 5.18 / 6.66 / 5.29 Hz | unchanged |
+| `robot1-corridor/gate-robot1-nominal-SMALL-scale.json` | 90.0 s | *(bench drive)* | 11.67 Hz | unchanged |
+| **`out/evidence/…/gate-robot1-nominal_m6_n3.json`** (13:16, uncommitted) | **551.0 s** | **256.11 s** | **5.35 / 4.71 Hz** | **11.50 / 10.13 Hz** |
+
+The bench-drive runs are unaffected by construction: `drive()` runs its full
+window, so requested and observed coincide. Only an **observe-only** run can
+truncate, and only one such run ever did.
+
+**That run's gate verdict is therefore corrected.** Two of its three failures —
+"odom_laser too slow or absent" and "EKF output too slow or absent" — were the
+instrument, not the robot: 11.50 Hz against a 12.0 Hz declared scan rate, and
+the EKF exactly on its configured 10 Hz. Its third failure, a 0.159 midpoint
+drift, is separately re-premised — that run drove a 0.30-scale plan inside a
+1.0-scale arena ([session plan
+2026-08-12](../../session-plans/2026-08-12-stabilization.md)), so it is not
+carried forward as a calibration figure either.
+
+`drive()` now records `observed_s` as well, so bench artifacts stop claiming
+`null` for the one quantity that makes their rates checkable.
+
 ## What this does not show
 
 - **Not a chassis verdict.** The scan matcher is the fleet's in-house one, tuned

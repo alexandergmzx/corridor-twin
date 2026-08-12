@@ -113,6 +113,23 @@ SETTLE_S = 1.5
 MAX_CONSECUTIVE_WITHHELD = 5
 MAX_MIDPOINT_DRIFT_FRACTION = 0.05
 
+#: Rate floors, enforced against each stream's OWN observed span -- never
+#: against `--seconds`, which is a budget remainder rather than a measurement
+#: window (corridor_profile_run.sh:456 derives it from whatever the watchdog cap
+#: has left after bring-up). Dividing by the request under-reported a 11.50 Hz
+#: matcher as 5.35 Hz and manufactured two "too slow or absent" failures on a
+#: run whose streams were both healthy (2026-08-12 13:16, gate JSON committed).
+#:
+#: The matcher legitimately withholds when the scan constrains nothing, so its
+#: floor is half the scan rate -- the same 0.5 this gate has always used, now
+#: expressed as a rate rather than folded into a count comparison.
+MIN_ODOM_LASER_HZ_FRACTION = 0.5
+#: The EKF does not withhold: 10.0 Hz is its CONFIGURED frequency
+#: (ekf_sim_pnfix.yaml:86), and a filter publishing below the rate it was told
+#: to run at is not keeping up. This is a coarse aliveness floor, not the
+#: continuity criterion -- that is MAX_EKF_GAP_S, which is the ADR-derived one.
+MIN_EKF_HZ = 10.0
+
 #: The gate had NO yaw criterion, and passed a transit whose heading ended
 #: 138 deg wrong: longitudinal drift was 4.9% (green) while the estimate
 #: believed it had turned 365 deg against truth's 227 -- a 1.61 scale error.
@@ -138,6 +155,40 @@ def _yaw_of(q) -> float:
 # functions rather than methods: a figure that can only be produced by standing
 # up a ROS node inside a GPU session is a figure nobody can check. Same lesson
 # as the pose gate (T3.0).
+
+
+def stream_rate(
+    messages: int,
+    first_stamp_s: float | None,
+    last_stamp_s: float | None,
+) -> dict:
+    """Publish rate on the stream's OWN observed span, from header stamps.
+
+    The window a recorder ASKED for is not the window it observed. `--seconds`
+    is sized to the transit's worst case and the recorder stops early when the
+    transit ends, so on 2026-08-12 13:16 a 551.0 s request observed 256.11 s --
+    and 2946 matcher messages, a healthy 11.50 Hz, were reported as 5.35 Hz and
+    failed as "too slow or absent". The count was right; the denominator was a
+    budget.
+
+    `(n - 1) / span`, not `n / span`: n stamps bound n-1 intervals, and dividing
+    by n overstates the rate on short windows.
+
+    Fewer than two messages has no span to divide by, so the rate is null and
+    the stream reports as ABSENT rather than as slow -- the distinction the old
+    comparison could not make. Same shape as `crossing_measure.py:144-149`.
+    """
+
+    if messages < 2 or first_stamp_s is None or last_stamp_s is None:
+        return {"msgs": messages, "span_s": None, "hz": None}
+    span = last_stamp_s - first_stamp_s
+    if span <= 0.0:
+        return {"msgs": messages, "span_s": round(span, 4), "hz": None}
+    return {
+        "msgs": messages,
+        "span_s": round(span, 3),
+        "hz": round((messages - 1) / span, 2),
+    }
 
 
 def path_length_m(track: list[tuple[float, float, float]]) -> float:
@@ -383,6 +434,12 @@ class CorridorGate(Node):
         # (station_m, cov_xx, cov_yy, cov_yawyaw) -- the degeneracy trace.
         self.covariance_trace: list[tuple[float, float, float, float]] = []
         self.last_odom_laser_s: float | None = None
+        # Each stream's own first and last stamp, which is what its rate is
+        # divided by. `first_stamp_s` below is the first stamp on ANY stream and
+        # anchors the silence-before-first-message gaps; it is deliberately not
+        # the same quantity, because a stream that starts late must not have
+        # another stream's head start counted into its span.
+        self.first_odom_laser_s: float | None = None
         self.withheld_gaps: list[float] = []
         # When the drive began. The interval from here to the FIRST odom_laser
         # is withholding too, and the most consequential kind: it was missed
@@ -399,6 +456,7 @@ class CorridorGate(Node):
         # The EKF gap list mirrors the matcher's: same instrument, different
         # subject, so the two robots' numbers stay directly comparable.
         self.last_ekf_s: float | None = None
+        self.first_ekf_s: float | None = None
         self.ekf_gaps: list[float] = []
         self.create_subscription(Odometry, f"{namespace}/odom_laser", self._on_odom_laser, 500)
         self.create_subscription(Odometry, ekf_topic, self._on_ekf, 500)
@@ -484,6 +542,8 @@ class CorridorGate(Node):
         elif self.first_stamp_s is not None:
             self.withheld_gaps.append(now - self.first_stamp_s)
             self.first_odom_laser_station_m = round(path_length_m(self.truth), 4)
+        if self.first_odom_laser_s is None:
+            self.first_odom_laser_s = now
         self.last_odom_laser_s = now
         self.counts["odom_laser"] += 1
         covariance = message.pose.covariance
@@ -497,6 +557,8 @@ class CorridorGate(Node):
             self.ekf_gaps.append(now - self.last_ekf_s)
         elif self.first_stamp_s is not None:
             self.ekf_gaps.append(now - self.first_stamp_s)
+        if self.first_ekf_s is None:
+            self.first_ekf_s = now
         self.last_ekf_s = now
         self.counts["ekf"] += 1
         self.estimate.append(
@@ -585,6 +647,7 @@ def drive(gate: CorridorGate, seconds: float) -> None:
     if gate.publisher is None:
         raise RuntimeError("drive() called on an observe-only gate")
     gate.drive_started_s = time.monotonic()   # bench drive only; gaps are stamp-timed
+    started_wall_s = gate.drive_started_s
     end = time.monotonic() + seconds
     phase_end, phase = 0.0, "settle"
     while time.monotonic() < end:
@@ -601,6 +664,10 @@ def drive(gate: CorridorGate, seconds: float) -> None:
     for _ in range(10):
         gate.publisher.publish(Twist())
         rclpy.spin_once(gate, timeout_sec=0.02)
+    # Set on this path too. It was set only in observe(), so every bench-drive
+    # artifact carried "observed_s": null and its rates could never be checked
+    # against the window that produced them.
+    gate.observed_s = round(time.monotonic() - started_wall_s, 2)
 
 
 def main() -> int:
@@ -697,6 +764,28 @@ def main() -> int:
     consecutive = max_consecutive_withheld(gate.withheld_gaps, 1.0 / scan_hz)
     worst_ekf_gap_s = round(max(gate.ekf_gaps), 4) if gate.ekf_gaps else None
 
+    odom_laser = stream_rate(
+        gate.counts["odom_laser"], gate.first_odom_laser_s, gate.last_odom_laser_s
+    )
+    ekf = stream_rate(gate.counts["ekf"], gate.first_ekf_s, gate.last_ekf_s)
+    min_odom_laser_hz = round(scan_hz * MIN_ODOM_LASER_HZ_FRACTION, 2)
+    # Every pinned number this run was judged against, in the artifact and on
+    # stdout, on a PASS as well as a fail. Three of these were previously
+    # visible only inside the string of the failure they produced, so a green
+    # run recorded no evidence of what it had cleared (CLAUDE.md gate
+    # discipline: "a pinned threshold is printed and enforced from one
+    # constant").
+    thresholds = {
+        "min_odom_laser_hz": min_odom_laser_hz,
+        "min_odom_laser_hz_fraction": MIN_ODOM_LASER_HZ_FRACTION,
+        "scan_hz": scan_hz,
+        "min_ekf_hz": MIN_EKF_HZ,
+        "max_ekf_gap_s": MAX_EKF_GAP_S,
+        "max_consecutive_withheld": MAX_CONSECUTIVE_WITHHELD,
+        "max_midpoint_drift_fraction": MAX_MIDPOINT_DRIFT_FRACTION,
+        "max_yaw_scale_error": MAX_YAW_SCALE_ERROR,
+    }
+
     report = {
         "robot": arguments.robot,
         "profile": arguments.profile,
@@ -711,10 +800,17 @@ def main() -> int:
         # The window ASKED for, vs the window actually observed. They differ
         # when the transit ended early and the recorder was stopped with it.
         "observed_s": getattr(gate, "observed_s", None),
-        "odom_laser_msgs": gate.counts["odom_laser"],
-        "odom_laser_hz": round(gate.counts["odom_laser"] / arguments.seconds, 2),
-        "ekf_msgs": gate.counts["ekf"],
-        "ekf_hz": round(gate.counts["ekf"] / arguments.seconds, 2),
+        # Which denominator produced the rates below. Stamped so an artifact
+        # says for itself: everything before 2026-08-12 divided by `seconds`
+        # and is not comparable with anything after it.
+        "rate_basis": "observed_stream_span",
+        "odom_laser_msgs": odom_laser["msgs"],
+        "odom_laser_span_s": odom_laser["span_s"],
+        "odom_laser_hz": odom_laser["hz"],
+        "ekf_msgs": ekf["msgs"],
+        "ekf_span_s": ekf["span_s"],
+        "ekf_hz": ekf["hz"],
+        "thresholds": thresholds,
         "map_updates": gate.counts["map"],
         "map_occupied_cells": occupied,
         "map_free_cells": free,
@@ -746,14 +842,27 @@ def main() -> int:
     }
 
     failures = []
-    if gate.counts["odom_laser"] < arguments.seconds * scan_hz * 0.5:
-        failures.append("odom_laser too slow or absent")
+    # Absent and slow are separate verdicts now. They were one string, and a
+    # healthy stream divided by the wrong window read as the same defect as a
+    # stream that never published at all.
+    if odom_laser["hz"] is None:
+        failures.append(f"odom_laser absent ({odom_laser['msgs']} messages)")
+    elif odom_laser["hz"] < min_odom_laser_hz:
+        failures.append(
+            f"odom_laser {odom_laser['hz']} Hz over {odom_laser['span_s']} s "
+            f"is below {min_odom_laser_hz} Hz ({MIN_ODOM_LASER_HZ_FRACTION} x {scan_hz} Hz scan)"
+        )
     if gate.covariance_trace and not all(
         0 < value < 1e5 for value in gate.covariance_trace[-1][1:]
     ):
         failures.append("matcher covariance not plausible (degeneracy path broken?)")
-    if gate.counts["ekf"] < arguments.seconds * 10:
-        failures.append("EKF output too slow or absent")
+    if ekf["hz"] is None:
+        failures.append(f"EKF output absent ({ekf['msgs']} messages)")
+    elif ekf["hz"] < MIN_EKF_HZ:
+        failures.append(
+            f"EKF {ekf['hz']} Hz over {ekf['span_s']} s is below its configured "
+            f"{MIN_EKF_HZ} Hz"
+        )
     if not tf_odom_base:
         failures.append(f"TF {target['odom_frame']}->{target['base_frame']} missing")
     if not tf_map_odom:
