@@ -434,6 +434,31 @@ a decision after the fact.
 - Curate artifacts. A frame without provenance is decoration, and an unbounded
   log dump is not a reviewable result.
 
+### Watch the run, do not autopsy it
+
+**Always debug with the lens up, before reasoning about a run from its
+artifacts.** `tools/corridor_profile_run.sh` starts it automatically and prints
+`http://127.0.0.1:8765/`; `--no-lens` opts out and needs a reason.
+
+This is a rule because ignoring it cost most of a day. A phantom landmark
+detection at 0.910 m re-aimed an entire mission while B's real post stood five
+metres away; Nav2 drove half a metre, correctly reported "Reached the goal!",
+and every number in the JSON looked defensible. On the lens it is two circles
+far apart — the manifest's yellow marker for where B actually is, and the pink
+crosshair for what the detector confirmed. The same session also lost runs to a
+circle at the start, an EKF reporting rotation its own IMU never measured, and a
+post buried inside a wall, and in each case the artifact showed a plausible
+number while the canvas would have shown the fault immediately.
+
+The corollary: when a run surprises you, look at it live before theorising. Two
+hypotheses were built and committed here on numbers that a glance would have
+falsified.
+
+Two of the lens's stock tiles do not apply to this scene and are gone or
+unquotable: duplicate-scans does not catch Isaac (0/3330 bit-identical
+measured), and content-lag scored against the fleet's 4x4 m room rather than the
+corridor.
+
 ### Gate discipline
 
 - Every gate run writes a machine-readable JSON artifact; a gate number
