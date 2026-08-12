@@ -303,3 +303,65 @@ it would measure is read off a map that is known bad.
 The `1.0 m` corner figure quoted in an earlier session is **retracted**: it came
 from the abandoned 0.2-scale iteration. At the committed factor 0.42 the corner
 is authored at **1.26 m** and the entry at 2.52 m (`corridor-small.manifest.json`).
+
+## Step 2 continued — what was tried after the divergence was measured
+
+Each of these is a committed change with its rationale, and each was measured.
+
+| change | commit | effect on `duplicate wall extent` |
+|---|---|---|
+| baseline, three motion sources | — | not measurable; every number void |
+| one motion source, patrol gone | `e99c9fa` | 1.920 m |
+| `--no-rviz` (hypothesis, since withdrawn) | `2f58530` | 0.800 m |
+| gate re-timed on message stamps | `2727c0c` | 1.480 m |
+| `max_vel_theta` 1.0 → 0.4 rad/s | `e972c31` | **2.680 m** |
+
+**No change has brought the map near the 0.20 m threshold, and the authored
+floor is 0.000 m.** The spread across nominally identical runs (0.8 → 2.7 m)
+is itself a finding: whatever this is, it is not a deterministic function of
+the parameters touched so far.
+
+### The velocity cap, and why it was right to try even though it failed
+
+The DWB block's own comment described its caps as `[estimate]`. The governor's
+real limits are `max_speed` 0.35 m/s, `max_yaw` 1.5 rad/s, and **`max_yaw_near`
+0.4 rad/s inside `stop_distance` 0.35 m** (`governor.py:43-51`). In a corridor
+1.26 m wide at the corner, a robot of radius 0.12 is within 0.35 m of a wall
+for most of its transit, so `max_yaw_near` is the binding cap — and Nav2 was
+commanding exactly 1.000 rad/s (max over 9617 `/cmd_vel` samples). The governor
+clipped it, so **DWB was predicting trajectories the robot would never execute,
+its self-model wrong by 2.5× exactly where the corridor is tightest.**
+
+That was worth correcting on its own terms and remains corrected. It did not
+fix the map.
+
+### The yaw chain, measured stage by stage
+
+`corridor_sim_gate` now taps the chain at every stage (`9500260`). On the one
+transit where the robot turned enough to compute a ratio:
+
+| tap | rotation | ratio vs truth |
+|---|---|---|
+| `/sim/ground_truth` | +227.45° | — |
+| `/imu` (raw from the twin) | +262.21° | **1.153** |
+| `/imu/data` (after madgwick) | — | — |
+| `/odom` (after robot_localization) | +365.37° | **1.606** |
+
+A later run caught the missing row: raw `/imu` −48.42° against filtered
+`/imu/data` −48.43°. **Madgwick is not the amplifier — it passes yaw rate
+through unchanged.** So ~15 points enter at the sensor and ~40 more enter at
+`robot_localization`, which has only that one yaw input.
+
+That last step is the open anomaly: a filter that over-reports rotation
+relative to its own only source of rotation.
+
+### A weakness in the new gate criterion, stated rather than papered over
+
+`yaw_scale` uses SIGNED net rotation, which is right for a pivot sweep and
+wrong for a transit: a robot that turns left and right in equal measure nets
+near zero, so the criterion reports UNAVAILABLE on most transits (`the robot
+turned only -15.5 deg` on a run of 2.205 m). It has not yet failed a run.
+The quantity that did catch every bad transit is the transit audit's
+**`max_yaw_error_deg`** — the instantaneous estimate-vs-truth heading error,
+137.9° and 148.6° on the two audited runs. That is the criterion the gate
+should carry; it is not yet wired in.
