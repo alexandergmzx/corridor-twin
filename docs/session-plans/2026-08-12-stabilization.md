@@ -15,21 +15,35 @@
 | U0b session-scoped evidence | **DONE** `51e3e75` | run directory + `run.json`; result/rerun/**crash** with crash as the default; 74 files quarantined |
 | U0d preflight + verified teardown | **DONE** `0bc6429` | `residents()` catches un-namespaced orphans; teardown polls; both tested against decoys |
 | U0e arena/plan coherence | **DONE** `ff428e4` | robot-scale is the build default; arenas rebuilt; route margin 0.3 → 0.128; **corner screen did not scale**; cross-check before simctl |
-| U4a offline scale distribution (no GPU) | pending | |
+| map scoring | **DONE** `b3b4b8d` | mask the two authored double surfaces; oracle 0.340 → **0.000**; threshold unmoved |
+| U4a offline scale distribution | **DONE** `92d921c` | −15.9% does not reproduce; straight-window wheel median **0.9366** over 7 bags |
+| U4b/c WHEEL_R calibration | **DONE** fleet `52bf989`, `7900463` | 0.0458 → **0.0489**; forward gate +4.4% → **−2.1%**; midpoint drift **0.159 → 0.0097** |
+| U1 corridor-aware scan path | **DONE (nominal)** fleet `488972d`+`658a4ec`, `d796da0`+`9bfbd9d` | two closed-room constants; live: 349 passed / 10 dropped, **no fail-open**. wide_corner + uniform still to run |
+| U2 the startup circle | **MEASURED, not fixed** `541802d` | all three hypotheses falsified; culprit named; see NOTES-startup-circle.md |
 | U6 paper debt | pending | |
-| U1 corridor-aware scan path | pending | fleet delegation #2 |
-| U2 the startup circle | pending | |
 | U3 landmark containment | pending | re-derive, then fix |
-| U4b/c/d odometry | pending | |
-| U5 acceptance re-run | pending | **blocked on the parked threshold below** |
+| U4d anomaly repro | pending | |
+| U5 acceptance re-run | pending | |
 
 Gates after U0: `bash tools/check_workspace.sh` green — ruff clean, **372 passed /
 1 skipped**, colcon build 4 packages, colcon test **140 tests, 0 errors, 0
 failures**.
 
+## Decisions taken during the session (Alexander, present)
+
+1. **Map scoring: mask, do not subtract.** Settled and implemented — the
+   authored double surfaces are masked from manifest-derived polygons, the
+   oracle reads 0.000 again, and the 0.20 m limit is untouched. The record
+   below is kept because it is the measurement that justified the choice.
+2. **WHEEL_R: apply the calibration fleet-side**, with the copied constant
+   killed, fleet OI-23 opened for the unexplained ~2.0× factor, a ±3%
+   verification, and prior sim measurements annotated as predating it. All four
+   riders discharged.
+
 ## Morning decisions — parked, not taken
 
-1. **The map-score threshold cannot be met by a perfect map of this scene.**
+1. **~~The map-score threshold cannot be met by a perfect map of this scene.~~**
+   *Resolved by masking — kept for the measurement.*
    The authored reference map — the oracle ADR 0029's whole divergence argument
    rests on — now scores **0.340 m** of duplicate wall against a **0.20 m**
    limit. Nothing about the map got worse: fixing the corner screen's scale
