@@ -140,6 +140,9 @@ def main() -> int:
     parser.add_argument("--namespace", default="")
     parser.add_argument("--goal-marker", type=Path,
                         help="a file whose appearance marks the goal being sent")
+    parser.add_argument("--ready-marker", type=Path,
+                        help="written once the subscriptions exist, so the caller "
+                             "can wait rather than race the goal")
     parser.add_argument("--out", type=Path, required=True)
     arguments = parser.parse_args()
 
@@ -154,6 +157,13 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
+
+    # A probe that comes up AFTER the goal cannot answer the question it was
+    # built for. On its first live run it reported goal_at_s = 0.081, which is
+    # not "the goal was sent 81 ms in" -- it is "the marker was already there".
+    if arguments.ready_marker:
+        arguments.ready_marker.parent.mkdir(parents=True, exist_ok=True)
+        arguments.ready_marker.write_text("ready\n", encoding="utf-8")
 
     end = time.monotonic() + arguments.seconds
     while time.monotonic() < end and not stopping:

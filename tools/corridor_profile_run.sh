@@ -180,6 +180,13 @@ export ROS_DOMAIN_ID="$DOMAIN"
 export RASPTANK_ARENA_USD="$ARENA"
 export PYTHONNOUSERSITE=1
 
+# THE RUNNER'S OWN LOG, kept. Everything this script prints -- which SLAM
+# attempt, whether bt_navigator was seen ACTIVE and when, what the watchdog did
+# -- existed only in whatever terminal ran it. The 16:23 run could not be
+# diagnosed afterwards for exactly that reason: bt_navigator rejected the goal
+# as inactive, and whether the runner had waited for it was unanswerable.
+exec > >(tee -a "$RUN_DIR/runner.log") 2>&1
+
 echo "=== corridor profile run: $PROFILE ${GATED:+(GATED)}${GATED:-(reported only)} ==="
 echo "  domain : $ROS_DOMAIN_ID"
 echo "  robot  : $ROBOT"
@@ -637,11 +644,21 @@ fi
 # have been offered across two sessions and none was ever checked against a log.
 GOAL_MARKER="$RUN_DIR/.goal-sent"
 rm -f "$GOAL_MARKER"
+PROBE_READY="$RUN_DIR/.probe-ready"
+rm -f "$PROBE_READY"
 python3 "$REPO/tools/corridor_startup_probe.py" --seconds "$GATE_SECONDS" \
-  --goal-marker "$GOAL_MARKER" \
+  --goal-marker "$GOAL_MARKER" --ready-marker "$PROBE_READY" \
   --out "$RUN_DIR/startup.json" \
   >"$RUN_DIR/startup.log" 2>&1 &
 probe_pid=$!
+# WAIT for it, do not hope. Its first live run reported goal_at_s = 0.081 --
+# which is not "the goal came 81 ms in", it is "the marker was already there
+# when I started", so the whole before-the-goal window was missed.
+for _ in $(seq 1 40); do
+  [ -f "$PROBE_READY" ] && break
+  sleep 0.25
+done
+[ -f "$PROBE_READY" ] || manifest_error "the startup probe never signalled ready"
 
 echo "=== T3.3a transit recorder (observe-only, ${GATE_SECONDS}s) ==="
 python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
