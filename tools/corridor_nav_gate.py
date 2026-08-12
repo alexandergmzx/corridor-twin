@@ -218,7 +218,11 @@ def main() -> int:
 
     print(f"goal ({goal_x:.3f}, {goal_y:.3f}) [map] for {arguments.profile}")
     send = gate.client.send_goal_async(goal)
-    rclpy.spin_until_future_complete(gate, send, timeout_sec=20.0)
+    # 45 s, not 20. bt_navigator accepts the goal but its response can miss a
+    # client that asked too early: "Failed to send goal response (timeout):
+    # client will not receive response" [measured 2026-08-11], which this gate
+    # then reported as "goal not accepted" -- a nav failure that never happened.
+    rclpy.spin_until_future_complete(gate, send, timeout_sec=45.0)
     handle = send.result()
     if handle is None or not handle.accepted:
         report["failure"] = "goal not accepted"
