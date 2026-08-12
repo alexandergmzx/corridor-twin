@@ -1,0 +1,29 @@
+{
+  "instrument": "corridor_yaw_audit",
+  "pivot_rad_s": 0.6,
+  "pivot_s": 8.0,
+  "streams_present": {
+    "odom_raw": true,
+    "odom": true,
+    "truth": true
+  },
+  "samples": {
+    "odom_raw": 104,
+    "odom": 94,
+    "truth": 104
+  },
+  "turned_rad": {
+    "odom_raw": 14.28,
+    "odom": 4.4611,
+    "truth": 4.3518
+  },
+  "ratio_vs_truth": {
+    "odom_raw": 3.2814,
+    "odom": 1.0251
+  },
+  "negative_control_fired": true,
+  "control_note": "wheel odometry is wrong as expected; the EKF was genuinely under test",
+  "ekf_ratio_tolerance": 0.15,
+  "failures": [],
+  "pass": true
+}
