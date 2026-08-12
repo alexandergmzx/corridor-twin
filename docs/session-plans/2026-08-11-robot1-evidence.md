@@ -12,14 +12,14 @@
 
 | Unit | State | Notes |
 |---|---|---|
-| X0 plan + branch + Isaac lock | IN PROGRESS | started 17:33 |
-| X1 end-wall correlation + study draft | pending | |
-| X2 composer robot1 mode | pending | |
-| X3 robot1 governed Nav2 | pending | 90 m hard cap |
-| X4 gate parameterization | pending | |
-| X6 three profile runs | pending | X5 folded in |
-| X7 P-camera candidates | stretch | |
-| X8 study contrast | stretch | |
+| X0 plan + branch + Isaac lock | **DONE** 17:41 | `d6ff590` — lock implemented (F12 said doc-only, zero code), 4 paths tested, wired into 3 entry points |
+| X1 end-wall correlation + study draft | **DONE** 17:47 | `d487ce1` — anisotropy orders with nothing (17.6/18.8/18.4); 2 of 5 correlations circular, labelled; MS200-vs-C1 range confound recorded |
+| X2 composer robot1 mode | **DONE** 18:16 | `a467f44` — 3 robot1 arenas, MS200 verified on readback; forward-sign gate caught the mirrored right side (0.004 m -> 0.419 m) |
+| X3 robot1 governed Nav2 | **DONE** 18:25 | `704fcc9` — 9 min of a 90 min cap; governed by root-namespace remap; mutation-checked |
+| X4 gate parameterization | **DONE** 18:35 | `c3646a6` — ROBOT_TARGETS table; withholding gated only where the matcher IS the odometry; EKF continuity 0.4 s derived from ADR 0022's logic |
+| X6 three profile runs | **PARTIAL** | nominal only, at two scales; wide_corner + uniform not run — the session pivoted to the scale change on Alexander's instruction |
+| X7 P-camera candidates | **NOT RUN** | budget went to the scale change |
+| X8 study contrast | **DONE** | folded into docs/degeneracy-study.md with the scale finding |
 
 ## Context
 
@@ -246,3 +246,116 @@ deny-list **20/42/43/44/66/68** (scratch 67/69), local-only git, append-only his
 - X3: launch inspected for the governed remapping on **both** controller and behavior servers before any run.
 - X6: per-profile JSON with contract precondition, drive-and-map gate, and nav result; every
   non-green run classified explicitly as **infrastructure rerun** or **committed red result**.
+
+---
+
+# HANDBACK — 2026-08-11, session closed 18:45 CST
+
+Started 17:33, closed 18:45. Budget was 5 h; the session closed early because
+the queue was overtaken by a mid-session instruction (scale the corridor) that
+turned out to matter more than the rest of the queue.
+
+## The headline
+
+**The corridor was authored 37x the robot's width, and that — not the corridor
+shape, and not either chassis — is most of what the degeneracy study has been
+measuring.**
+
+Scaling every length by 0.2, same robot, same stack, same instrument:
+
+| | 6 m corridor | robot-scale |
+|---|---|---|
+| First `odom_laser` at station | 9.66 m | **0.03 m** |
+| `odom_laser` msgs / rate | 12 / 0.13 Hz | **1052 / 11.69 Hz** |
+| Max consecutive withheld | 936 | 8–35 |
+| Worst EKF gap | 1.46 s | 0.36–0.54 s |
+| Nav2 map-frame error | 18.46 m | **3.17 m** |
+
+This does **not** retract ADR 0027 or the robot2 runs: those are true of the
+scene as authored, and 0027 was decided against that scene. It does mean the
+~18x anisotropy is a measurement of a 6 m corridor.
+
+## Commits (this repo, branch `robot1-evidence-2026-08-11`, all local)
+
+| Commit | Unit |
+|---|---|
+| `d6ff590` | X0 — Isaac lock implemented (F12 recorded it as doc-only, zero code) + session plan |
+| `d487ce1` | X1 — degeneracy study draft; 2 of 5 correlations marked circular |
+| `a467f44` | X2 — composer robot1 mode, MS200 lidar, skid-steer wheel physics |
+| `704fcc9` | X3 — governed Nav2 for robot1 (90 m cap, done in 9 m) |
+| `c3646a6` | X4 — gates targeted at either robot; withholding→EKF-continuity criterion swap |
+| `f196851` | fix — Isaac strays matched by executable; per-robot checker CLI |
+| `6c0e75c` | scale — `scale_scenario.py`, robot-scale config, nav2 fixes |
+| `e8ce8f9` | evidence — robot1 corridor runs + scale finding |
+
+Nothing pushed. Nothing written outside this repo.
+
+## What passed
+
+- Isaac lock: four paths exercised (free / live-holder-parks / stale-reclaims /
+  owner-only-release). It held correctly across every run including failures.
+- robot1 arenas compose on all three profiles; MS200 verified on readback
+  (360 beams, 1.000°, 0.12–8.0 m, 12 Hz); pose gate and spawn clearance pass.
+- Governed Nav2 exists for robot1 and is mutation-checked: ungoverning the
+  behavior server alone turns the test red.
+- The encoder contrast ADR 0027 predicted **held**: at 6 m scale, with the
+  matcher effectively dead (12 messages), robot1 still drove 11.74 m, mapped
+  6376 cells and reported 0.066 drift, where robot2 never left the origin.
+
+## What FAILED — in bold, not retried into silence
+
+- **Nav2 never SUCCEEDED, at either scale.** At robot scale the planner now
+  reports "Failed to create plan with tolerance of 0.150000" through the 0.6 m
+  corner — path feasibility through a narrow turn, no longer localization.
+- **robot1's twin misses its own scan contract everywhere**: 14.2–14.3 Hz
+  against a declared 12.0. **The stock yahboom `arena.usd` gives 14.3 Hz too**,
+  so the corridor scene is exonerated and this is a fleet-level defect.
+- **Drift did not settle**: 0.125 on one small-scale run, 0.049 on another,
+  against a 0.05 bound. One pass and one fail is **not a pass**.
+- **EKF continuity is marginal**: 0.362 s and 0.536 s against the 0.4 s bound.
+- **X6 is partial** (nominal only, no wide_corner/uniform at robot scale) and
+  **X7 (P-camera candidates) was not run at all.**
+
+## Three of my own defects, all caught by running rather than reading
+
+1. Composer drove all six of robot1's dof at one sign; robot1 mirrors its right
+   side, so the sides fought and it travelled 4 mm. The forward-sign gate caught
+   it. Fixed with a per-robot drive convention and the effective wheel radius.
+2. The Isaac lock's stray check matched command lines, so it refused three times
+   on shells that merely mentioned the pattern; rewriting it also silently
+   deleted the refusal itself, so it collected strays and started anyway. Both
+   fixed; both directions now verified by exit code, not by log line.
+3. The runner assumed both robots' contract checkers share a CLI. They do not.
+
+## MORNING LIST — parked, not decided
+
+1. **Does the scale change need an ADR, and does it supersede parts of 0027?**
+   ADRs are not delegated. My reading: 0027 stands as decided-against-that-scene,
+   and a new ADR should record the rescale plus a robot2 re-run at robot scale.
+2. **robot1's twin scan rate 14.3 vs 12.0 declared** — a fleet-level defect
+   (stock arena reproduces it). Needs a fleet OI row; writes outside this repo
+   were not delegated.
+3. **Nav2 through the 0.6 m corner.** Candidates: relax `inflation_radius`
+   below 0.16, widen `n`, or give the planner a corner waypoint. I stopped
+   rather than tune, because tuning gate-adjacent parameters is not delegated.
+4. **The speed policy is now meaningless** — widths scaled, `limit_mps` did not
+   (deliberately: ADR 0023 pins the table only after a measured profile run).
+5. **`robot_radius` 0.12 is inherited from robot2 and unverified for robot1.**
+6. **OI-19 extraction**: the skid-steer wheel block is now a fourth copy.
+7. **`CLAUDE.md` is uncommitted in the tree** — Alexander's own in-progress edit,
+   deliberately untouched (decision C7).
+
+## State the next session inherits
+
+Branch `robot1-evidence-2026-08-11` at `e8ce8f9`, 8 commits, `check_workspace.sh`
+green (258 passed, 1 pre-existing skip), Isaac dead, lock free, GPU idle.
+Tree carries only Alexander's `CLAUDE.md` edit and the retired pack file.
+
+Robot-scale assets: `config/corridor-robot-scale.yaml`, `out/corridor-small.usda`,
+`out/small/arena_corridor_robot1_nominal_m6_n3.usd`. The other two profiles are
+**not** composed at robot scale.
+
+**Phase 3 critical path is unchanged: P's camera placement.** Every camera frame
+to date was rendered from A's old mount, so none of it is training or evaluation
+data — and the corridor's rescale means P's placement must now be chosen against
+the robot-scale scene, not the 6 m one.
