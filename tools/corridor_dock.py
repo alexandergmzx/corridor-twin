@@ -60,6 +60,28 @@ import math
 #: lucky frame. Range alone is enough of a gate on top of that.
 ARM_RADIUS_M = 3.0
 
+#: CONTAINMENT. Range alone was not enough of a gate, and a run proved it: on
+#: 2026-08-12 13:16 the detector confirmed something at 1.06 m near the spawn,
+#: docking re-aimed the mission at it, Nav2 drove 0.58 m and reported SUCCEEDED,
+#: and the world-frame delivery error was 5.754 m. The post was not even in that
+#: arena. Shape and 3-of-5 agreement reject the wrong SHAPE; they cannot reject
+#: a right-shaped thing in the wrong PLACE.
+#:
+#: So arming also requires the robot to be where B is: near the end of its own
+#: route, near the goal in the map frame, and looking at it.
+#:
+#: The window is a FRACTION OF THE ROUTE, not a copied metre. 3.0 m was 15.653%
+#: of the authored 19.166 m route-to-delivery; at the committed scale that route
+#: is 5.750 m and the window is 0.900 m -- which is also exactly 3.0 x the 0.30
+#: scale factor, so the derivation checks against itself. A literal 3.0 here
+#: would be more than half the route.
+ARM_WINDOW_ROUTE_FRACTION = 0.15653
+
+#: The detection must lie roughly where the goal lies. +/-60 deg is generous --
+#: it admits a post seen well off to one side during the turn onto the street --
+#: while excluding anything behind the robot, which is where the phantom was.
+MAX_BEARING_ERROR_DEG = 60.0
+
 #: Where to stop, measured from the landmark's CENTRE. The post is lidar-visible
 #: and therefore a costmap obstacle exactly as B is, so the goal has to sit
 #: outside its inflation: robot_radius 0.128 + inflation 0.30 leaves margin at
@@ -128,30 +150,88 @@ class DockingMachine:
 
     def __init__(self, nominal_goal: tuple[float, float], *,
                  arm_radius_m: float = ARM_RADIUS_M,
-                 max_refinements: int = MAX_REFINEMENTS) -> None:
+                 max_refinements: int = MAX_REFINEMENTS,
+                 route_length_m: float | None = None,
+                 window_m: float | None = None,
+                 max_bearing_error_deg: float = MAX_BEARING_ERROR_DEG) -> None:
         self.nominal_goal = nominal_goal
         self.arm_radius_m = arm_radius_m
         self.max_refinements = max_refinements
+        # Containment. `route_length_m` is the route TO THE DELIVERY, not the
+        # whole trajectory: the departure leg runs past B, and requiring travel
+        # against a length that includes it would mean the detector could never
+        # arm at all.
+        self.route_length_m = route_length_m
+        self.window_m = (
+            window_m if window_m is not None
+            else (route_length_m * ARM_WINDOW_ROUTE_FRACTION
+                  if route_length_m is not None else None)
+        )
+        self.min_travel_m = (
+            route_length_m - self.window_m
+            if route_length_m is not None and self.window_m is not None
+            else None
+        )
+        self.max_bearing_error_deg = max_bearing_error_deg
+        self.rejections: dict[str, int] = {}
         self.state = self.TRANSIT
         self.refinements = 0
         self.current_goal = nominal_goal
         self.landmark_map: tuple[float, float] | None = None
         self.history: list[dict] = []
 
-    def armed(self, verdict: dict | None) -> bool:
-        """Close enough to B, as measured by the LASER. No map frame involved."""
+    def _reject(self, reason: str) -> bool:
+        self.rejections[reason] = self.rejections.get(reason, 0) + 1
+        return False
+
+    def armed(self, verdict: dict | None,
+              robot_xy: tuple[float, float] | None = None,
+              robot_yaw: float | None = None,
+              travelled_m: float | None = None) -> bool:
+        """Close enough to B by the LASER, and standing where B is.
+
+        The range test is still laser-frame and still the thing the map cannot
+        corrupt. The containment tests around it are map-frame and travel-based,
+        and they are deliberately COARSE -- a 0.9 m window and a 60 deg cone --
+        because their job is to exclude the spawn region, not to localise.
+
+        FAIL CLOSED. Containment configured but not supplied means the caller
+        did not pass what it promised, and arming anyway would restore exactly
+        the failure this exists to prevent.
+        """
 
         if not verdict or not verdict.get("confirmed"):
             return False
-        return verdict["candidate"]["range_m"] <= self.arm_radius_m
+        candidate = verdict["candidate"]
+        if candidate["range_m"] > self.arm_radius_m:
+            return self._reject("out of laser range")
+
+        if self.min_travel_m is None:
+            return True     # containment not configured: transit-only behaviour
+
+        if travelled_m is None or robot_xy is None or robot_yaw is None:
+            return self._reject("containment configured but not supplied")
+        if travelled_m < self.min_travel_m:
+            return self._reject("too early in the route")
+        if math.dist(robot_xy, self.nominal_goal) > self.window_m:
+            return self._reject("too far from the goal in the map frame")
+
+        goal_bearing = math.atan2(
+            self.nominal_goal[1] - robot_xy[1], self.nominal_goal[0] - robot_xy[0]
+        ) - robot_yaw
+        error = abs((candidate.get("bearing_rad", 0.0) - goal_bearing + math.pi)
+                    % (2.0 * math.pi) - math.pi)
+        if math.degrees(error) > self.max_bearing_error_deg:
+            return self._reject("detection is not where the goal is")
+        return True
 
     def step(self, robot_xy: tuple[float, float], robot_yaw: float,
-             verdict: dict | None) -> dict | None:
+             verdict: dict | None, travelled_m: float | None = None) -> dict | None:
         """One detector verdict in; a new goal to issue, or None to keep going."""
 
         if self.state in (self.DOCKED, self.UNREFINED):
             return None
-        if not self.armed(verdict):
+        if not self.armed(verdict, robot_xy, robot_yaw, travelled_m):
             return None
 
         self.state = self.ACQUIRE if self.state == self.TRANSIT else self.state
@@ -200,6 +280,21 @@ class DockingMachine:
         return {
             "state": self.state,
             "refinements": self.refinements,
+            # What containment refused, and why. A run where docking never armed
+            # should say whether the detector saw nothing or saw something it
+            # was right to distrust -- the difference between a sensor problem
+            # and a phantom, which cost a day when it was invisible.
+            "containment": {
+                "route_length_m": (
+                    round(self.route_length_m, 4) if self.route_length_m else None
+                ),
+                "window_m": round(self.window_m, 4) if self.window_m else None,
+                "min_travel_m": (
+                    round(self.min_travel_m, 4) if self.min_travel_m else None
+                ),
+                "max_bearing_error_deg": self.max_bearing_error_deg,
+                "rejections": dict(self.rejections),
+            },
             "landmark_map_frame": (
                 [round(v, 4) for v in self.landmark_map] if self.landmark_map else None
             ),

@@ -83,6 +83,24 @@ STATUS_NAMES = {2: "EXECUTING", 4: "SUCCEEDED", 5: "CANCELED", 6: "ABORTED"}
 STATUS_SUCCEEDED = 4
 
 
+def route_to_delivery_m(manifest: dict, profile: str) -> float:
+    """Path length from A's spawn to the delivery, from the manifest's own legs.
+
+    NOT the whole trajectory: the departure leg runs PAST B, and requiring the
+    robot to have driven that far before the detector may arm would mean it
+    could never arm at all. At the committed scale this is 5.750 m against a
+    7.380 m full trajectory.
+    """
+
+    legs = manifest["profiles"][profile]["delivery_trajectory"]
+    return (
+        legs["approach_length_m"]
+        + legs["arc_radius_m"] * legs["arc_sweep_rad"]
+        + legs["delivery_arc_radius_m"] * legs["delivery_arc_sweep_rad"]
+        + legs["delivery_length_m"]
+    )
+
+
 def delivery_standoff_world(
     manifest: dict, standoff_m: float = DELIVERY_STANDOFF_M
 ) -> tuple[float, float]:
@@ -138,6 +156,17 @@ class NavGate(Node):
         self.create_subscription(
             Odometry, f"{namespace}/sim/ground_truth", self._on_truth, 10
         )
+        # A's OWN integrated travel, from the EKF. Truth is above and is
+        # report-only (CLAUDE.md invariant 1): the containment that gates
+        # docking must be computable by the robot, so it is computed from the
+        # filter A already navigates on.
+        self.odom_travel_m = 0.0
+        self._last_odom_xy: tuple[float, float] | None = None
+        self.create_subscription(
+            Odometry, self.target["ekf_topic"] if self.target["ekf_topic"].startswith("/")
+            else f"{namespace}/{self.target['ekf_topic']}",
+            self._on_odom, 20,
+        )
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.client = ActionClient(self, NavigateToPose, f"{namespace}/navigate_to_pose")
@@ -153,6 +182,16 @@ class NavGate(Node):
                 LaserScan, f"{namespace}/scan", self._on_scan,
                 QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT),
             )
+
+    def _on_odom(self, message: Odometry) -> None:
+        """Path length, not displacement: a robot that goes out and comes back
+        has still travelled, and the containment asks how far it has driven."""
+
+        position = message.pose.pose.position
+        here = (position.x, position.y)
+        if self._last_odom_xy is not None:
+            self.odom_travel_m += math.dist(self._last_odom_xy, here)
+        self._last_odom_xy = here
 
     def _on_scan(self, message) -> None:
         if self.detector is None:
@@ -288,7 +327,14 @@ def main() -> int:
     if arguments.dock and gate.detector is not None:
         from corridor_dock import DockingMachine
 
-        machine = DockingMachine(nominal_goal=(goal_x, goal_y))
+        route_m = route_to_delivery_m(manifest, arguments.profile)
+        machine = DockingMachine(
+            nominal_goal=(goal_x, goal_y), route_length_m=route_m
+        )
+        print(f"  dock: containment -- route {route_m:.3f} m, window "
+              f"{machine.window_m:.3f} m, arm after {machine.min_travel_m:.3f} m "
+              f"of A's own travel, detection within "
+              f"{machine.max_bearing_error_deg:.0f} deg of the goal")
         deadline = time.monotonic() + arguments.timeout
         while time.monotonic() < deadline and not result_future.done():
             rclpy.spin_once(gate, timeout_sec=0.1)
@@ -298,7 +344,10 @@ def main() -> int:
                 continue
             # The pose is used to EXPRESS the goal, never to decide whether to
             # dock: arming is on the detected range alone (corridor_dock.armed).
-            refined = machine.step((pose_x, pose_y), pose_yaw, gate.last_verdict)
+            refined = machine.step(
+                (pose_x, pose_y), pose_yaw, gate.last_verdict,
+                travelled_m=gate.odom_travel_m,
+            )
 
             # ARRIVING MEANS STOPPING. Reaching DOCKED used to only stop the
             # machine ISSUING goals, while Nav2 carried on executing the last

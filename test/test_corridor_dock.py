@@ -188,3 +188,107 @@ def test_the_report_records_every_refinement() -> None:
     assert report["refinements"] == 2
     assert [entry["event"] for entry in report["history"]] == ["refine", "refine"]
     assert report["landmark_map_frame"] is not None
+
+
+# --- containment: the phantom near spawn -------------------------------------
+# Numbers from the run that made this necessary (20260812-131600) and from the
+# committed scale: route-to-delivery 5.750 m, window 0.900 m, goal (4.106,
+# -2.932), phantom "confirmed" at 1.06 m while the robot stood near (0, 0).
+
+ROUTE_M = 5.7497
+WINDOW_M = 0.9
+GOAL = (4.1061, -2.9319)
+
+
+def _contained(**kwargs):
+    from corridor_dock import DockingMachine
+
+    return DockingMachine(GOAL, route_length_m=ROUTE_M, **kwargs)
+
+
+def test_the_window_is_derived_from_the_route_not_copied() -> None:
+    """3.0 m was 15.653% of the authored route. Here it is 0.900 m.
+
+    Which is also 3.0 x the 0.30 scale factor, so the derivation checks against
+    itself. A literal 3.0 would be more than half of this route.
+    """
+
+    machine = _contained()
+    assert machine.window_m == pytest.approx(WINDOW_M, abs=0.005)
+    assert machine.min_travel_m == pytest.approx(ROUTE_M - WINDOW_M, abs=0.005)
+    assert machine.window_m < 3.0 / 2
+
+
+def test_the_spawn_phantom_is_refused() -> None:
+    """**The negative control.** The exact shape of the 13:16 failure.
+
+    A confirmed detection, a plausible laser range, and a robot that has barely
+    moved and is nowhere near the goal. Shape and 3-of-5 agreement both pass --
+    they are about the object, not the place.
+    """
+
+    machine = _contained()
+    verdict = _verdict(0.3, 1.0)           # confirmed, 1.06 m away
+    assert not machine.armed(verdict, robot_xy=(0.0, 0.0), robot_yaw=0.0, travelled_m=0.58)
+    assert machine.step((0.0, 0.0), 0.0, verdict, travelled_m=0.58) is None
+    assert "too early in the route" in machine.rejections
+
+
+def test_the_real_post_at_the_end_of_the_route_still_arms() -> None:
+    """The guard must not reject the thing it guards.
+
+    A control that only ever says no is indistinguishable from docking being
+    switched off.
+    """
+
+    machine = _contained()
+    robot = (4.3, -2.5)                     # 0.45 m from the goal, near route end
+    bearing = math.atan2(GOAL[1] - robot[1], GOAL[0] - robot[0])
+    verdict = _verdict(GOAL[0], GOAL[1])
+    verdict["candidate"]["bearing_rad"] = bearing
+    verdict["candidate"]["range_m"] = 0.6
+
+    assert machine.armed(verdict, robot_xy=robot, robot_yaw=0.0, travelled_m=5.2)
+    assert machine.rejections == {}
+
+
+def test_each_containment_test_can_refuse_on_its_own() -> None:
+    """Three conditions, three separable reasons, so a rejection is diagnosable."""
+
+    robot = (4.3, -2.5)
+    bearing = math.atan2(GOAL[1] - robot[1], GOAL[0] - robot[0])
+
+    def at(xy, yaw, travelled, bearing_rad):
+        machine = _contained()
+        verdict = _verdict(GOAL[0], GOAL[1])
+        verdict["candidate"]["range_m"] = 0.6
+        verdict["candidate"]["bearing_rad"] = bearing_rad
+        machine.armed(verdict, robot_xy=xy, robot_yaw=yaw, travelled_m=travelled)
+        return machine.rejections
+
+    assert "too early in the route" in at(robot, 0.0, 1.0, bearing)
+    assert "too far from the goal in the map frame" in at((1.0, 0.0), 0.0, 5.2, bearing)
+    # Looking backwards: the detection sits 180 deg from the goal direction.
+    assert "detection is not where the goal is" in at(robot, 0.0, 5.2, bearing + math.pi)
+
+
+def test_containment_fails_closed_when_it_is_not_supplied() -> None:
+    """Configured but unsupplied is a caller bug, and arming anyway restores the
+    exact failure this exists to prevent."""
+
+    machine = _contained()
+    verdict = _verdict(GOAL[0], GOAL[1])
+    verdict["candidate"]["range_m"] = 0.6
+
+    assert not machine.armed(verdict)
+    assert "containment configured but not supplied" in machine.rejections
+
+
+def test_an_unconfigured_machine_keeps_its_old_behaviour() -> None:
+    """Transit-only callers -- and every existing test above -- are unchanged."""
+
+    from corridor_dock import DockingMachine
+
+    machine = DockingMachine(GOAL)
+    assert machine.min_travel_m is None
+    assert machine.armed(_verdict(0.3, 1.0))
