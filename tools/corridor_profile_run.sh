@@ -335,6 +335,18 @@ teardown() {
   fi
   # The nodes THIS run launched are ours to bury, and leaving one behind is a
   # defect in this run, not the next one's problem.
+  #
+  # ESCALATE. TERM is not enough and three consecutive runs proved it: the same
+  # two survive every time. `ros2 launch` does not reliably pass TERM down to
+  # nav2_behaviors' behavior_server, and rclpy's own signal handlers shut the
+  # ROS context down WITHOUT exiting the process, which is why the lens outlives
+  # a clean stop. Politeness first -- the lens writes its metric history on a
+  # graceful stop -- then KILL what is left, then verify.
+  if [ -n "$(residents)" ]; then
+    echo "  nodes still up after TERM; escalating to KILL" >&2
+    residents | awk '{print $1}' | while read -r pid; do kill -KILL "$pid" 2>/dev/null || true; done
+    sleep 2
+  fi
   if [ -n "$(residents)" ]; then
     echo "!! NODES SURVIVED TEARDOWN:" >&2; residents >&2
     residents | while read -r line; do manifest_error "survived teardown: $line"; done
