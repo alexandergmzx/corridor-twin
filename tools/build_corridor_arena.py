@@ -132,12 +132,31 @@ ROBOT1_REAR_WHEEL_FRICTION = 0.1
 ROBOT1_LEFT_JOINTS = ("zq_Joint", "zh_Joint")
 ROBOT1_RIGHT_JOINTS = ("yq_Joint", "yh_Joint")
 
-#: EFFECTIVE rolling radius as seen through the joint-velocity API, NOT the
-#: geometric one (sim_runner.py:51,:58,:69: geometric 0.0245, effective 0.0458,
-#: a ~2.0 units/convention factor between apply_action and physical angular
-#: velocity that survived replacing the colliders with analytic cylinders).
-#: Using the geometric value here would command half the intended speed.
-ROBOT1_WHEEL_R_EFFECTIVE_M = 0.0458
+def robot1_wheel_r_effective_m(start: str | None = None) -> float:
+    """EFFECTIVE rolling radius, IMPORTED from `sim_runner` rather than copied.
+
+    Not the geometric radius: there is a ~2.0 units/convention factor between
+    `apply_action` and physical angular velocity that survived replacing the
+    colliders with analytic cylinders, and it is unexplained (fleet OI-23).
+    Using the geometric value here would command half the intended speed.
+
+    It was a copy, and the copy was the point of failure waiting to happen: the
+    same number drives the wheels HERE and integrates `/odom_raw` THERE, so the
+    two disagreeing would make the robot's odometry and its motion describe
+    different vehicles. On 2026-08-12 the fleet value was calibrated 0.0458 ->
+    0.0489 on thirteen bags, and a copy would have been left behind by it.
+
+    `sim_runner` imports only the standard library and `_layout` at module
+    scope, so this costs nothing and starts nothing. Same rule as importing
+    `author_lidar` and `_layout.USD_DIR` instead of reconstructing them.
+    """
+
+    tools = yahboom_tools(start)
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    from sim_runner import WHEEL_R  # noqa: PLC0415 - resolved only after the D5 walk
+
+    return float(WHEEL_R)
 
 #: rasptank drives every dof at one sign; its verify already passes that way.
 RASPTANK_WHEEL_R_M = 0.025
@@ -279,7 +298,7 @@ ROBOTS = {
         },
         "spawn_z_m": SPAWN_Z_M,
         "wheel_links": (),
-        "drive": {"left": (), "right": (), "wheel_r_m": RASPTANK_WHEEL_R_M},
+        "drive": {"left": (), "right": (), "wheel_r_m": lambda: RASPTANK_WHEEL_R_M},
         "contract": "C1",
     },
     "robot1": {
@@ -297,7 +316,7 @@ ROBOTS = {
         "drive": {
             "left": ROBOT1_LEFT_JOINTS,
             "right": ROBOT1_RIGHT_JOINTS,
-            "wheel_r_m": ROBOT1_WHEEL_R_EFFECTIVE_M,
+            "wheel_r_m": robot1_wheel_r_effective_m,
         },
         "contract": "MS200",
     },
@@ -758,7 +777,9 @@ def main() -> int:
             # non-wheel joints are left at zero -- driving all six of robot1's
             # dof at one sign makes the sides fight, and the robot travels 4 mm.
             drive = robot["drive"]
-            target = 0.2 / drive["wheel_r_m"]
+            # Called here, not in the table: the table is module scope and
+            # robot1's value is resolved out of the fleet, like "asset".
+            target = 0.2 / drive["wheel_r_m"]()
             if drive["left"] or drive["right"]:
                 velocity = np.zeros(len(dof))
                 for index, joint in enumerate(dof):

@@ -256,3 +256,59 @@ def test_the_arena_env_is_the_one_the_rasptank_runner_reads() -> None:
     """The composer's output is only useful if the runner's hook is what it names."""
 
     assert composer.ARENA_ENV == "RASPTANK_ARENA_USD"
+
+
+#: The one place this checkout is reachable by its LOGICAL path. The resolver
+#: is built for script invocation -- `this_file()` reads `sys.argv[0]`, which is
+#: "-c" under `python -c` and a pytest binary under pytest -- so the tests below
+#: pass the logical path explicitly, which is what the `start` parameter is for.
+LOGICAL_TOOL = Path(
+    "/home/alexmint/Development/robot-fleet/src/corridor-twin/tools/build_corridor_arena.py"
+)
+
+
+def _fleet_available() -> bool:
+    return LOGICAL_TOOL.exists()
+
+
+def test_the_effective_wheel_radius_has_exactly_one_home() -> None:
+    """It was a COPY, and a copy of this number is a robot that lies to itself.
+
+    The same constant drives the wheels in the composer and integrates
+    `/odom_raw` in `sim_runner`. If they disagree, the robot's odometry and its
+    motion describe different vehicles -- and on 2026-08-12 the fleet value was
+    calibrated 0.0458 -> 0.0489 on thirteen bags, which a copy would have been
+    left behind by.
+    """
+
+    if not _fleet_available():
+        pytest.skip("the fleet layout is not in place")
+
+    import sys as _sys
+
+    yahboom_tools = composer.yahboom_tools(str(LOGICAL_TOOL))
+    if yahboom_tools not in _sys.path:
+        _sys.path.insert(0, yahboom_tools)
+    from sim_runner import WHEEL_R
+
+    assert composer.robot1_wheel_r_effective_m(str(LOGICAL_TOOL)) == WHEEL_R
+
+
+def test_the_composer_carries_no_second_copy_of_the_radius() -> None:
+    """A parity check only helps while there is one value to check against."""
+
+    import ast
+    import re
+
+    source = Path(composer.__file__).read_text(encoding="utf-8")
+    # Checked as a VALUE, not as a mention: the docstring explains the
+    # calibration by quoting both numbers, and should keep doing so.
+    tree = ast.parse(source)
+    literals = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, float)
+    }
+    assert 0.0458 not in literals, "the stale copied radius is back in the composer"
+    assert 0.0489 not in literals, "the radius is imported, never restated"
+    assert re.search(r"from sim_runner import WHEEL_R", source)

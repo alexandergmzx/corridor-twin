@@ -82,6 +82,32 @@ Two consequences, and the second is not about odometry at all:
    drives about 7% faster than Nav2 asks it to.** A speed policy pinned against
    commanded speed would be pinned against the wrong number.
 
+## Applied, and independently confirmed by a measurement it did not design
+
+`WHEEL_R` 0.0458 → **0.0489**, fleet-side, one commit
+(`yahboomcar-ros2` `52bf989`), listed separately for separate review.
+
+The composer's own forward-sign gate is an open-loop straight-line transit
+against ground truth — command 0.2 m/s for 2 s, no Nav2, no governor, no filter
+— and it has been running on every arena build all along:
+
+| | nominal | wide_corner | uniform | vs the 0.400 m commanded |
+|---|---|---|---|---|
+| at `WHEEL_R = 0.0458` | 0.418 m | 0.417 m | 0.418 m | **+4.4%** |
+| at `WHEEL_R = 0.0489` | 0.391 m | 0.392 m | 0.392 m | **−2.1%** |
+
+Same direction as the bags and a different method: both say the true rolling
+radius is larger than the constant, by 4.4% (the 2 s gate) and 6.8% (the
+thirteen bags). They do not agree exactly, and the honest reading is that they
+bracket it — the gate implies 0.0478, the bags 0.0489. The bag-derived value is
+the one applied, because it is measured over hundreds of seconds of governed
+driving rather than one 0.4 m open-loop push on a chassis that is still
+settling.
+
+**The bar was ±3% and the post-change direct measurement is −2.1% on all three
+profiles**, so the calibration stands rather than being reverted. A governed
+transit re-measures it in U5.
+
 ## What this does NOT say
 
 - **Nothing about yaw.** The fusion anomaly (`NOTES-fusion-anomaly.md`) is a
