@@ -199,6 +199,47 @@ def integrated_gyro_deg(series: list[tuple[float, float]]) -> float | None:
     return round(math.degrees(total), 2)
 
 
+def world_frame_delivery(
+    truth: list[tuple],
+    standoff: tuple[float, float],
+) -> dict:
+    """How close A actually got to the delivery point, in WORLD coordinates.
+
+    The map-frame goal error the nav gate reports is computed in a frame SLAM
+    owns, so when SLAM diverges that number stops describing the robot at all:
+    it read 6-7 m on runs where the robot physically came within 0.8 m of the
+    standoff, and 0.15 m of map-frame error would be equally meaningless in the
+    other direction. This is the evaluation plane's own measurement and it
+    cannot be fooled by a bad map.
+
+    CLOSEST approach is reported alongside the final position because they
+    answer different questions. A run that reaches the standoff and then drives
+    away has succeeded at navigation and failed at knowing it -- which is a
+    completely different defect from one that never arrives, and the final
+    position alone cannot tell them apart.
+
+    Evaluation only (CLAUDE.md invariant 1): nothing A's stack subscribes to
+    reads this.
+    """
+
+    if len(truth) < 2:
+        return {"available": False, "reason": "no truth track"}
+    distances = [
+        (row[0], math.dist((row[1], row[2]), standoff)) for row in truth
+    ]
+    closest_t, closest = min(distances, key=lambda pair: pair[1])
+    return {
+        "available": True,
+        "standoff_world_m": [round(standoff[0], 4), round(standoff[1], 4)],
+        "final_position_m": [round(truth[-1][1], 4), round(truth[-1][2], 4)],
+        "final_error_m": round(distances[-1][1], 4),
+        "closest_approach_m": round(closest, 4),
+        "closest_at_s": round(closest_t - truth[0][0], 2),
+        # The signature of "arrived, then left": it got there and did not stay.
+        "walked_away_m": round(distances[-1][1] - closest, 4),
+    }
+
+
 def midpoint_drift(
     truth: list[tuple[float, float, float]],
     estimate: list[tuple[float, float, float]],
@@ -494,6 +535,10 @@ def main() -> int:
     )
     parser.add_argument("--out", required=True)
     parser.add_argument(
+        "--manifest",
+        help="scene manifest; enables the world-frame delivery measurement",
+    )
+    parser.add_argument(
         "--robot",
         choices=sorted(ROBOT_TARGETS),
         default="robot2",
@@ -546,6 +591,16 @@ def main() -> int:
         occupied = sum(1 for value in gate.map_msg.data if value > 50)
         free = sum(1 for value in gate.map_msg.data if 0 <= value <= 50)
 
+    # World-frame delivery needs the scene, not the map: it is the one measure
+    # of arrival that a diverged map cannot corrupt.
+    delivery = {"available": False, "reason": "no --manifest given"}
+    if arguments.manifest:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from corridor_nav_gate import delivery_standoff_world
+
+        manifest = json.loads(Path(arguments.manifest).read_text(encoding="utf-8"))
+        delivery = world_frame_delivery(gate.truth, delivery_standoff_world(manifest))
+
     consecutive = max_consecutive_withheld(gate.withheld_gaps, 1.0 / scan_hz)
     worst_ekf_gap_s = round(max(gate.ekf_gaps), 4) if gate.ekf_gaps else None
 
@@ -581,6 +636,7 @@ def main() -> int:
         "first_odom_laser_station_m": gate.first_odom_laser_station_m,
         "midpoint_drift": midpoint_drift(gate.truth, gate.estimate),
         "yaw_scale": yaw_scale(gate.truth, gate.estimate),
+        "world_frame_delivery": delivery,
         "yaw_chain_deg": {
             "imu_raw": integrated_gyro_deg(gate.gyro["imu"]),
             "imu_filtered": integrated_gyro_deg(gate.gyro["imu_data"]),

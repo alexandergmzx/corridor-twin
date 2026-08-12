@@ -258,6 +258,7 @@ fi
 echo "=== T3.3a transit recorder (observe-only, ${GATE_SECONDS}s) ==="
 python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
   --profile "$PROFILE" --robot "$ROBOT" $GATED --observe-only \
+  --manifest "$MANIFEST" \
   ${CONTRACT_CAVEAT:+--caveat "$CONTRACT_CAVEAT"} \
   --out "$EVIDENCE/gate-$ROBOT-$PROFILE.json" \
   >"$EVIDENCE/gate-$ROBOT-$PROFILE.log" 2>&1 &

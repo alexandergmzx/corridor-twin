@@ -280,3 +280,48 @@ def test_an_inverted_yaw_channel_is_caught() -> None:
 
     assert result["ratio"] == pytest.approx(-1.0)
     assert abs(result["ratio"] - 1.0) > corridor_sim_gate.MAX_YAW_SCALE_ERROR
+
+
+# --- world-frame delivery ----------------------------------------------------
+# Added after a run reported 6-7 m of map-frame goal error while the robot had
+# physically come within 0.768 m of the standoff and then driven back to its
+# spawn. The map-frame number is computed in a frame SLAM owns; when SLAM
+# diverges it stops describing the robot at all.
+
+
+def _truth(points):
+    return [(float(i), x, y, 0.0) for i, (x, y) in enumerate(points)]
+
+
+def test_the_closest_approach_is_not_the_final_position() -> None:
+    """The measured signature: arrived, then left. Both numbers are needed."""
+
+    track = _truth([(0.022, 0.003), (5.687, -3.303), (2.640, 0.924), (-1.053, 1.028)])
+
+    result = corridor_sim_gate.world_frame_delivery(track, (6.453, -3.360))
+
+    assert result["closest_approach_m"] == pytest.approx(0.768, abs=1e-3)
+    assert result["final_error_m"] > 8.0
+    assert result["walked_away_m"] > 7.0
+
+
+def test_a_robot_that_stays_has_not_walked_away() -> None:
+    track = _truth([(0.0, 0.0), (3.0, -2.0), (6.4, -3.35), (6.453, -3.360)])
+
+    result = corridor_sim_gate.world_frame_delivery(track, (6.453, -3.360))
+
+    assert result["walked_away_m"] == pytest.approx(0.0, abs=1e-3)
+    assert result["final_error_m"] < 0.01
+
+
+def test_a_robot_that_never_arrives_reports_its_best() -> None:
+    track = _truth([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)])
+
+    result = corridor_sim_gate.world_frame_delivery(track, (6.453, -3.360))
+
+    assert result["closest_approach_m"] > 4.0
+    assert result["walked_away_m"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_no_truth_track_is_unavailable_not_zero() -> None:
+    assert corridor_sim_gate.world_frame_delivery([], (0.0, 0.0))["available"] is False
