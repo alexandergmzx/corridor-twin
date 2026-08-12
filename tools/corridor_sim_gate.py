@@ -59,6 +59,7 @@ import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.node import Node
+from sensor_msgs.msg import Imu
 
 #: Default target is robot2, so every artifact committed before this
 #: parameterization stays reproducible by re-running the same command.
@@ -186,6 +187,18 @@ def yaw_scale(
     }
 
 
+def integrated_gyro_deg(series: list[tuple[float, float]]) -> float | None:
+    """Rotation implied by a yaw-rate stream, integrated on its own stamps."""
+
+    if len(series) < 2:
+        return None
+    total = sum(
+        rate * (later_t - earlier_t)
+        for (earlier_t, rate), (later_t, _rate) in zip(series, series[1:], strict=False)
+    )
+    return round(math.degrees(total), 2)
+
+
 def midpoint_drift(
     truth: list[tuple[float, float, float]],
     estimate: list[tuple[float, float, float]],
@@ -305,6 +318,23 @@ class CorridorGate(Node):
         self.create_subscription(Odometry, ekf_topic, self._on_ekf, 500)
         self.create_subscription(OccupancyGrid, f"{namespace}/map", self._on_map, 1)
         self.create_subscription(Odometry, f"{namespace}/sim/ground_truth", self._on_truth, 500)
+        # The yaw chain, stage by stage. A yaw scale error is measurable at the
+        # /odom output, but which STAGE introduced it is not -- and the fix
+        # differs completely between the sensor, the orientation filter, and
+        # the fusion. Integrating the gyro at each tap answers that from an
+        # ordinary run instead of from a bespoke experiment.
+        #   /imu       raw from the twin
+        #   /imu/data  after imu_filter_madgwick
+        #   /odom      after robot_localization  <- already tracked as `estimate`
+        self.gyro: dict[str, list[tuple[float, float]]] = {"imu": [], "imu_data": []}
+        self.create_subscription(
+            Imu, f"{namespace}/imu",
+            lambda m: self.gyro["imu"].append((self._stamp_s(m), m.angular_velocity.z)), 500
+        )
+        self.create_subscription(
+            Imu, f"{namespace}/imu/data",
+            lambda m: self.gyro["imu_data"].append((self._stamp_s(m), m.angular_velocity.z)), 500
+        )
         # No publisher AT ALL in observe-only mode. A flag consulted inside a
         # drive loop would still leave the node able to command the robot if
         # some later caller forgot to check it; withholding the object makes
@@ -551,6 +581,10 @@ def main() -> int:
         "first_odom_laser_station_m": gate.first_odom_laser_station_m,
         "midpoint_drift": midpoint_drift(gate.truth, gate.estimate),
         "yaw_scale": yaw_scale(gate.truth, gate.estimate),
+        "yaw_chain_deg": {
+            "imu_raw": integrated_gyro_deg(gate.gyro["imu"]),
+            "imu_filtered": integrated_gyro_deg(gate.gyro["imu_data"]),
+        },
         "midpoint_covariance": covariance_at_midpoint(gate.covariance_trace, truth_distance),
         # The degeneracy study's primary artifact. Kept whole: it is a few
         # hundred rows, and downsampling the one trace the study rests on would
