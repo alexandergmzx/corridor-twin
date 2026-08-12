@@ -234,6 +234,7 @@ class CorridorGate(Node):
         # the matcher produced nothing for the first 5.9 m as "1 consecutive
         # withheld update".
         self.drive_started_s: float | None = None
+        self.first_stamp_s: float | None = None
         self.first_odom_laser_station_m: float | None = None
 
         ekf_topic = self.target["ekf_topic"]
@@ -243,10 +244,10 @@ class CorridorGate(Node):
         # subject, so the two robots' numbers stay directly comparable.
         self.last_ekf_s: float | None = None
         self.ekf_gaps: list[float] = []
-        self.create_subscription(Odometry, f"{namespace}/odom_laser", self._on_odom_laser, 10)
-        self.create_subscription(Odometry, ekf_topic, self._on_ekf, 10)
-        self.create_subscription(OccupancyGrid, f"{namespace}/map", self._on_map, 10)
-        self.create_subscription(Odometry, f"{namespace}/sim/ground_truth", self._on_truth, 10)
+        self.create_subscription(Odometry, f"{namespace}/odom_laser", self._on_odom_laser, 500)
+        self.create_subscription(Odometry, ekf_topic, self._on_ekf, 500)
+        self.create_subscription(OccupancyGrid, f"{namespace}/map", self._on_map, 1)
+        self.create_subscription(Odometry, f"{namespace}/sim/ground_truth", self._on_truth, 500)
         # No publisher AT ALL in observe-only mode. A flag consulted inside a
         # drive loop would still leave the node able to command the robot if
         # some later caller forgot to check it; withholding the object makes
@@ -258,13 +259,37 @@ class CorridorGate(Node):
             else self.create_publisher(Twist, f"{namespace}/cmd_vel_raw", 10)
         )
 
+    def _stamp_s(self, message) -> float:
+        """The message's OWN clock, never the receiver's.
+
+        Every gap and every track in this gate is timed by header stamp. Wall
+        time here measured the RECORDER, not the robot: this node spins rclpy
+        in a Python loop that also deserializes a growing /map OccupancyGrid,
+        and when that blocks, the messages it misses were reported as the
+        EKF failing to publish. Measured 2026-08-11 -- the gate called a
+        3.052 s "EKF output gap" on a run whose bag shows the EKF's true worst
+        gap was 0.398 s, with none at all over the 0.4 s threshold.
+
+        Header stamps are immune to that: a burst delivered late still carries
+        the cadence it was published at. It is also what CLAUDE.md requires
+        under simulation, independently of this defect.
+        """
+
+        stamp = message.header.stamp.sec + message.header.stamp.nanosec * 1e-9
+        # The anchor for "silence before the first message" has to live on this
+        # same clock, so it is the first stamp seen on ANY stream rather than a
+        # wall-clock reading taken when observation began.
+        if self.first_stamp_s is None:
+            self.first_stamp_s = stamp
+        return stamp
+
     # --- callbacks ---------------------------------------------------------
     def _on_odom_laser(self, message: Odometry) -> None:
-        now = time.monotonic()
+        now = self._stamp_s(message)
         if self.last_odom_laser_s is not None:
             self.withheld_gaps.append(now - self.last_odom_laser_s)
-        elif self.drive_started_s is not None:
-            self.withheld_gaps.append(now - self.drive_started_s)
+        elif self.first_stamp_s is not None:
+            self.withheld_gaps.append(now - self.first_stamp_s)
             self.first_odom_laser_station_m = round(path_length_m(self.truth), 4)
         self.last_odom_laser_s = now
         self.counts["odom_laser"] += 1
@@ -274,16 +299,16 @@ class CorridorGate(Node):
         )
 
     def _on_ekf(self, message: Odometry) -> None:
-        now = time.monotonic()
+        now = self._stamp_s(message)
         if self.last_ekf_s is not None:
             self.ekf_gaps.append(now - self.last_ekf_s)
-        elif self.drive_started_s is not None:
-            self.ekf_gaps.append(now - self.drive_started_s)
+        elif self.first_stamp_s is not None:
+            self.ekf_gaps.append(now - self.first_stamp_s)
         self.last_ekf_s = now
         self.counts["ekf"] += 1
         self.estimate.append(
             (
-                time.monotonic(),
+                now,
                 message.pose.pose.position.x,
                 message.pose.pose.position.y,
             )
@@ -296,7 +321,7 @@ class CorridorGate(Node):
     def _on_truth(self, message: Odometry) -> None:
         self.truth.append(
             (
-                time.monotonic(),
+                self._stamp_s(message),
                 message.pose.pose.position.x,
                 message.pose.pose.position.y,
             )
@@ -329,11 +354,16 @@ def observe(gate: CorridorGate, seconds: float) -> None:
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
 
-    gate.drive_started_s = time.monotonic()
-    end = time.monotonic() + seconds
+    # Left as None until the first stamped message arrives: the "silence before
+    # the first message" gap has to be measured on the message clock too, and
+    # there is no stamp to anchor it to until one exists.
+    started_wall_s = time.monotonic()
+    end = started_wall_s + seconds
     while time.monotonic() < end and not stopping:
         rclpy.spin_once(gate, timeout_sec=0.05)
-    gate.observed_s = round(time.monotonic() - gate.drive_started_s, 2)
+    # How long this node WATCHED is a wall-clock duration, and the one quantity
+    # here that legitimately is one.
+    gate.observed_s = round(time.monotonic() - started_wall_s, 2)
 
 
 def drive(gate: CorridorGate, seconds: float) -> None:
@@ -345,7 +375,7 @@ def drive(gate: CorridorGate, seconds: float) -> None:
 
     if gate.publisher is None:
         raise RuntimeError("drive() called on an observe-only gate")
-    gate.drive_started_s = time.monotonic()
+    gate.drive_started_s = time.monotonic()   # bench drive only; gaps are stamp-timed
     end = time.monotonic() + seconds
     phase_end, phase = 0.0, "settle"
     while time.monotonic() < end:
