@@ -94,6 +94,77 @@ def test_the_run_records_which_scenario_it_actually_ran() -> None:
     assert 'manifest_sha256=$(digest "$MANIFEST")' in source
 
 
+def _residents_function() -> str:
+    """The preflight detector, lifted out of the runner so it can be run."""
+
+    source = RUNNER.read_text(encoding="utf-8")
+    start = source.index("residents() {")
+    end = source.index("\n}\n", start) + len("\n}\n")
+    return source[start:end]
+
+
+def test_the_preflight_sees_an_orphan_and_ignores_a_namespaced_stack() -> None:
+    """Run, with decoys. A detector nobody has watched fire is not a detector.
+
+    On 2026-08-12 domain 67 carried the previous run's own un-namespaced
+    behavior_server -- alive 84 minutes after its session ended, offering the
+    same recovery actions as the next run's, holding a dead session's costmap.
+    `occupants` could not see it: that looks for the SIMULATOR, and these
+    outlive it.
+
+    The /robot2 decoy is the control. A namespaced stack is a different graph
+    and somebody else's business; refusing on it would block the corridor on a
+    fleet session that cannot collide with it.
+    """
+
+    orphan = (
+        "/opt/ros/jazzy/lib/nav2_behaviors/behavior_server "
+        "--ros-args -r __node:=behavior_server"
+    )
+    namespaced = f"{orphan} -r __ns:=/robot2"
+    script = (
+        f"{_residents_function()}\n"
+        f'bash -c \'exec -a "{orphan}" sleep 8\' &\n'
+        "first=$!\n"
+        f'bash -c \'exec -a "{namespaced}" sleep 8\' &\n'
+        "second=$!\n"
+        "sleep 1\n"
+        "residents\n"
+        "kill $first $second 2>/dev/null\n"
+        "wait 2>/dev/null\n"
+    )
+    found = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, timeout=60,
+    ).stdout.strip().splitlines()
+
+    assert len(found) == 1, f"expected exactly the un-namespaced orphan, got: {found}"
+    assert "__ns:=" not in found[0]
+    assert "behavior_server" in found[0]
+
+
+def test_the_preflight_is_quiet_when_nothing_is_running() -> None:
+    """The other half of the control: it must not refuse every run.
+
+    Asserted against this machine as the tests run -- if a corridor stack is up
+    while the suite runs, this fails, and that is the correct answer.
+    """
+
+    found = subprocess.run(
+        ["bash", "-c", f"{_residents_function()}\nresidents\n"],
+        capture_output=True, text=True, timeout=30,
+    ).stdout.strip()
+    assert found == "", f"un-namespaced ROS nodes are alive on this machine: {found}"
+
+
+def test_teardown_polls_for_death_instead_of_sleeping_once() -> None:
+    """'It was not dead 3 seconds ago' is not a verification."""
+
+    source = RUNNER.read_text(encoding="utf-8")
+    assert '[ -z "$(occupants)" ] && [ -z "$(residents)" ] && break' in source
+    assert "survived teardown:" in source
+    assert 'teardown_verified=${teardown_verified:-0}' in source
+
+
 def test_the_manifest_cli_is_callable_the_way_bash_calls_it(tmp_path: Path) -> None:
     """Subprocess contract, exercised as a subprocess."""
 

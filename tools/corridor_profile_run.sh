@@ -230,6 +230,33 @@ if [ -n "$(occupants)" ]; then
   exit 2
 fi
 
+# THE LAST RUN'S NODES ARE STILL ON THIS DOMAIN, and `occupants` cannot see
+# them: it looks for the SIMULATOR, and these outlive it.
+#
+# Found 2026-08-12 14:30, on domain 67: the 13:16 run's own un-namespaced
+# `behavior_server` still alive 84 minutes after its session ended, next to a
+# `planner_server` from 02:42 (11 h 53 m) and nine `robot2_sim_bringup` launches
+# 21-24 h old. behavior_server is the node that executes Spin, and a stale one
+# shares node name AND action names with the new run's -- so a goal can be
+# answered by a server holding a dead session's costmap and TF.
+#
+# Un-namespaced only. A /robot2-namespaced stack is a different graph and is
+# somebody else's business; refusing on it would block the corridor on a fleet
+# session that cannot collide with it.
+residents() {
+  pgrep -af '/opt/ros/[^ ]*/lib/(nav2_[a-z_]+|slam_toolbox)/|corridor_lens\.py' 2>/dev/null \
+    | grep -v -- '__ns:=' || true
+}
+if [ -n "$(residents)" ]; then
+  echo "un-namespaced ROS nodes are already alive and would share domain $DOMAIN:" >&2
+  residents >&2
+  echo "  A stale behavior_server offers the same recovery actions as this run's" >&2
+  echo "  and can command the robot. Reap them, verify they are gone, start again." >&2
+  # Infrastructure, not usage: the domain was dirty before this run existed, so
+  # it is a rerun with a recorded cause rather than a bad command line.
+  rerun "domain $DOMAIN already carries un-namespaced ROS nodes from an earlier run"
+fi
+
 # Machine-wide single-occupancy. The occupancy scan above only sees THIS
 # machine's process list at one instant; the lock is what serialises sessions
 # that start seconds apart. Exit 3 (infrastructure), never a robot result.
@@ -262,9 +289,25 @@ teardown() {
   [ -n "$lens_pid" ] && kill -TERM "$lens_pid" 2>/dev/null || true
   [ -n "$watchdog_pid" ] && kill -TERM "$watchdog_pid" 2>/dev/null || true
   "$SIMCTL" stop --domain "$DOMAIN" || true
-  sleep 3
+  # POLL, do not sleep once and hope. A fixed 3 s answered "is it dead?" with
+  # "it was not dead 3 s ago" and then said nothing more: the 13:16 run's
+  # behavior_server survived its own teardown and was still running 84 minutes
+  # later, on the domain the next run would use.
+  for _ in $(seq 1 10); do
+    sleep 2
+    [ -z "$(occupants)" ] && [ -z "$(residents)" ] && break
+  done
   if [ -n "$(occupants)" ]; then
-    echo "!! SESSION NOT DEAD:" >&2; occupants >&2; return 1
+    echo "!! SESSION NOT DEAD:" >&2; occupants >&2
+    manifest_error "teardown left the simulator alive"
+    return 1
+  fi
+  # The nodes THIS run launched are ours to bury, and leaving one behind is a
+  # defect in this run, not the next one's problem.
+  if [ -n "$(residents)" ]; then
+    echo "!! NODES SURVIVED TEARDOWN:" >&2; residents >&2
+    residents | while read -r line; do manifest_error "survived teardown: $line"; done
+    return 1
   fi
   echo "  verified dead"
   teardown_verified=1
