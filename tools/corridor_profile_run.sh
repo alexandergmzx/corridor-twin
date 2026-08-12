@@ -49,10 +49,16 @@ RVIZ_FLAG=""
 # have hung holding the GPU and the machine-wide Isaac lock, which blocks every
 # other session, and a hung run is worth nothing anyway.
 #
-# 300 s costs no evidence: A's closest approach to B was measured at t+68 s and
-# t+119.8 s on the two runs that reached it, and everything after was A driving
-# back to spawn. What this cuts is the part that was never informative.
-SIM_MAX_S=300
+# 420 s, and the number is measured rather than chosen. 300 was tried first and
+# is too tight: bring-up alone costs 140-200 s on this box -- Isaac's load, the
+# contract measurement, and Nav2's lifecycle activation -- so a 300 s cap left
+# a run with no window to navigate in and the watchdog killed it mid-bring-up.
+#
+# 420 keeps the property that matters (a session cannot hang holding the GPU and
+# the machine-wide lock) while leaving ~220 s of transit, which is ample: A's
+# closest approach to B was measured at t+60 s, t+68 s and t+119.8 s on the runs
+# that reached it, and everything after that was A driving back to spawn.
+SIM_MAX_S=420
 
 # The nav window is DERIVED to fit inside the cap, never set past it: a nav
 # timeout longer than the session cap is a promise the watchdog will break.
