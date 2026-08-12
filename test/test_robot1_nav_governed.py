@@ -188,3 +188,38 @@ def test_the_mppi_arm_respects_the_governors_near_wall_yaw_cap() -> None:
     assert mppi["FollowPath"]["wz_max"] == 0.4
     assert mppi["FollowPath"]["vx_max"] == 0.22
     assert mppi["FollowPath"]["motion_model"] == "DiffDrive"
+
+
+def test_loop_closing_is_on_in_the_params_the_runner_actually_launches() -> None:
+    """The falsified hypothesis stays reverted, checked at the file that RUNS.
+
+    9c88a93 turned loop closing off on the argument that a single-pass delivery
+    has no loop to close. That is wrong -- slam_toolbox also closes against
+    recent scan chains, which is how it corrects accumulated drift -- and the
+    operator observed SLAM behaving worse. cd6e946 reverted it.
+
+    The corridor-local file that carries `false` is still on disk as the record
+    of that experiment, opt-in behind --corridor-slam. So checking the config
+    with the corridor's name on it would check the wrong file: this follows the
+    runner's default to the params it actually launches.
+    """
+
+    import re
+
+    runner = (ROOT / "tools/corridor_profile_run.sh").read_text(encoding="utf-8")
+    default = re.search(r'^SLAM_PARAMS="([^"]+)"', runner, re.MULTILINE)
+    assert default, "the runner no longer declares a default SLAM params file"
+
+    params = Path(default.group(1))
+    if not params.is_file():
+        pytest.skip(f"the fleet params file is not in place: {params}")
+
+    body = params.read_text(encoding="utf-8")
+    assert re.search(r"^\s*do_loop_closing:\s*true\s*$", body, re.MULTILINE), (
+        f"{params} does not have loop closing on; the revert has been undone"
+    )
+
+    # And the opt-in record still says what it is, so nobody re-adopts it by
+    # reading only the filename.
+    record = ROOT / "config/robot1/slam_robot1_corridor.yaml"
+    assert "NOT IN USE" in record.read_text(encoding="utf-8")
