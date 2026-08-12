@@ -20,12 +20,13 @@ Commit as the repository's configured git identity and nothing else.
 An interview-sized digital twin: robot A delivers a package to person B through a
 tapered corridor and around a corner onto the next street. A and P live on
 separate ROS communication domains — the assignment's "cannot see" constraint
-(ADR 0020/0021). In v2, A navigates autonomously on the fleet twin's lidar with
-no camera of its own, and traffic police P measures A's speed from P's own
-roadside enforcement camera: a learned detector with an ArUco-on-A baseline
-(ADRs 0021–0024). The implemented v1 pipeline — A's front camera bridged to P,
-speed from surveyed ArUco wall fiducials — remains what runs today, quotable
-only as v1, until the v2 plan's phases land.
+(ADR 0020/0021). In v2, A — robot1, the fleet's Yahboom twin, per ADR 0027 —
+navigates autonomously on its lidar with no camera of its own, and traffic
+police P measures A's speed from P's own roadside enforcement camera: a learned
+detector with an ArUco-on-A baseline (ADRs 0021–0024). The implemented v1
+pipeline — A's front camera bridged to P, speed from surveyed ArUco wall
+fiducials — remains what runs today, quotable only as v1, until the v2 plan's
+phases land.
 
 The supplied scenario source is `docs/ROBO_TASK.pdf`. Its prose and topology are
 authoritative. Its unlabelled drawing has no scale bar, so metric dimensions in
@@ -99,14 +100,14 @@ its five review fixes), and the domain split landed as ADR 0020 (PR #4).
 carried three corrections — communication-domain isolation (answered by ADR
 0020), autonomous navigation, and active AI/ML use — and ADRs 0021–0025 record
 the v2 decisions: the camera becomes P's enforcement instrument, robot A is
-selected by a measured fleet-twin gate, autonomy is governed Nav2 on a live
-SLAM map with the speed policy re-pinned to robot scale, enforcement
-perception is a synthetic-data-trained detector with an ArUco baseline, and
-the repo joins the fleet workspace by symlink and pin. v1's GPU
-requalification is moot: no v1 certificate number is quotable for v2
-(ADR 0022), so the paused requalification stays closed rather than resumed.
-The police-placement handoff document remains as the record of its own,
-completed audit.
+selected by a measured fleet-twin gate (run and closed: ADR 0027, robot A =
+robot1), autonomy is governed Nav2 on a live SLAM map with the speed policy
+re-pinned to robot scale, enforcement perception is a synthetic-data-trained
+detector with an ArUco baseline, and the repo joins the fleet workspace by
+symlink and pin. v1's GPU requalification is moot: no v1 certificate number is
+quotable for v2 (ADR 0022), so the paused requalification stays closed rather
+than resumed. The police-placement handoff document remains as the record of
+its own, completed audit.
 
 ## Architectural invariants
 
@@ -222,6 +223,36 @@ caller's shell.
 - `PYTHONNOUSERSITE=1` is required for ROS runs: a user-local NumPy 2.2 wheel
   conflicts with Jazzy's NumPy 1.x OpenCV/cv_bridge ABI.
 
+## Fleet membership and path resolution
+
+This repo is a member of the `robot-fleet` workspace (ADR 0025):
+symlinked at `robot-fleet/src/corridor-twin` → `~/Development/omniverse_twin`
+(Flow-A precedent), four package links in the ground_station farm, pinned
+in `fleet.repos`. Run fleet-facing tooling from the **symlinked** path;
+`pwd` and `pwd -P` differing there is expected, not a broken link.
+
+**Resolver law (D5).** Sibling-repo paths resolve env-override-first,
+then by walking the LOGICAL path (textual `..` / `os.path.abspath`-style
+joins). NEVER `os.path.realpath` on checkout paths — it escapes the
+symlink into `~/Development` and silently breaks `../yahboomcar-ros2`
+imports. Resolver code carries a unit test that fails a realpath-based
+implementation.
+
+**Boundaries.** Sibling repos are read-only imports through the resolver.
+Writes outside this repo happen only under explicit, narrow, per-session
+delegation from Alexander (precedents: the fleet D-20 ledger commit; the
+rasptank hand-tape measurement commit), committed separately for separate
+review. Scenario decisions are ADRs here; fleet-wide allocations are
+D-nn/OI rows in robot-fleet — cross-reference by ID, never duplicate.
+
+**Domains.** A = 42, P = 43, 44 reserved for corridor replays, 70 dirty.
+Scratch domains per the 67/69 convention; the full deny-list for any
+corridor session is **20/42/43/44/66/68**.
+
+**Contract numbers are per-robot.** `--imu-hz 60` is robot2's Isaac
+number; robot1's rates come from robot1's own measured entries. Never
+carry one robot's contract figures to another.
+
 ## Commands
 
 ```bash
@@ -248,10 +279,22 @@ unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 ## Active handoff: the v2 correction plan
 
 The operative checklist is [`docs/v2-plan.md`](docs/v2-plan.md) — its Day 0–3
-task DAG, the isolation verification protocol (ADR 0026 when measured), and
-the robot-A gate protocol (ADR 0027 when measured). It overrides the
-historical narratives below wherever they conflict. The police-placement
-handoff ([`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md))
+task DAG, the isolation verification protocol, and the robot-A gate protocol.
+Both protocol outcomes are now Accepted: **ADR 0026** (isolation verified
+live — producer 0.9995, image crossing 0.954 at the pinned 640×360,
+certificate green with mutation red; 720p image-crossing 0.926 against
+CameraInfo 0.998 records the transport ceiling) and **ADR 0027** (**robot A =
+robot1**, the yahboom twin, per ADR 0022's fallback clause: robot2's
+encoder-less odometry published nothing until ~5 m in on every profile —
+first `odom_laser` at 4.77–5.83 m, midpoint drift 1.0 against the 0.05 bound.
+Not a chassis verdict: the matcher is fleet-tuned for a 4×4 room, and a
+retune justifies re-running the same thresholds as a new, superseding ADR.
+The three-profile covariance-vs-station traces are the degeneracy study's
+data). Selection is closed; robot1 runs are v2 evidence, not candidates.
+
+The plan overrides the historical narratives below wherever they conflict.
+The police-placement handoff
+([`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md))
 is the completed record of the 2026-07-29 audit; its GPU-requalification exit
 item is retired by ADR 0022's retirement of all v1 certificate numbers, not
 fulfilled.
@@ -391,9 +434,75 @@ a decision after the fact.
 - Curate artifacts. A frame without provenance is decoration, and an unbounded
   log dump is not a reviewable result.
 
+### Gate discipline
+
+- Every gate run writes a machine-readable JSON artifact; a gate number
+  that exists only in prose is not evidence (the F15 lesson).
+- A pinned threshold is printed and enforced from one constant, and the
+  enforced value matches the ADR that pinned it.
+- No mid-gate parameter tuning to reach green. A red run against pinned
+  thresholds is a committed artifact and a finding, in bold.
+- Infrastructure failures (session death, arena load failure, contract-
+  rate precondition miss) are reruns — twice at most — never results.
+  Classify every non-green run explicitly as one or the other.
+
 ## Commit conventions
 
 - Conventional Commits: `feat(scope):`, `test:`, `docs:`, `ci:`, `chore:`.
 - Each behaviour commit carries its own direct tests.
 - Documentation commits record measured evidence, not promised outcomes.
 - Additive history only. Do not rewrite published commits.
+
+## Unattended sessions (operator asleep/away) — hard rules
+
+These bind ANY session running without an operator who can answer. If unsure
+whether a rule applies: it applies. They rank above task completion — a task
+finished by breaking one of these is a failed task.
+
+- **git is local-only tonight. `git push` does not exist.** No pushes, no PRs,
+  no remote branch creation, no fetching-and-merging. Remotes are
+  human-reviewed surfaces; nothing unreviewed leaves this machine. Morning
+  review decides what publishes.
+- **History is append-only.** New branch per session (`<purpose>-<date>`),
+  one concern per commit, finding/OI IDs in messages. Never amend, rebase,
+  `reset --hard`, `clean -fd`, or delete branches. A wrong commit is repaired
+  by a new commit that says it repairs it.
+- **A commit is a reliable checkpoint or it doesn't happen.**
+  `colcon build --packages-select <touched>` plus the touched packages' tests
+  green BEFORE each commit. Work that can't reach green stays uncommitted in
+  the tree and is reported in the handoff doc — never committed "to save it".
+  Session ends with a clean tree or a documented dirty one, nothing silent.
+- **Isaac Sim is single-occupancy, machine-wide.** Two instances can take
+  down the whole PC — killing every other session's work, not just yours.
+  Before any `simctl start --backend isaac`: acquire `/tmp/fleet-isaac.lock`
+  (write PID + session name; a lock whose PID is dead is stale and may be
+  removed) AND verify no kit/isaac process is running. If busy: poll every
+  5 min for max 45 min, then PARK every isaac-dependent task and continue
+  with what doesn't need the GPU. Never launch a second instance to "check".
+  On session end and on EVERY failure path: `simctl stop`, verify the
+  process actually died, release the lock. Orphaned kit processes hold GPU
+  memory for the next victim.
+- **Domain hygiene**: scratch ROS_DOMAIN_ID per concurrent session (67/69
+  convention). Domain 20 is the hardware fleet domain — never used unattended.
+- **No hardware while unattended.** No flashing, no serial, no GPIO, nothing
+  past `--dry-run`. Hardware requires the operator's hands within reach of
+  the power switch (floor rules, D-08 consequence).
+- **Resource check before long jobs.** Free disk before bag recording (cap
+  and split bags — an unbounded bag fills the disk by 4am); free RAM before
+  sim bringup (the 3-robot stack is ~1.75 GB [measured]).
+- **Bounded retries.** The same command failing twice for the same reason
+  closes that path: record it, move on. No retry loops.
+- **Park, don't decide.** Judgment calls (safety semantics, OI status,
+  anything touching D-nn/R-nn, preference questions) go to the handoff doc's
+  "morning decisions" list. Evidence tags and OI-close rules apply at
+  3am exactly as at 3pm.
+- **Long sessions plan on disk first.** Any session expected to run
+  autonomously past ~1 hour writes `docs/session-plans/<date>-<purpose>.md`
+  BEFORE implementation: inventory with file:line, unit queue with
+  timeboxes and skip-edges, delegated/not-delegated. Binding once
+  written; status updated after every unit; the first action after any
+  context compaction is re-reading it; the handoff is its final section.
+- **Declare the wall-clock budget up front.** Run `date` between units;
+  stop starting new units at budget-minus-30-minutes and go to handoff.
+- **The handoff doc is the one mandatory deliverable** — written even when,
+  especially when, the session fails early.
