@@ -95,8 +95,10 @@ def test_the_render_contains_all_three_classes(rendered) -> None:
         assert values.count(value) > 100, f"almost no {name} cells: not a corridor"
 
 
-#: The authored corridor's own duplicate-wall reading, MEASURED 2026-08-12 at
-#: the corrected corner-screen geometry.
+#: The authored corridor's own UNMASKED duplicate-wall reading, MEASURED
+#: 2026-08-12 at the corrected corner-screen geometry. The pipeline scores a
+#: masked map, where this is 0.000; this pins the raw number so the reason the
+#: mask exists cannot quietly disappear.
 #:
 #: It reads 0.340 m, and it used to read 0.060 m. Nothing about the map got
 #: worse: the corner screen's north margin was a code constant that did not
@@ -120,14 +122,13 @@ AUTHORED_DUPLICATE_WALL_FLOOR_M = 0.340
 #: scale: the floor holds at 0.060 m out to a 6.0 m street and jumps to 0.820 m
 #: at 7.2 m, at which point the metric can no longer convict a bad map.
 #:
-#: **THE FLOOR IS NOW ABOVE THIS CEILING, AND THAT IS A PARKED DECISION.**
-#: 0.20 m is an absolute number from the fleet's 4x4 m room. The corridor was
-#: rescaled by 0.30 and the threshold was not, so it is now 3.33x stricter in
-#: relative terms than where it was measured. Either the limit is re-derived at
-#: the corridor's scale, or a run is scored as (reading - floor). Both are
-#: threshold decisions, and a threshold is pinned by an ADR, not by a session
-#: that happened to trip over it. Until then `map score <= 0.20` is not a
-#: criterion this scenario can meet, and no run should be failed on it.
+#: The UNMASKED floor is above this ceiling and stays there, which is exactly
+#: why the run pipeline masks. Scoring is done on a masked map -- the two
+#: authored internal structures removed, polygons read from the manifest -- and
+#: the masked oracle reads **0.000 m**, so the 0.20 m limit measures a run's
+#: error and nothing else, with no subtraction anywhere. That is asserted in
+#: `test_mask_authored_double_surface.py`, together with the control that
+#: painted ghosting outside the polygons is still convicted.
 FLOOR_CEILING_M = 0.20
 
 
@@ -164,12 +165,10 @@ def test_the_authored_corridor_scores_a_known_small_floor() -> None:
     assert measured == pytest.approx(AUTHORED_DUPLICATE_WALL_FLOOR_M, abs=0.02), (
         f"the authored floor moved: {line.strip()}"
     )
-    # NOT asserted as `measured < FLOOR_CEILING_M`, because it is not, and
-    # writing the assertion the other way round would be choosing a threshold
-    # to make a suite green. The contradiction is pinned instead, so it stays
-    # loud until an ADR settles it.
+    # UNMASKED, this is above the ceiling, and it is meant to be: it is the
+    # measurement that justifies masking. If it ever drops below on its own,
+    # the scene changed and the mask needs re-deriving rather than trusting.
     assert measured > FLOOR_CEILING_M, (
-        "the floor came back under the ceiling; if that is a real geometry "
-        "improvement, this test and the parked threshold decision both need "
-        f"revisiting: {line.strip()}"
+        "the unmasked floor came back under the ceiling; the scene changed, so "
+        f"re-derive the mask rather than assuming it still fits: {line.strip()}"
     )

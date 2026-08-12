@@ -703,9 +703,32 @@ else
     echo "**THIS session saved no map on domain $DOMAIN: SLAM produced nothing to score**" >&2
     status=1
   else
-    echo "  scoring $SAVED_MAP"
     cp "$SAVED_MAP" "${SAVED_MAP%.yaml}.pgm" "$RUN_DIR/" 2>/dev/null || true
-    python3 "$SCORER" --map "$SAVED_MAP" \
+    # MASK THE SCENE'S OWN DOUBLE SURFACES FIRST, or the metric convicts the
+    # corridor for being a corridor. It asks whether anything stands within
+    # 0.40 m of the outermost wall, which is a fair question of the plain 4x4 m
+    # room it was tuned in and a wrong one here: ADR 0019's corner screen stands
+    # 0.33 m off the east wall and ADR 0018's stub protrudes from it. Measured
+    # on the authored perfect-SLAM oracle -- no sensor, no drift -- the metric
+    # reads 0.340 m against a 0.20 m limit. Masked, it reads 0.000 m.
+    #
+    # Masked, not subtracted: a subtracted floor keeps the blind spot AND moves
+    # the threshold, so a run's number stops being comparable with every number
+    # recorded before it. The polygons come from the MANIFEST, the same source
+    # as the arena, and the blind spot is 0.42% of the map's cells.
+    SCORED_MAP="$SAVED_MAP"
+    if "$REPO/.venv/bin/python" "$REPO/tools/mask_authored_double_surface.py" \
+         --map "$SAVED_MAP" --manifest "$MANIFEST" --profile "$PROFILE" \
+         --frame robot_start --out "$RUN_DIR/map-masked.yaml" \
+         --json "$RUN_DIR/map-mask.json"; then
+      SCORED_MAP="$RUN_DIR/map-masked.yaml"
+    else
+      echo "  **masking failed; scoring the RAW map, which reads the corridor's" >&2
+      echo "    own authored structures as duplicate wall**" >&2
+      manifest_error "double-surface masking failed; map scored unmasked"
+    fi
+    echo "  scoring $SCORED_MAP"
+    python3 "$SCORER" --map "$SCORED_MAP" \
       --json "$RUN_DIR/map-score.json" \
       | tee "$RUN_DIR/map-score.txt" || status=1
   fi
