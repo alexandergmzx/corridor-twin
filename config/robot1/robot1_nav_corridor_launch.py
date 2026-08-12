@@ -49,7 +49,14 @@ from launch_ros.actions import Node
 
 #: Absolute, because this file is launched by path rather than from a package
 #: share directory.
-PARAMS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nav2_robot1_corridor.yaml")
+#: CORRIDOR_NAV_PARAMS selects the controller arm for the U3 comparison. It is
+#: an env override rather than a launch argument so the runner can set it
+#: without every caller learning a new flag, and it defaults to the DWB file, so
+#: an unset environment behaves exactly as before.
+PARAMS = os.environ.get(
+    "CORRIDOR_NAV_PARAMS",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "nav2_robot1_corridor.yaml"),
+)
 
 #: Both writers of motion are remapped into the governed pipe. Path following
 #: AND recovery behaviours (spin, backup) -- a recovery that bypassed the

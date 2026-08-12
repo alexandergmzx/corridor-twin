@@ -42,6 +42,8 @@ GATE_SECONDS=""
 # Corridor-local slam_toolbox params, launched by us. Empty restores the fleet
 # canonical via simctl's own SLAM step.
 SLAM_PARAMS="$REPO/config/robot1/slam_robot1_corridor.yaml"
+# U3: which local controller. dwb is the shipped arm; mppi is the comparison.
+CONTROLLER="dwb"
 # RViz ON by default: these runs are watched, and the viewport is how a
 # divergence gets noticed at all -- the ghosting that started this whole
 # sequence was seen there first. --no-rviz for a genuinely unattended run.
@@ -77,6 +79,7 @@ while [ $# -gt 0 ]; do
     --gate-seconds) GATE_SECONDS="$2"; shift 2 ;;
     --nav-timeout) NAV_TIMEOUT="$2"; shift 2 ;;
     --sim-max-s) SIM_MAX_S="$2"; shift 2 ;;
+    --controller) CONTROLLER="$2"; shift 2 ;;
     --fleet-slam) SLAM_PARAMS=""; shift ;;
     --rviz) RVIZ_FLAG=""; shift ;;
     --no-rviz) RVIZ_FLAG="--no-rviz"; shift ;;
@@ -296,6 +299,12 @@ fi
 echo "=== nav stack ==="
 if [ "$ROBOT" = robot1 ]; then
   NAV_LAUNCH="$REPO/config/robot1/robot1_nav_corridor_launch.py"
+  case "$CONTROLLER" in
+    dwb)  export CORRIDOR_NAV_PARAMS="$REPO/config/robot1/nav2_robot1_corridor.yaml" ;;
+    mppi) export CORRIDOR_NAV_PARAMS="$REPO/config/robot1/nav2_robot1_corridor_mppi.yaml" ;;
+    *) echo "unknown --controller: $CONTROLLER (dwb|mppi)" >&2; exit 2 ;;
+  esac
+  echo "  controller: $CONTROLLER ($(basename "$CORRIDOR_NAV_PARAMS"))"
 else
   NAV_LAUNCH="fleet_bringup robot2_nav_sim_launch.py"
 fi

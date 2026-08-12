@@ -143,3 +143,46 @@ def test_the_param_file_parses_and_keeps_nav2_under_the_governor_cap() -> None:
 
     assert velocity == pytest.approx(0.22)
     assert velocity < 0.35
+
+
+# --- U3: the MPPI arm --------------------------------------------------------
+# The comparison is only meaningful if the two arms differ in EXACTLY one thing.
+# These pin that: same footprint, same inflation, same planner, same governed
+# remapping, different controller.
+
+
+def _load(name):
+    import yaml
+    path = Path(__file__).parent.parent / "config/robot1" / name
+    return yaml.safe_load(path.read_text(encoding="utf-8"))["/**"]
+
+
+def test_the_two_arms_differ_only_in_the_controller() -> None:
+    dwb = _load("nav2_robot1_corridor.yaml")
+    mppi = _load("nav2_robot1_corridor_mppi.yaml")
+
+    assert dwb["controller_server"]["ros__parameters"]["FollowPath"]["plugin"] \
+        != mppi["controller_server"]["ros__parameters"]["FollowPath"]["plugin"]
+    for section in ("planner_server", "behavior_server", "local_costmap", "global_costmap"):
+        assert dwb[section] == mppi[section], f"{section} differs between the arms"
+
+
+def test_both_arms_share_the_measured_footprint_and_inflation() -> None:
+    """A comparison run on two different robots measures nothing."""
+
+    for name in ("nav2_robot1_corridor.yaml", "nav2_robot1_corridor_mppi.yaml"):
+        params = _load(name)
+        for scope in ("local_costmap", "global_costmap"):
+            costmap = params[scope][scope]["ros__parameters"]
+            assert costmap["robot_radius"] == 0.128
+            assert costmap["inflation_layer"]["inflation_radius"] == 0.30
+
+
+def test_the_mppi_arm_respects_the_governors_near_wall_yaw_cap() -> None:
+    """0.4 rad/s, for the same measured reason the DWB arm carries it."""
+
+    mppi = _load("nav2_robot1_corridor_mppi.yaml")["controller_server"]["ros__parameters"]
+
+    assert mppi["FollowPath"]["wz_max"] == 0.4
+    assert mppi["FollowPath"]["vx_max"] == 0.22
+    assert mppi["FollowPath"]["motion_model"] == "DiffDrive"
