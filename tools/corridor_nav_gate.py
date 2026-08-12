@@ -125,6 +125,11 @@ class NavGate(Node):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--profile", required=True)
+    parser.add_argument(
+        "--caveat",
+        default="",
+        help="Stamped into the artifact when a precondition failed but the run proceeded.",
+    )
     parser.add_argument("--robot", choices=sorted(ROBOT_TARGETS), default="robot2")
     parser.add_argument("--manifest", default="out/corridor.manifest.json")
     parser.add_argument("--out", required=True)
@@ -144,6 +149,7 @@ def main() -> int:
     report: dict = {
         "robot": arguments.robot,
         "profile": arguments.profile,
+        "caveat": arguments.caveat,
         "gated": arguments.gated,
         "goal_map_frame": [round(goal_x, 4), round(goal_y, 4)],
         "tolerance_m": GOAL_TOLERANCE_M,

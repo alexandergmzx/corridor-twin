@@ -308,6 +308,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--seconds", type=float, default=90.0)
     parser.add_argument("--profile", required=True)
+    parser.add_argument(
+        "--caveat",
+        default="",
+        help="Stamped into the artifact when a precondition failed but the run proceeded.",
+    )
     parser.add_argument("--out", required=True)
     parser.add_argument(
         "--robot",
@@ -359,6 +364,7 @@ def main() -> int:
     report = {
         "robot": arguments.robot,
         "profile": arguments.profile,
+        "caveat": arguments.caveat,
         "gated": arguments.gated,
         "seconds": arguments.seconds,
         "odom_laser_msgs": gate.counts["odom_laser"],
