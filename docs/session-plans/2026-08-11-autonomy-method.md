@@ -9,9 +9,9 @@
 
 | Unit | State | Notes |
 |---|---|---|
-| U0 session setup | IN PROGRESS | started 21:44 |
-| U1 standoff goal + scale fix | pending | |
-| U2 TF staleness | pending | |
+| U0 session setup | **DONE** 21:46 | `26b3387` — branch, plan, 1/3 scale adopted with the factor derived (B was 0.21 m from a wall, robot needs 0.27) |
+| U1 standoff goal + scale fix | **DONE** 21:52 | `a3034f9` — goal was inside B (lidar sees render geometry); standoff 0.6 m validated against is_clear; actors now scale (B 0.45 -> 0.15 m) |
+| U2 TF staleness | IN PROGRESS | started 21:52 |
 | U3 DWB vs MPPI measured | pending | |
 | U4 three profile runs (TRANSIT only) | pending | |
 | U5 ADR 0028 | pending | |
@@ -166,3 +166,140 @@ delivery. Everything after is measurement and record-keeping.
   velocity caps (0023:116-121).
 - `git push`; any write outside this repo.
 - `robot_radius: 0.12` remains inherited from robot2 and unverified for robot1.
+
+---
+
+# Night session, 2026-08-11 22:25 onward — the motion-policy correction
+
+The plan above was interrupted mid-U2 by a motion-policy violation and an RViz
+observation of a diverged map. What follows is the ordered sequence that was
+worked instead, and what each step measured.
+
+## Step 0 — the mission had three motion sources (fixed, `e99c9fa`)
+
+`simctl` step 7 launches `sim_patrol` unless told otherwise: *"patrolling: 1.0 m
+legs at 0.18 m/s, publishing /cmd_vel_raw"*. It is present in `simctl-patrol.log`
+of **every session directory this project has ever produced**. Alongside it,
+`corridor_sim_gate.py` drove a straight-pass warm-up before the nav stack even
+launched, and then Nav2's controller joined on the same topic.
+
+That is the square-patrol behaviour observed in the viewport, and it makes every
+odometry, drift and map number taken before tonight a measurement of three
+controllers fighting over one robot.
+
+Fixed: `--no-patrol`; warm-up drive deleted; the gate keeps its instrument and
+loses its publisher (`--observe-only` creates no publisher **object**, so the
+mode cannot regress into commanding motion) and now records *concurrently* with
+the transit. Artifacts gained `motion_source` and `observed_s`.
+
+**slam_toolbox needs no warm-up.** It maps during transit — confirmed this
+session: *"map publishing: 5 updates, 8.22 m across"* with the robot stationary.
+
+## Step 1 — the odometry chain is ACQUITTED (`c874129`, `2c2ac59`)
+
+Configuration first: `ekf_filter_node` is the sole publisher of
+`odom -> base_footprint` (`ekf_sim_pnfix.yaml:93-99`); it takes vx from the
+wheels (`odom0_config` index 6) and yaw rate from the IMU (`imu0_config` index
+11); `laser_odometry` publishes only the `/odom_laser` **topic**, not TF; the
+corridor nav launch adds no second EKF and no static transform. `session.json`
+records `"ekf": "pn-fix"`. Wheel yaw is structurally absent from the chain.
+
+Then measured, because that is a claim about a config file — a rate sweep,
+each rate driven as its own leg in one direction:
+
+| commanded rad/s | truth deg | EKF deg | EKF/truth | wheel/truth |
+|---|---|---|---|---|
+| +0.3 | 93.9 | 97.7 | 1.0408 | 4.0311 |
+| −0.3 | −97.4 | −98.8 | 1.0142 | 3.6665 |
+| +0.6 | 182.9 | 184.9 | 1.0109 | 3.1197 |
+| −0.6 | −181.0 | −173.4 | 0.9577 | 3.3055 |
+| +1.0 | 305.6 | 311.3 | 1.0185 | 2.7951 |
+| −1.0 | −304.8 | −307.8 | 1.0099 | 2.9451 |
+| +1.5 | 454.9 | 441.6 | 0.9707 | 2.4597 |
+| −1.5 | −468.2 | −457.1 | 0.9763 | 2.4311 |
+
+EKF yaw within **±4%** at every rate and both directions, while the wheel
+negative control fires at **2.4–4.0×** throughout — so the pivots genuinely
+slipped and the EKF was genuinely under test. Artifact:
+`docs/evidence/robot-a-gate/yaw-sweep.json`.
+
+**No launch-assembly fix is needed.** Raw odom is not in the SLAM input chain.
+
+## Step 2 — NOT MET. The map diverges, and it is measured, not eyeballed
+
+`score_slam_map.py` is now run on every profile run (`0553d1d`), with its
+`--self-test` negative controls re-exercised each time rather than once at
+authoring time. `--reference` is deliberately not passed: that tool's own
+docstring (`:28-30`) says its span rows are invalid for an L-shaped space, and
+saying so here is what it asks for instead of quietly scoring the wrong thing.
+
+The metric needed calibrating before it could convict anything, because a
+tapered corridor's converging walls and its corner could plausibly read as "the
+same wall twice". So the **authored** geometry is rendered as the map a perfect
+SLAM would produce, from the scene's own `is_clear` oracle, and scored by the
+same instrument (`3f05c7e`):
+
+| map | median wall thickness | duplicate wall extent |
+|---|---|---|
+| **authored (perfect SLAM)** | 0.020 m | **0.000 m** |
+| run 22:40 (stationary, 0.42 m) | 0.020 m | 0.300 m |
+| run 22:55 (transit, 5.78 m) | 0.020 m | **1.920 m** |
+| run 23:15 (transit, no RViz) | 0.020 m | **0.800 m** |
+
+**The authored floor is zero**, so a run's reading is its error in full. The
+23:15 map spans 9.78 × 10.28 m for a corridor 5.04 m long and 2.52 m wide.
+
+`Failed to create plan` × 23 is downstream of this. No planner parameter was
+touched.
+
+## What the divergence is NOT
+
+Ruled out by measurement, each with its artifact:
+
+1. **Not competing motion sources.** The patrol was gone from 22:40 onward.
+2. **Not the odometry chain's calibration.** ±4% across the rate sweep.
+3. **Not a rate-dependent gyro fault.** Spread 0.083 across 0.3–1.5 rad/s.
+4. **Not an inverted yaw channel.** Signed rotation agrees in sign everywhere.
+5. **Not simulator slowdown.** Real-time factor **1.001** on the 23:15 bag.
+
+What remains open is a transit-only yaw scale error. On the 22:55 bag
+(`transit-audit-225511.json`): truth rotated **+810.4°**, the EKF believed
+**+982.7°** — ratio **1.213**, final heading error **172.4°**, final position
+error 1.974 m. Integrating the raw gyro over the same bag gives +884.2°, so
+~9% originates in `/imu` itself and the rest is added downstream. The pivots
+say this is neither a calibration constant nor rate dependence. **It is not yet
+explained.**
+
+## Two of my own instruments were wrong, and both were load-bearing
+
+Recorded because each produced a confident number that was false.
+
+**The gate timed itself on the wall clock** (`2727c0c`). Every "EKF output gap"
+— 0.483 s, 0.996 s, 3.052 s, 4.138 s — measured the *recorder*, not the EKF:
+this node spins rclpy in a Python loop that also deserializes a growing `/map`
+OccupancyGrid, and the messages it missed while blocked were reported as the
+EKF failing to publish. From the 23:15 bag, receiver-independent: worst `/odom`
+gap **0.398 s** wall, 0.367 s by header, and **zero** gaps over the 0.4 s
+threshold. The EKF never stalled. The RViz-starvation hypothesis in `2f58530`
+was reasoning built on those numbers and **is withdrawn**; `--no-rviz` stands
+on its own merits for an unattended run. Gaps and tracks are now stamp-timed,
+which is what CLAUDE.md requires under simulation regardless.
+
+**The yaw metric summed absolute deltas** (`2c2ac59`). That is blind to an
+inverted channel — it scores a perfectly reversed signal as a flawless 1.0 —
+and it accumulates per-sample noise rather than cancelling it: it scored
+**5496° (fifteen revolutions)** for a robot that turned 810° over 4982 samples,
+and that artifact was briefly mistaken for runaway recovery spins. The nav log
+records **two**. Rotation is now summed signed.
+
+## Where this leaves the plan
+
+U2 is **not** closed: there is still no successful autonomous delivery, and the
+blocker is a diverged map rather than anything in the planner. Step 3 of the
+sequence (costmap dump, free width at the corner, cost class of the goal cell,
+footprint provenance) is deliberately **not** started, because every quantity
+it would measure is read off a map that is known bad.
+
+The `1.0 m` corner figure quoted in an earlier session is **retracted**: it came
+from the abandoned 0.2-scale iteration. At the committed factor 0.42 the corner
+is authored at **1.26 m** and the entry at 2.52 m (`corridor-small.manifest.json`).
