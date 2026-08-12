@@ -26,12 +26,21 @@ import pytest
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
-from corridor_nav_gate import GOAL_TOLERANCE_M, goal_in_map_frame  # noqa: E402
+from corridor_nav_gate import (  # noqa: E402
+    DELIVERY_STANDOFF_M,
+    GOAL_TOLERANCE_M,
+    goal_in_map_frame,
+)
 
 
+#: The goal is the delivery STANDOFF, not B's centre -- B is a lidar-visible
+#: obstacle, so its centre is unreachable (see test_delivery_standoff.py).
+#: These fixtures put the lane centre west of B, so the standoff moves west by
+#: DELIVERY_STANDOFF_M and the transform is exercised on that point.
 def _manifest(a_start, heading, b_xyz=(10.0, 0.0, 0.0)) -> dict:
     return {
-        "actors": {"b_xyz_m": list(b_xyz)},
+        "actors": {"b_xyz_m": list(b_xyz), "b_size_xyz_m": [0.45, 0.45, 1.7]},
+        "next_street": {"center_x_m": 0.0},
         "profiles": {
             "p": {
                 "a_start_xyz_m": list(a_start),
@@ -42,15 +51,17 @@ def _manifest(a_start, heading, b_xyz=(10.0, 0.0, 0.0)) -> dict:
 
 
 def test_a_spawn_at_the_origin_facing_x_leaves_the_goal_unchanged() -> None:
+    """Identity transform: only the standoff moves the point, not the frame."""
+
     goal = goal_in_map_frame(_manifest((0.0, 0.0, 0.0), (1.0, 0.0)), "p")
 
-    assert goal == pytest.approx((10.0, 0.0))
+    assert goal == pytest.approx((10.0 - DELIVERY_STANDOFF_M, 0.0))
 
 
 def test_the_spawn_offset_is_subtracted() -> None:
     goal = goal_in_map_frame(_manifest((4.0, 1.0, 0.0), (1.0, 0.0)), "p")
 
-    assert goal == pytest.approx((6.0, -1.0))
+    assert goal == pytest.approx((6.0 - DELIVERY_STANDOFF_M, -1.0))
 
 
 def test_the_spawn_heading_rotates_the_goal() -> None:
@@ -58,7 +69,7 @@ def test_the_spawn_heading_rotates_the_goal() -> None:
 
     goal = goal_in_map_frame(_manifest((0.0, 0.0, 0.0), (0.0, 1.0)), "p")
 
-    assert goal == pytest.approx((0.0, -10.0), abs=1e-9)
+    assert goal == pytest.approx((0.0, -(10.0 - DELIVERY_STANDOFF_M)), abs=1e-9)
 
 
 def test_the_transform_preserves_distance() -> None:
@@ -68,7 +79,10 @@ def test_the_transform_preserves_distance() -> None:
 
     goal = goal_in_map_frame(manifest, "p")
 
-    assert math.hypot(*goal) == pytest.approx(math.hypot(9.0 - 2.0, 5.0 - (-3.0)))
+    standoff_x = 9.0 - DELIVERY_STANDOFF_M
+    assert math.hypot(*goal) == pytest.approx(
+        math.hypot(standoff_x - 2.0, 5.0 - (-3.0))
+    )
 
 
 def test_the_real_corridor_headings_give_materially_different_goals() -> None:

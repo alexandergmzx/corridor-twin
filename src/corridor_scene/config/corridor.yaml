@@ -132,6 +132,19 @@ fiducials:
       # clamp keeps it clear of the corner mass exactly as before.
       - {surface: east_face,  along_m: 0.05, height_m: 1.0, size_m: 0.60, cant_deg: 0.0}
 
+actors:
+  # Actor body sizes, config-driven for the same reason P's is (ADR 0010:
+  # topology from the task, scale a project choice). These were hardcoded in
+  # usd_authoring.py and so did NOT move when the scenario was scaled to the
+  # robot -- leaving B a 0.45 m box in a 1.0 m corridor, and, because the RTX
+  # lidar sees render geometry, an obstacle whose own centre was the delivery
+  # goal. B stays a visible prop for P's camera and the viewer either way.
+  b_size_xyz_m: [0.45, 0.45, 1.7]
+  # A's v1 stand-in. The corridor composer deactivates its visual when the twin
+  # is placed (the twin IS A in v2), but the size is authored here so the
+  # scenario has no hardcoded lengths left in the actor block.
+  a_size_xyz_m: [0.65, 0.45, 0.5]
+
 police:
   # P stands inside the next street's east side, on the near (inner) side of
   # its east wall -- the side the supplied diagram measures P's label on, 28

@@ -121,6 +121,20 @@ class PoliceSpec:
 
 
 @dataclass(frozen=True)
+class ActorSpec:
+    """Body sizes of the scenario's actors.
+
+    Config-driven rather than hardcoded so they move with the scenario scale.
+    B in particular is not decoration: the RTX lidar sees render geometry, so
+    B's footprint is an obstacle in the costmap and it sets the standoff the
+    delivery goal has to keep.
+    """
+
+    b_size_xyz_m: Vec3
+    a_size_xyz_m: Vec3
+
+
+@dataclass(frozen=True)
 class Scenario:
     """Validated, simulator-independent scenario model."""
 
@@ -136,6 +150,7 @@ class Scenario:
     default_profile: str
     camera: CameraSpec
     fiducials: FiducialSpec
+    actors: ActorSpec
     police: PoliceSpec
     speed_policy: dict[str, Any]
 
@@ -251,6 +266,11 @@ def load_scenario(path: Path | None = None) -> Scenario:
             gap_north_of_b_m=float(stub_raw["gap_north_of_b_m"]),
         ),
     )
+    actors_raw = raw["actors"]
+    actors = ActorSpec(
+        b_size_xyz_m=_xyz(actors_raw["b_size_xyz_m"], "actors.b_size_xyz_m"),
+        a_size_xyz_m=_xyz(actors_raw["a_size_xyz_m"], "actors.a_size_xyz_m"),
+    )
     police_raw = raw["police"]
     police = PoliceSpec(
         body_size_xyz_m=_xyz(police_raw["body_size_xyz_m"], "police.body_size_xyz_m"),
@@ -271,6 +291,7 @@ def load_scenario(path: Path | None = None) -> Scenario:
         default_profile=default_names[0],
         camera=camera,
         fiducials=fiducials,
+        actors=actors,
         police=police,
         speed_policy=dict(raw["speed_policy"]),
     )

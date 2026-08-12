@@ -61,13 +61,50 @@ ROBOT_TARGETS = {
 #: ADR 0022's pinned delivery tolerance. Printed AND enforced from here.
 GOAL_TOLERANCE_M = 0.15
 
+#: How far the delivery goal stands off from B's centre.
+#:
+#: B is NOT decoration. It carries no PhysicsCollisionAPI, but the RTX lidar
+#: sees RENDER geometry, so B appears in /scan and therefore in the costmap as
+#: an obstacle. A goal at B's centre is a goal inside its own inflated
+#: footprint: unreachable at a 0.15 m tolerance no matter how well the planner
+#: and controller behave. That is a delivery robot stopping *inside* the
+#: recipient, which is wrong even before it is infeasible.
+#:
+#: The value clears the obstacle by construction -- B's half-diagonal (0.106 m
+#: at robot scale) + robot_radius (0.12) + inflation_radius (0.16) = 0.386 --
+#: and is then rounded up to the 0.6 m floor the docking spec pins for the
+#: refined goal, so the nominal and refined standoffs are one rule rather than
+#: two numbers that can drift apart.
+DELIVERY_STANDOFF_M = 0.6
+
 #: nav2_msgs action status codes.
 STATUS_NAMES = {2: "EXECUTING", 4: "SUCCEEDED", 5: "CANCELED", 6: "ABORTED"}
 STATUS_SUCCEEDED = 4
 
 
+def delivery_standoff_world(
+    manifest: dict, standoff_m: float = DELIVERY_STANDOFF_M
+) -> tuple[float, float]:
+    """Where A should stop to deliver: beside B, not on top of it.
+
+    The direction is taken from the street's own centreline, NOT from the
+    authored delivery route. B stands against the east wall
+    (`geometry.person_b_xyz`), so the reachable free space is toward the lane,
+    and that is derivable from `next_street` alone. Reading the authored
+    route's final heading would work equally well and would be exactly the
+    "authored line and waypoints" ADR 0022:15-17 keeps out of A's navigation.
+    """
+
+    b_x, b_y, _b_z = manifest["actors"]["b_xyz_m"]
+    lane_offset = float(manifest["next_street"]["center_x_m"]) - float(b_x)
+    # B is against the east wall, so the lane is west; copysign keeps this
+    # correct if a future scenario ever mirrors the street.
+    direction = math.copysign(1.0, lane_offset) if lane_offset else -1.0
+    return (float(b_x) + direction * standoff_m, float(b_y))
+
+
 def goal_in_map_frame(manifest: dict, profile: str) -> tuple[float, float]:
-    """B's position expressed in the map frame, for one corridor profile.
+    """The delivery standoff expressed in the map frame, for one profile.
 
     SLAM's map frame is anchored where the robot started, so the goal is B
     relative to A's spawn, rotated into A's spawn heading. Both the spawn and
@@ -76,7 +113,7 @@ def goal_in_map_frame(manifest: dict, profile: str) -> tuple[float, float]:
     and 0.00 degrees), so one literal would be quietly wrong on two of them.
     """
 
-    b_x, b_y, _b_z = manifest["actors"]["b_xyz_m"]
+    b_x, b_y = delivery_standoff_world(manifest)
     entry = manifest["profiles"][profile]
     a_x, a_y, _a_z = entry["a_start_xyz_m"]
     heading_x, heading_y = entry["delivery_trajectory"]["approach_heading"]

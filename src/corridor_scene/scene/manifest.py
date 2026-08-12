@@ -101,6 +101,11 @@ def manifest_data(
         },
         "actors": {
             "b_xyz_m": person_b_xyz(scenario),
+            # B's footprint, not decoration: the RTX lidar sees render geometry,
+            # so B is an obstacle in the costmap and a delivery goal has to
+            # stand off from it. A consumer cannot derive that from b_xyz_m
+            # alone, so the size travels with the position.
+            "b_size_xyz_m": scenario.actors.b_size_xyz_m,
         },
         "fiducials": {
             "dictionary": scenario.fiducials.dictionary,

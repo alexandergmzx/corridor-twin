@@ -273,7 +273,8 @@ def _author_shared_actors(
 
     UsdGeom.Xform.Define(stage, "/World/Actors")
     bx, by, bz = person_b_xyz(scenario)
-    _cube(stage, "/World/Actors/B", (0.45, 0.45, 1.7), (bx, by, bz + 0.85), actor_material)
+    b_size = scenario.actors.b_size_xyz_m
+    _cube(stage, "/World/Actors/B", b_size, (bx, by, bz + b_size[2] / 2.0), actor_material)
 
 
 def _author_profile_actors(
@@ -296,7 +297,8 @@ def _author_profile_actors(
     actor_a = UsdGeom.Xform.Define(stage, "/World/Actors/A")
     actor_a.AddTranslateOp().Set(Gf.Vec3d(start.x_m, start.y_m, start.z_m))
     actor_a.AddRotateZOp().Set(math.degrees(start.yaw_rad))
-    _cube(stage, "/World/Actors/A/Visual", (0.65, 0.45, 0.5), (0.0, 0.0, 0.25), actor_material)
+    a_size = scenario.actors.a_size_xyz_m
+    _cube(stage, "/World/Actors/A/Visual", a_size, (0.0, 0.0, a_size[2] / 2.0), actor_material)
     mount = UsdGeom.Xform.Define(stage, "/World/Actors/A/CameraMount")
     mount.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, scenario.camera.mount_height_m))
     camera = UsdGeom.Camera.Define(stage, "/World/Actors/A/CameraMount/FrontCamera")

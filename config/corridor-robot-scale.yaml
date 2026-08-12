@@ -94,6 +94,15 @@ fiducials:
       height_m: 0.3333
       size_m: 0.19998
       cant_deg: 0.0
+actors:
+  b_size_xyz_m:
+  - 0.149985
+  - 0.149985
+  - 0.56661
+  a_size_xyz_m:
+  - 0.216645
+  - 0.149985
+  - 0.16665
 police:
   body_size_xyz_m:
   - 0.19998
