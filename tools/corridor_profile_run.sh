@@ -279,10 +279,22 @@ if [ "$ROBOT" = robot1 ]; then
 else
   NAV_LAUNCH="fleet_bringup robot2_nav_sim_launch.py"
 fi
-# shellcheck disable=SC2086
-ros2 launch $NAV_LAUNCH \
-  >"$EVIDENCE/nav-launch-$ROBOT-$PROFILE.log" 2>&1 &
-nav_pid=$!
+# BOUNDED RETRY, twice at most. bt_navigator's activation is nondeterministic on
+# this box: the lifecycle manager stalls at "Configuring planner_server" and
+# aborts bringup, on runs whose TF and /map are both up and identical to runs
+# that succeed. The root cause is not found; what IS established is that a fresh
+# nav stack usually activates, and CLAUDE.md classes an infrastructure failure as
+# a rerun rather than a result. So the stack -- never the robot, never a gate
+# threshold -- is restarted once, and the attempt count is recorded.
+nav_attempt=0
+nav_ready=0
+while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
+  nav_attempt=$((nav_attempt + 1))
+  [ "$nav_attempt" -gt 1 ] && echo "  ** nav stack attempt $nav_attempt (previous never reached ACTIVE) **"
+  # shellcheck disable=SC2086
+  ros2 launch $NAV_LAUNCH \
+    >"$EVIDENCE/nav-launch-$ROBOT-$PROFILE-attempt$nav_attempt.log" 2>&1 &
+  nav_pid=$!
 
 # WAIT FOR THE ACTION SERVER, never a fixed sleep. Lifecycle activation can
 # stall -- observed as "failed to send response to /controller_server/
@@ -295,20 +307,25 @@ nav_pid=$!
 # bt_navigator is still inactive, so the old check passed on runs whose
 # lifecycle bringup had already aborted -- and the goal was then rejected by a
 # server the runner had just called ready. Ask the lifecycle state instead.
-echo "  waiting for bt_navigator to reach ACTIVE..."
-nav_ready=0
-for _ in $(seq 1 40); do
-  state=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1)
-  case "$state" in
-    *active*) nav_ready=1; echo "  bt_navigator active"; break ;;
-  esac
-  sleep 5
+  echo "  waiting for bt_navigator to reach ACTIVE..."
+  for _ in $(seq 1 14); do
+    state=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1)
+    case "$state" in
+      *active*) nav_ready=1; echo "  bt_navigator active (attempt $nav_attempt)"; break ;;
+    esac
+    sleep 5
+  done
+  if [ "$nav_ready" != 1 ]; then
+    kill -TERM "$nav_pid" 2>/dev/null || true
+    sleep 5
+  fi
 done
 if [ "$nav_ready" != 1 ]; then
-  echo "**INFRASTRUCTURE: bt_navigator never reached ACTIVE in 200 s (last state: ${state:-unknown})**" >&2
-  tail -5 "$EVIDENCE/nav-launch-$ROBOT-$PROFILE.log" | sed 's/^/    /' >&2
+  echo "**INFRASTRUCTURE: bt_navigator never reached ACTIVE in $nav_attempt attempts (last state: ${state:-unknown})**" >&2
+  tail -5 "$EVIDENCE/nav-launch-$ROBOT-$PROFILE-attempt$nav_attempt.log" | sed 's/^/    /' >&2
   exit 3
 fi
+NAV_ATTEMPTS="$nav_attempt"
 
 # The recorder starts BEFORE the goal so the transit is measured from its first
 # metre, and outlives the nav gate's own timeout so it cannot truncate a slow
