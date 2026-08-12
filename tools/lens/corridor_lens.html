@@ -304,7 +304,7 @@ function connect() {
     const st = msg.state;
     S.state = st;
     const m = st.metrics;
-    S.hist.push([st.t, m.fit, m.div_pos, m.yaw_ratio, m.stale_run, null]);
+    S.hist.push([st.t, m.fit, m.div_pos, m.yaw_ratio, m.stale_run]);
     const L = st.landmark || {};
     const el = document.getElementById('landmark-line');
     if (el) {

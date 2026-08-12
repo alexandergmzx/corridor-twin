@@ -80,6 +80,20 @@ SNAPSHOT_HZ = 5.0
 HISTORY_LEN = 1500              # 5 min at SNAPSHOT_HZ
 TF_WINDOW = 100                 # snapshots in the TF-health ratio window
 
+# The history row, named ONCE. The sampler built this row from a literal list
+# and the dump named the columns in a second literal, and when the content-lag
+# tile was removed only the metric was deleted -- both literals kept asking for
+# 'lag_s'. The sampler then raised KeyError on its first tick, which killed the
+# task that fills `latest['state']`, so the lens served one frozen frame for
+# the whole run and the --dump wrote nothing because `history` never grew.
+#
+# The lens is mandatory equipment (CLAUDE.md, "watch the run, do not autopsy
+# it"). It had never worked. One tuple, two consumers, and a test that this
+# tuple is a subset of what build_state actually emits.
+#
+# 't' comes from the snapshot itself; the rest are keys of state['metrics'].
+HISTORY_COLUMNS = ('t', 'fit', 'div_pos', 'yaw_ratio', 'stale_run')
+
 
 def yaw_of(q):
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
@@ -397,8 +411,10 @@ async def serve(node: LensNode, args):
             latest['state'] = state
             latest['map'] = map_payload
             m = state['metrics']
-            history.append([state['t'], m['fit'], m['div_pos'],
-                            m['yaw_ratio'], m['stale_run'], m['lag_s']])
+            history.append(
+                [state['t'] if column == 't' else m[column]
+                 for column in HISTORY_COLUMNS]
+            )
             await asyncio.sleep(period)
 
     async def handler(ws):
@@ -467,8 +483,7 @@ async def serve(node: LensNode, args):
         dump = args.dump or None
         if dump and history:
             with open(dump, 'w') as f:
-                json.dump({'columns': ['t', 'fit', 'div_pos', 'yaw_ratio',
-                                       'stale_run', 'lag_s'],
+                json.dump({'columns': list(HISTORY_COLUMNS),
                            'snapshot_hz': SNAPSHOT_HZ,
                            'history': list(history)}, f)
             print(f'slam_lens: metric history -> {dump}', flush=True)
