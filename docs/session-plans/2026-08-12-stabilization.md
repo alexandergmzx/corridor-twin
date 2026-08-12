@@ -10,18 +10,52 @@
 | Unit | State | Notes |
 |---|---|---|
 | U0-0 reap orphans | **DONE** 14:53 | 21 processes, all SIGTERM-clean. Inventory below |
-| U0a rate basis | pending | |
-| U0c unfreeze the lens | pending | |
-| U0b session-scoped evidence + run manifest | pending | |
-| U0d preflight + verified teardown | pending | |
-| U0e arena/plan coherence (blocking) | pending | |
+| U0a rate basis | **DONE** `0d9693e` | per-stream observed span; 5.35 → 11.50 Hz; floors named and printed; exactly one artifact was misreported |
+| U0c unfreeze the lens | **DONE** `e24e596` | `lag_s` KeyError killed the sampler on tick 1; the lens had never worked |
+| U0b session-scoped evidence | **DONE** `51e3e75` | run directory + `run.json`; result/rerun/**crash** with crash as the default; 74 files quarantined |
+| U0d preflight + verified teardown | **DONE** `0bc6429` | `residents()` catches un-namespaced orphans; teardown polls; both tested against decoys |
+| U0e arena/plan coherence | **DONE** `ff428e4` | robot-scale is the build default; arenas rebuilt; route margin 0.3 → 0.128; **corner screen did not scale**; cross-check before simctl |
 | U4a offline scale distribution (no GPU) | pending | |
 | U6 paper debt | pending | |
 | U1 corridor-aware scan path | pending | fleet delegation #2 |
 | U2 the startup circle | pending | |
 | U3 landmark containment | pending | re-derive, then fix |
 | U4b/c/d odometry | pending | |
-| U5 acceptance re-run | pending | |
+| U5 acceptance re-run | pending | **blocked on the parked threshold below** |
+
+Gates after U0: `bash tools/check_workspace.sh` green — ruff clean, **372 passed /
+1 skipped**, colcon build 4 packages, colcon test **140 tests, 0 errors, 0
+failures**.
+
+## Morning decisions — parked, not taken
+
+1. **The map-score threshold cannot be met by a perfect map of this scene.**
+   The authored reference map — the oracle ADR 0029's whole divergence argument
+   rests on — now scores **0.340 m** of duplicate wall against a **0.20 m**
+   limit. Nothing about the map got worse: fixing the corner screen's scale
+   lengthened a partition that runs parallel to the east wall 0.33 m away, and
+   `duplicate wall extent` cannot tell that pair from one wall drawn twice at
+   0.02 m resolution.
+
+   | corner screen north margin | oracle floor | occlusion certificate |
+   |---|---|---|
+   | 0.40 m (the unscaled constant) | 0.060 m | **FAILS** — P visible on the whole approach |
+   | 0.12 m (correctly scaled) | **0.340 m** | passes |
+
+   0.20 m is an absolute number from the fleet's 4 × 4 m room; the corridor was
+   scaled by 0.30 and the threshold was not, so it is now 3.33× stricter in
+   relative terms than where it was measured. Either the limit is re-derived at
+   the corridor's scale, or a run is scored as (reading − floor). **Both are
+   threshold decisions, and a threshold is pinned by an ADR, not by the session
+   that tripped over it.** Until then `map score ≤ 0.20` is not a criterion this
+   scenario can meet and no run should be failed on it. The test pins the
+   contradiction rather than choosing a value to go green.
+
+   Consequence for U5: its stated acceptance needs this decision first.
+
+2. **ADR 0029's duplicate-wall table describes the 12 m arena.** Its runs
+   (0.740–2.680 m against a 0.000 m reference) were measured in the unscaled
+   arena, which is internally consistent and no longer the scene that runs.
 
 ## Why this session exists
 
