@@ -604,7 +604,12 @@ from an input measuring 0.987–0.993 of truth.
    consumes it. One refinement, ever, and the demo must pass with it disabled.
 3. **Speed policy stays `[to pin after first profile run]`.** A speed derived
    from a diverged map is not a speed.
-4. **U3 (DWB vs MPPI) and U4 (three profile runs) not started.** U4 is not
-   meaningful until the map holds.
+4. **U3 (DWB vs MPPI) started and INCONCLUSIVE; U4 not started.** The MPPI arm
+   is committed, tested to differ from DWB in exactly one block, and selectable
+   with `--controller mppi` — but it never produced a transit (two attempts lost
+   to a `consider_footprint` misconfiguration, then a refused goal). Its map
+   scored 0.000 m duplicate wall, which is a **degenerate pass from a stationary
+   robot** and is recorded as such. The comparison is one working run away.
+   U4 is not meaningful until the map holds.
 5. **`slam_toolbox` parameter tuning is NOT the next move.** The fleet's
    near-wall study falsified it at verdict level on three bags.
