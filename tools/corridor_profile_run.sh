@@ -144,6 +144,8 @@ trap 'teardown || true' EXIT INT TERM
 
 # INFRASTRUCTURE failures below exit 3, distinct from a red gate (exit 1). A
 # session that never came up is a rerun, not a result about the robot.
+# Marker for "which artifacts belong to THIS run".
+SESSION_MARKER=$(mktemp)
 echo "=== simctl start ==="
 # --no-patrol is NOT optional. simctl's step 7 launches sim_patrol, which drives
 # 1.0 m legs at 0.18 m/s on /cmd_vel_raw for the life of the session. Every
@@ -223,9 +225,27 @@ fi
 ros2 launch $NAV_LAUNCH \
   >"$EVIDENCE/nav-launch-$ROBOT-$PROFILE.log" 2>&1 &
 nav_pid=$!
-# The nav stack needs to finish lifecycle activation before a goal will be
-# answered; 25 s was not enough and cost a run to a phantom "goal not accepted".
-sleep 45
+
+# WAIT FOR THE ACTION SERVER, never a fixed sleep. Lifecycle activation can
+# stall -- observed as "failed to send response to /controller_server/
+# change_state (timeout)" -- and a fixed sleep then sends a goal into a stack
+# that has no navigate_to_pose server, which the gate reports as a navigation
+# failure. It is not one: the robot was never asked to move. A stack that never
+# activates is INFRASTRUCTURE (exit 3), so it is rerun rather than recorded as
+# a result about the robot.
+echo "  waiting for navigate_to_pose to activate..."
+nav_ready=0
+for _ in $(seq 1 60); do
+  if ros2 action list 2>/dev/null | grep -q '/navigate_to_pose'; then
+    nav_ready=1; echo "  nav stack active"; break
+  fi
+  sleep 5
+done
+if [ "$nav_ready" != 1 ]; then
+  echo "**INFRASTRUCTURE: navigate_to_pose never activated in 300 s**" >&2
+  tail -5 "$EVIDENCE/nav-launch-$ROBOT-$PROFILE.log" | sed 's/^/    /' >&2
+  exit 3
+fi
 
 # The recorder starts BEFORE the goal so the transit is measured from its first
 # metre, and outlives the nav gate's own timeout so it cannot truncate a slow
@@ -277,12 +297,18 @@ if ! python3 "$SCORER" --self-test >"$EVIDENCE/map-selftest-$ROBOT-$PROFILE.txt"
   echo "**INFRASTRUCTURE: map scorer self-test FAILED; its verdicts are not trustworthy**" >&2
   status=1
 else
-  SAVED_MAP=$(ls -t \
-    "$HOME"/Development/MicroROS/MicroROS-assets/logs/sessions/*-d"$DOMAIN"/map-*.yaml \
-    "$HOME"/Development/robot-fleet/src/MicroROS/MicroROS-assets/logs/sessions/*-d"$DOMAIN"/map-*.yaml \
+  # -newer $SESSION_MARKER, not `ls -t`: a session that saved no map would
+  # otherwise silently score the PREVIOUS session's, and report its verdict as
+  # this run's. That happened -- two consecutive runs reported an identical
+  # 0.800 m duplicate-wall extent because the second produced no map at all.
+  SAVED_MAP=$(find \
+    "$HOME"/Development/MicroROS/MicroROS-assets/logs/sessions \
+    "$HOME"/Development/robot-fleet/src/MicroROS/MicroROS-assets/logs/sessions \
+    -maxdepth 2 -name 'map-*.yaml' -path "*-d$DOMAIN/*" -newer "$SESSION_MARKER" \
     2>/dev/null | head -1)
+  rm -f "$SESSION_MARKER"
   if [ -z "$SAVED_MAP" ]; then
-    echo "**no saved map for domain $DOMAIN: SLAM produced nothing to score**" >&2
+    echo "**THIS session saved no map on domain $DOMAIN: SLAM produced nothing to score**" >&2
     status=1
   else
     echo "  scoring $SAVED_MAP"
