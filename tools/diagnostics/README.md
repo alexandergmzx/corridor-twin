@@ -9,6 +9,11 @@ out of the corridor.
 | `at_closest.py <bag>` | at the moment A was physically at the standoff, what did Nav2 believe, and which half of the goal check failed? |
 | `axis.py <bag>` | is the SLAM pose error ALONG the corridor or ACROSS it? |
 | `error_vs_time.py <bag>` | does that error creep, or does it jump? |
+| `bearing_to_b.py <bag>` | how far off A's nose does B sit while A is close enough to dock? (sized the body-frame cone) |
+| `arming_replay.py <bag>` | would the CURRENT arming rules have fired, when, and on WHAT? (found the EastWallStub decoy) |
+| `chord_sweep.py <bag>` | can the chord ceiling separate B from that decoy? (answer: no) |
+| `run_batch.sh <n> <profile>` | sequential live runs, because single runs have been over-read all week |
+| `batch_summary.py [<run-dir>]` | docked on B or the decoy, closest approach, walked away, refinements |
 
     source /opt/ros/jazzy/setup.bash && source .venv/bin/activate
     PYTHONNOUSERSITE=1 python tools/diagnostics/at_closest.py \
