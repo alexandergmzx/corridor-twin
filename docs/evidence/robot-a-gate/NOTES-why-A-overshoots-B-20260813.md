@@ -1,13 +1,19 @@
 # A does not ignore B. It arrives, is told it is 1.25 m short, and keeps driving
 
-**2026-08-13, offline from eleven session bags across all three profiles, plus 22 recorded runs.** Watched live on the lens
+**2026-08-13, offline from ten session bags across all three profiles, plus 22 recorded runs.** Watched live on the lens
 first: A runs past B and out of the corridor. The artifacts had been reporting
 `closest_approach_m 0.03` and being read as success.
 
 ```bash
-python3 <scratch>/at_closest.py <bag>     # what Nav2 believed at arrival
-python3 <scratch>/axis.py <bag>           # the error, along vs across
+source /opt/ros/jazzy/setup.bash && source .venv/bin/activate
+BAGS=~/Development/MicroROS/MicroROS-assets/bags
+PYTHONNOUSERSITE=1 python tools/diagnostics/at_closest.py        $BAGS/20260813-102705-isaac-d67
+PYTHONNOUSERSITE=1 python tools/diagnostics/travel_registered.py $BAGS/20260813-102705-isaac-d67=nominal_m6_n3
+PYTHONNOUSERSITE=1 python tools/diagnostics/axis_all.py          $BAGS/20260813-102705-isaac-d67=nominal_m6_n3
 ```
+
+See [`tools/diagnostics/README.md`](../../../tools/diagnostics/README.md) for
+which script answers which question.
 
 ## The mechanism
 
@@ -46,6 +52,11 @@ The street's south end is y = −6.0. **The majority case is A driving until the
 geometry stops it**, which is why those fourteen all land within 0.4 m of each
 other: the distance is set by the wall, not by the size of the pose error.
 
+**It is not a `nominal` behaviour.** The one `uniform_m6_n6` run driven for this
+diagnosis (`20260813-113843`) did the same thing: closest approach 0.112 m,
+walked away **3.346 m**, final position (5.090, −5.796) — the same wall, within
+0.1 m of where the `nominal` runs stop.
+
 So the pose error explains *why A keeps going*; the wall explains *where it
 ends up*. The one suggestive datum on magnitude is that the run with the
 smallest measured pose error (`20260813-110947`, 0.798 m) is also the one with
@@ -63,7 +74,7 @@ Over the **first 2 m of travel**, how far each estimator thinks A went:
 | `uniform_m6_n6` | 2 | 0.940 – 0.985 | **0.128 – 0.198** |
 
 **The odometry is right and the matcher is not.** The EKF measures A's first two
-metres to within 6% on all eleven bags. The scan matcher registers between
+metres to within 6% on all ten bags. The scan matcher registers between
 **13% and 72%** of the same motion — and SLAM then "corrects" the good
 odometry toward its own estimate. That is the whole mechanism: everything below
 is its shape.
@@ -88,7 +99,7 @@ Decomposed onto the corridor axis (map +x is A's spawn heading), run
 | 2.6 → 4.1 m | −1.19 … −1.40 m | 0.07 … 0.16 m |
 | 4.17 m (out of the corridor) | −1.114 m | 1.247 m |
 
-**And it is universal.** Over the straight approach leg, across **11 bags and
+**And it is universal.** Over the straight approach leg, across **10 bags and
 all three profiles** (`tools/diagnostics/axis_all.py`):
 
 | profile | peak ALONG | peak ACROSS | along/across | half-error reached by |
@@ -165,12 +176,12 @@ the arrival gate cannot go green even if the map problem is solved.
 
 ## Scope and limits
 
-- Eleven bags, robot1, domain 67: six `nominal_m6_n3`, two
-  `wide_corner_m6_n4_5`, two `uniform_m6_n6`, plus one nominal used for the
-  time trace. The 22-run population table is `nominal` only.
-- The time-resolved trace (two discrete jumps) is from ONE bag. The endpoint
-  and the axis decomposition are confirmed on all eleven; **the two-jump shape
-  is not**.
+- **Ten** bags, robot1, domain 67: six `nominal_m6_n3`, two
+  `wide_corner_m6_n4_5`, two `uniform_m6_n6`. The 22-run population table is
+  `nominal` only.
+- The time-resolved trace (two discrete jumps) is from ONE of those ten
+  (`20260813-102705`). The endpoint and the axis decomposition are confirmed on
+  all ten; **the two-jump shape is not**.
 - `uniform_m6_n6` has n = 2. Its being worst is consistent and unexplained,
   not established.
 - The world→map transform used here is a pure rotation by A's spawn heading,
