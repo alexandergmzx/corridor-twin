@@ -16,12 +16,28 @@
 | Unit | State | Notes |
 |---|---|---|
 | P0 session plan | **DONE** 17:20 | this file |
-| P1 the startup circle, fixed | pending | 90 min hard timebox, then the skip-edge |
-| P2 landmark containment | pending | radius re-derived at scale, not copied |
-| P3 scan path, wide_corner + uniform | pending | nominal already green |
-| P4 acceptance runs | pending | nominal + wide_corner gated, uniform reported |
-| P5 P-camera candidates | pending | runs even if P4 is red |
-| P6 paper debt | pending | no Isaac, parallel-safe |
+| P1 the startup circle, fixed | **DONE** 17:56, inside the box | culprit was the CONTRACT CHECK driving; 3/3 runs green on all three criteria |
+| P2 landmark containment | **DONE** `e17f83d` | window derived = 0.900 m (= 3.0 x 0.30, two derivations agreeing); spawn control + fail-closed |
+| P3 scan path, wide_corner + uniform | folded into P4 | a P4 run on a profile IS its smoke; acceptance read from each run's relay log |
+| P4 acceptance runs | in progress | first attempt crashed on a defect P2 introduced (`KeyError: ekf_topic`), fixed and pinned |
+| P5 P-camera candidates | **DONE** `3bce1f3` | **P cannot see the corridor from where P stands**; memo + geometry; frames outstanding |
+| P6 paper debt | staged | ADR 0030 written; 0029 renamed + acquittal row scoped |
+
+## Corrections to the plan, made while executing
+
+1. **P1's leading mechanism was wrong.** The plan expected A to be chasing a
+   moving map frame. `map→odom` is identity for the first 88 s, so it was not.
+   The culprit is `check_isaac_contract.py`, which drives a 0.4 m-radius arc on
+   `/cmd_vel` -- bypassing the governor -- to prove the twin responds, 70 s
+   before Nav2 says anything. Recorded in `NOTES-startup-fixed.md`.
+2. **P3 is folded into P4.** A gated run on a profile exercises that profile's
+   scan path, so its acceptance (accepts from scan 1, zero fail-open) is read
+   from each run's own relay log rather than from two extra Isaac sessions.
+   Fewer sessions, same evidence.
+3. **One session was orphaned by my own error** at 17:44 -- a tool timeout above
+   its ceiling killed the runner mid-run, leaving Isaac holding 2987 MiB and the
+   lock held by a dead PID. Cleaned per the rules: `simctl stop`, verified, lock
+   released. Runs are backgrounded one per call since.
 
 ## Session start state
 

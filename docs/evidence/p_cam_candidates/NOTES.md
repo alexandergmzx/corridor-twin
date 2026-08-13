@@ -14,8 +14,10 @@ mount height 0.21 m**.
 
 ## The finding, before the table
 
-**P cannot see the corridor from where P stands.** All five enforcement
-stations are blocked, and so is every point of A's approach.
+**P cannot see the corridor from where P stands — at P's own height.** All five
+enforcement stations are blocked from a camera on P's body, and so is every
+point of A's approach. Raising the same footprint to a 1.5 m mast clears all
+five, so the constraint is height, not position.
 
 The blocker is ADR 0019's corner screen — the partition authored specifically so
 that **A cannot see P**. It works. It also blocks the reverse sightline, and
@@ -23,8 +25,8 @@ ADR 0021 then made P's camera the only sensor that matters. The two decisions
 are individually sound and jointly contradictory, and nothing had measured the
 contradiction because P's camera has never been placed.
 
-This is a decision for you, not a bug to fix quietly. Three ways out, and the
-geometry costs of each are below.
+This is a decision for you, not a bug to fix quietly. Two poses clear the screen
+and the geometry costs of each are below.
 
 ## Candidates
 
@@ -32,17 +34,21 @@ Measured per enforcement station (0.60, 1.20, 1.80, 2.40, 3.00 m along the
 approach): can the camera see **A** there — line of sight against the authored
 walls, and inside the declared frustum.
 
-| candidate | eye (m) | route stations usable | distance to A | plates usable |
-|---|---|---|---|---|
-| `at_P_down_the_corridor` | (5.24, 0.72, 0.21) | **0 / 5** | — | 0 / 5 |
-| `at_P_raised` | (5.24, 0.72, 0.63) | **0 / 5** | — | 0 / 5 |
-| `corner_mast_over_the_screen` | (5.24, 0.72, 1.50) | 0 / 5 *(see caveat)* | — | 0 / 5 |
-| **`north_wall_before_the_screen`** | (3.30, 0.81, 0.42) | **4 / 5** | 1.05 – 2.80 m | 5 / 5 |
-| `north_wall_midpoint` | (1.80, 0.81, 0.42) | 1 / 5 | 1.26 m | 2 / 5 |
+| candidate | eye (m) | 3-D line of sight | in frustum | usable | distance to A |
+|---|---|---|---|---|---|
+| `at_P_down_the_corridor` | (5.24, 0.72, 0.21) | **0 / 5** | 5 / 5 | **0 / 5** | — |
+| `at_P_raised` | (5.24, 0.72, 0.63) | **0 / 5** | 5 / 5 | **0 / 5** | — |
+| **`corner_mast_over_the_screen`** | (5.24, 0.72, **1.50**) | **5 / 5** | 5 / 5 | **5 / 5** | 2.29 – 4.68 m |
+| `north_wall_before_the_screen` | (3.30, 0.81, 0.42) | 5 / 5 | 4 / 5 | 4 / 5 | 1.05 – 2.80 m |
+| `north_wall_midpoint` | (1.80, 0.81, 0.42) | 5 / 5 | 1 / 5 | 1 / 5 | 1.26 m |
+
+*Line of sight is the real 3-D test — `scene.occlusion`'s own raycaster against
+the stage's 72 opaque triangles, to A's body centre at 0.075 m. Artifact:*
+[`line-of-sight-3d-nominal_m6_n3.json`](line-of-sight-3d-nominal_m6_n3.json).
 
 ### What each pose costs the detector
 
-**`north_wall_before_the_screen`** is the only pose that watches the approach.
+**`north_wall_before_the_screen`** is the closer of the two poses that work.
 A is 1.05–2.80 m away across the four stations it covers, which is a comfortable
 range for a 640 × 360 frame: A's 0.195 m body spans roughly 45 px at 2.8 m and
 120 px at 1.05 m on a 75° lens. It loses station 3.00 m, which falls 39.8° off
@@ -67,29 +73,37 @@ worst coverage.
 end of the street, which is where the delivery happens and not where speed is
 measured.
 
-### The caveat that matters: this test is 2-D
+### The mast: flagged in 2-D, then measured in 3-D, and it clears
 
-`corner_mast_over_the_screen` is reported blocked because the screen is in the
-way **in plan**, which is exactly what a mast is meant to defeat. The screen and
-the corridor walls are 1.2 m tall at this scale; a camera at 1.5 m looks over
-all of them.
+The plan-view test called the mast blocked, because the screen is in the way in
+plan — which is exactly what a mast is meant to defeat. The screen and the
+corridor walls are 1.2 m tall at this scale, so the 2-D answer was structurally
+incapable of judging it.
 
-**So the mast is not refuted — it is unmeasured.** Refuting or confirming it
-needs the 3-D check, and this repository already has one: `scene.occlusion`
-raycasts real triangles off the USD stage and is what proves A cannot see P. It
-was not run here because the pose set was being explored, not decided.
+The 3-D check was then run: `scene.occlusion`'s own raycaster, the same one that
+proves A cannot see P, against all 72 opaque triangles on the stage.
+**`corner_mast_over_the_screen` sees all five stations, blocked by nothing**,
+with every bearing within 1° of dead ahead.
 
-If the mast clears, it is the most attractive option of all: it keeps the camera
-at P, needs no new mount, and has an unobstructed view of the whole approach at
-2.3–4.7 m.
+That makes it the only candidate that is 5/5 on both tests, and it is the one
+that keeps the camera **at P** — no separate mount, and no question about
+whether a wall fixture 1.9 m away is still "P's camera". Its cost is range: A is
+2.29–4.68 m away rather than 1.05–2.80 m, so the subject is smaller in frame.
+On a 640 × 360 sensor at 75°, A's 0.195 m body spans roughly **27 px at 4.68 m**
+and 55 px at 2.29 m.
+
+**27 px is the number to argue about**, and it is a detector question rather than
+a geometry one: it is comfortable for a learned box detector and marginal for
+the ArUco-on-A baseline, whose plate would be a fraction of that. Whether the
+baseline needs its own closer pose, a larger plate on A, or a longer lens is the
+first thing the chosen pose forces a decision about.
 
 ## What Phase 3 needs next, in order
 
 1. **This decision.** The detector's training data, its evaluation stations and
    the ArUco-plate baseline all depend on where the camera is. Nothing further
    is worth building until the pose is chosen.
-2. **A 3-D line-of-sight check on the mast**, via `scene.occlusion`, before the
-   choice is made — it is the cheapest of the options if it clears.
+2. ~~A 3-D line-of-sight check on the mast~~ — **done**, it clears 5/5.
 3. **One rendered frame per surviving candidate** through the ADR 0009 adapter.
    Not produced tonight: the adapter's camera prim is still
    `/World/Actors/A/CameraMount/FrontCamera`, A's v1 camera, and moving it to a
