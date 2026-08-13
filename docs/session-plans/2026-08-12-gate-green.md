@@ -19,9 +19,10 @@
 | P1 the startup circle, fixed | **DONE** 17:56, inside the box | culprit was the CONTRACT CHECK driving; 3/3 runs green on all three criteria |
 | P2 landmark containment | **DONE** `e17f83d` | window derived = 0.900 m (= 3.0 x 0.30, two derivations agreeing); spawn control + fail-closed |
 | P3 scan path, wide_corner + uniform | folded into P4 | a P4 run on a profile IS its smoke; acceptance read from each run's relay log |
-| P4 acceptance runs | in progress | first attempt crashed on a defect P2 introduced (`KeyError: ekf_topic`), fixed and pinned |
+| P4 acceptance runs | **DONE, RED** `ea85a9e` | both gated profiles red on ADR 0029's two; **uniform's transit gate PASSES**; 13 runs, 6 results, 6 reruns |
 | P5 P-camera candidates | **DONE** `3bce1f3` | **P cannot see the corridor from where P stands**; memo + geometry; frames outstanding |
-| P6 paper debt | staged | ADR 0030 written; 0029 renamed + acquittal row scoped |
+| P6 paper debt | **DONE** `21ba0af` | ADR 0030 pins scale + mask decision; 0029 renamed, acquittal row scoped; loop-closing verified `65b7c0b` |
+| P5 3-D check (added) | **DONE** | the corner mast clears 5/5 with `scene.occlusion`'s raycaster; memo updated |
 
 ## Corrections to the plan, made while executing
 
@@ -34,7 +35,15 @@
    scan path, so its acceptance (accepts from scan 1, zero fail-open) is read
    from each run's own relay log rather than from two extra Isaac sessions.
    Fewer sessions, same evidence.
-3. **One session was orphaned by my own error** at 17:44 -- a tool timeout above
+3. **A defect I introduced cost a run.** P2 read `target["ekf_topic"]` from a
+   table that never carried it; the first gated run died in the nav gate's
+   constructor, sent no goal, and produced no delivery. Fixed and pinned
+   (`f49ab35`). The crash machinery worked -- `traceback in runner.log` is in
+   that run's manifest -- and it exposed two more defects worth more than the
+   run cost: the session-bag lookup used `find -newer run.json`, which is
+   rewritten during the run and so never matched, and the containment's bearing
+   test was written to pass by construction. Both fixed and measured.
+4. **One session was orphaned by my own error** at 17:44 -- a tool timeout above
    its ceiling killed the runner mid-run, leaving Isaac holding 2987 MiB and the
    lock held by a dead PID. Cleaned per the rules: `simctl stop`, verified, lock
    released. Runs are backgrounded one per call since.
@@ -159,6 +168,131 @@ constant; infrastructure failures are reruns, twice at most, classified
 explicitly. Fleet touches only if a P1 fix genuinely requires one — single
 commit, listed separately. **Nothing pushed.**
 
-## Handback
+## Session close
 
-*(written at session end — the Biswal scoreboard)*
+Ended 19:25, **2 h 07 m of a 5 h budget** — the queue finished early rather than
+running out of clock. `bash tools/check_workspace.sh` green at close: ruff clean,
+**400 passed / 1 skipped**, colcon build 4 packages, colcon test 140 tests,
+0 errors, 0 failures. Machine left clean: no residents on domain 67, Isaac lock
+free, GPU at idle.
+
+**Nothing pushed.** 14 commits on `gate-green-2026-08-12`; one fleet commit
+(`aae2617` in `yahboomcar-ros2`), listed separately below.
+
+### Four defects of mine, each caught by an instrument built earlier the same day
+
+| defect | caught by | cost |
+|---|---|---|
+| `ekf_topic` read from a table that never had it | traceback → run manifest | 1 run |
+| session-bag lookup used `-newer run.json`, which is rewritten during the run | "startup criterion unmeasured" | a measurement |
+| recorder capped shorter than the nav window it must outlive | reading the run's own log | 1 run |
+| "goal not accepted" classified as infrastructure regardless of whether the robot drove | the 7.865 m transit it discarded | 1 run |
+
+The fourth is the one to remember: a rule I wrote at 18:42 threw away the best
+transit of the night at 18:46. The gate cannot tell a refused goal from a lost
+acceptance response — from where it stands they are identical — so the runner
+now asks the recorder how far the robot actually went, using the transit gate's
+own 1.0 m threshold. Both branches were verified against the two real artifacts
+before the fix was committed.
+
+### One fleet commit, for separate review
+
+`yahboomcar-ros2` `aae2617` — `check_isaac_contract.py` no longer asserts the
+robot moved when the caller passed `--speed 0 --turn 0`. Required by P1: the
+corridor now runs that check without motion, and the assertion had become a
+permanently-false failure. Every other caller is unchanged.
+
+## Handback — the scoreboard against the 2026-08-04 interview corrections
+
+### Correction 1 — communication-domain isolation: **DONE, unchanged tonight**
+
+A on 42, P on 43, one-way gateway with a declared allowlist. Certificate green
+with its mutation control red; producer 0.9995, image crossing 0.954 at the
+pinned 640×360. ADR 0020 (decision), ADR 0026 (verified live).
+Evidence: [`docs/evidence/crossing/NOTES.md`](../evidence/crossing/NOTES.md).
+
+Nothing in this session touched it, and nothing needed to.
+
+### Correction 2 — autonomous navigation: **works; the GATE is red on the map**
+
+Governed Nav2 on a live SLAM map, no authored route, docking off.
+
+| profile | closest approach | drift | yaw scale | duplicate wall | transit gate |
+|---|---|---|---|---|---|
+| `nominal_m6_n3` | **0.110 m** | 0.0137 | 1.166 ❌ | 0.840 ❌ | FAIL |
+| `wide_corner_m6_n4_5` | **0.020 m** | 0.0606 ❌ | 1.108 ❌ | 0.780 ❌ | FAIL |
+| `uniform_m6_n6` *(reported)* | 0.083 m | **0.0041** | **1.060** ✅ | *(save failed)* | **PASS** |
+
+Artifacts: `out/evidence/robot-a-gate/20260812-184944-robot1-nominal_m6_n3/`,
+`…-185907-robot1-wide_corner_m6_n4_5/`, `…-191347-robot1-uniform_m6_n6/`, each
+with `run.json` carrying the git SHA and the arena/manifest hashes. Whole
+session: [`session-runs-20260812.json`](../evidence/robot-a-gate/session-runs-20260812.json).
+Write-up: [`NOTES-acceptance-20260812.md`](../evidence/robot-a-gate/NOTES-acceptance-20260812.md).
+
+**A delivers.** It leaves cleanly, drives its seven metres, and arrives 2–18 cm
+from the standoff. This morning the same measurement read 5.754 m, because the
+plan and the arena were different scenes.
+
+**The gate is red on the map**, and on the yaw scale that feeds it — ADR 0029's
+open blocker, untouched and untuned. `uniform`'s fully green transit gate is the
+useful datum: on the one profile where the matcher has an easy time, every
+number falls into place, yaw included.
+
+### Correction 3 — active AI/ML: **the camera pose is the blocker, and it now has a memo**
+
+Phase 3 could not start because nobody had placed P's camera, and placing it
+turned out to be a decision rather than a task: **ADR 0019's corner screen, which
+hides P from A, also hides the corridor from P.** From a camera at P's own
+height, 0/5 enforcement stations are visible.
+
+Measured with `scene.occlusion`'s own 3-D raycaster (72 opaque triangles):
+
+| candidate | 3-D line of sight | in frustum | usable | range to A |
+|---|---|---|---|---|
+| at P, 0.21 m | 0/5 | 5/5 | **0/5** | — |
+| at P, 0.63 m | 0/5 | 5/5 | **0/5** | — |
+| **at P, 1.50 m mast** | **5/5** | 5/5 | **5/5** | 2.29–4.68 m |
+| north wall, west of the screen | 5/5 | 4/5 | 4/5 | 1.05–2.80 m |
+| north wall, midpoint | 5/5 | 1/5 | 1/5 | 1.26 m |
+
+**Nothing chosen.** [Decision memo](../evidence/p_cam_candidates/NOTES.md).
+
+#### What the detector pipeline needs next, in order
+
+1. **The pose decision.** Everything below keys off it.
+2. **Move the render product.** `tools/isaac_5_1_ros_camera.py` still mounts the
+   single camera at `/World/Actors/A/CameraMount/FrontCamera` — A's v1 camera.
+   The chosen pose becomes a P-owned prim, and the one-render-product budget is
+   preserved by moving it, never by adding a second.
+3. **Replicator dataset spec.** Labels are A's pose and extent in P's frame,
+   derived from simulator truth *on the evaluation plane only*. Domain
+   randomisation over lighting, A's yaw, and the corridor variant. The three
+   profiles give three geometries for free. Frame budget and the train/val split
+   by profile are the two numbers to pin.
+4. **Training harness.** Off-GPU-session: the dataset is rendered once, training
+   never holds the Isaac lock. Report per-station detection rate and metric
+   error against truth.
+5. **ArUco-plate-on-A baseline.** The classical arm. At the mast's 4.68 m, A
+   spans ~27 px, so the plate spans a fraction of that — the baseline may need
+   its own closer pose, a larger plate, or a longer lens, and that is the first
+   argument the chosen pose forces.
+
+### Tree state at handback
+
+One untracked file, **not mine and not touched**:
+`corridor-v2-adr-pack.md` (24 KB, mtime Aug 11 11:11, never committed on any
+branch). It is the working draft that ADRs 0020–0024 were split out of, and its
+own header says so. It has survived three sessions untracked. Either it is spent
+and can go, or it wants committing as a historical draft — a call for you, not
+for an unattended session.
+
+### Parked for Alexander
+
+1. **The P-camera pose** (above). Nothing proceeds without it.
+2. **The map divergence** remains the open blocker: duplicate-wall 1.00–1.56 m
+   against 0.20, on a masked map whose oracle is 0.000. The linear channel is
+   acquitted by calibration; the yaw fusion anomaly (0.14×–23.4×) is fleet
+   territory and now carries fleet OI-23.
+3. **A drives 3.3–3.5 m past B** with docking off, because the arrival gate is a
+   map-frame goal the drifting map never satisfies. Containment now exists to
+   make the docking path safe; whether the demo runs docked is a scenario call.
