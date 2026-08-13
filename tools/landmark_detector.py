@@ -213,6 +213,12 @@ class LandmarkDetector:
         self.radius_m = radius_m
         self.confirm_k = confirm_k
         self.recent: deque = deque(maxlen=confirm_n)
+        #: Monotonic, one tick per SCAN. Callers that need k-of-n persistence of
+        #: their own cannot count their own invocations: the docking loop spins
+        #: at 10 Hz regardless of whether a scan arrived, and on a docked run it
+        #: called `step()` 8119 times against 3031 scan frames -- 2.7x over. This
+        #: is the only counter that ticks once per measurement.
+        self.frames = 0
 
     # --- one frame ---------------------------------------------------------
     def candidates(self, points) -> list[dict]:
@@ -260,6 +266,7 @@ class LandmarkDetector:
         points = scan_to_xy(ranges, angle_min, angle_increment, range_min, range_max)
         found = self.candidates(points)
         best = found[0] if found else None
+        self.frames += 1
         self.recent.append(best)
 
         agreeing = 0
@@ -272,10 +279,20 @@ class LandmarkDetector:
 
         return {
             "candidate": best,
+            # The RUNNER-UP, kept rather than discarded. `candidates` ranks by
+            # residual -- how circle-like -- which is not the same question as
+            # "which of these is the right SIZE". A caller that wants to know
+            # whether B was unambiguous in this frame needs the second-best to
+            # compare against, and until now nothing above this line could see
+            # one. `candidates_this_frame` counted them and threw them away.
+            "runner_up": found[1] if len(found) > 1 else None,
             "candidates_this_frame": len(found),
             "frames_agreeing": agreeing,
             "frames_considered": len(self.recent),
             "confirmed": best is not None and agreeing >= self.confirm_k,
+            #: Identifies the MEASUREMENT, so a caller polling faster than the
+            #: lidar can tell a new scan from the same one seen again.
+            "frame": self.frames,
         }
 
     def reset(self) -> None:

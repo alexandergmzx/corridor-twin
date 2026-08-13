@@ -46,6 +46,7 @@ than authored (ADR 0031).
 from __future__ import annotations
 
 import math
+from collections import deque
 
 #: Arm on the DETECTED RANGE, which is a laser-frame quantity.
 #:
@@ -69,10 +70,16 @@ ARM_RADIUS_M = 3.0
 #: arena. Shape and 3-of-5 agreement reject the wrong SHAPE; they cannot reject
 #: a right-shaped thing in the wrong PLACE.
 #:
-#: So arming also requires the robot to be where B is: near the end of its own
-#: route, near the goal in the map frame, and looking at it.
+#: So arming also requires the robot to be where B is. It used to check that
+#: three ways -- near the end of its own route, near the goal IN THE MAP FRAME,
+#: and looking at the goal -- and two of those three read the map pose. On
+#: 2026-08-13 the map-frame proximity test was deleted and the bearing test
+#: became a body-frame forward cone; see `armed`. What survives here is the
+#: TRAVEL test, which reads A's own EKF and is the one that excludes the spawn.
 #:
-#: The window is a FRACTION OF THE ROUTE, not a copied metre. 3.0 m was 15.653%
+#: The window is therefore now a tolerance on travel alone: how much less than
+#: the full route-to-delivery A may have driven and still be believed. It is
+#: still a FRACTION OF THE ROUTE, not a copied metre. 3.0 m was 15.653%
 #: of the authored 19.166 m route-to-delivery; at the committed scale that route
 #: is 5.750 m and the window is 0.900 m -- which is also exactly 3.0 x the 0.30
 #: scale factor, so the derivation checks against itself. A literal 3.0 here
@@ -94,34 +101,72 @@ ARM_WINDOW_ROUTE_FRACTION = 0.15653
 DELIVERY_STANDOFF_M = 0.6
 
 
-def bearing_cone_deg(lateral_m: float, tolerance_m: float) -> float:
-    """The widest the detection may sit off the goal bearing, derived.
+#: At the instant of closest approach, B is ABEAM -- exactly 90 deg off the
+#: nose. That is not an observation, it is what "closest" means: the range
+#: derivative is zero when the bearing is perpendicular to the heading. So 90
+#: deg is the floor for any forward cone that must admit the real B, and a
+#: bearing wider than abeam means A is already past B.
+ABEAM_DEG = 90.0
 
-    **ADR 0031 widened this, and the widening is a real cost of the merge.**
+#: The approach is curved, so the abeam instant is approximate and the measured
+#: maximum overshoots it slightly. Across seven bags the widest approach bearing
+#: to B inside one metre was 85.2, 89.9, 90.1, 90.4, 90.8, 90.9 and 91.6 deg --
+#: straddling 90 exactly as the geometry predicts, with 1.6 deg of excess.
+#: Ten degrees is six times that.
+#: (`tools/diagnostics/bearing_to_b.py`, 2026-08-13.)
+APPROACH_CURVATURE_MARGIN_DEG = 10.0
 
-    The cone exists to refuse a right-shaped thing in the wrong PLACE -- the
-    2026-08-12 13:16 phantom, confirmed behind the robot near spawn. Its old
-    +/-60 deg was sized when the detectable post stood 0.8 m south of B while
-    the goal sat 0.6 m west, putting detection and goal 1.000 m apart on
-    different sides.
 
-    With one object the detection IS B, 0.6 m lateral of the goal on the side A
-    approaches from, so the bearing to it swings *harder* as A closes: 63.4 deg
-    at 0.3 m from the goal, which the old cone refused. Measured, not guessed --
-    the test that caught it is
-    `test_the_bearing_gate_admits_the_REAL_B_from_the_real_manifest`.
+def bearing_cone_deg() -> float:
+    """The widest a detection may sit off A's NOSE and still be believed.
 
-    The floor is therefore the bearing at A's closest legitimate position: the
-    goal itself, give or take the arrival tolerance. `atan2(0.6, 0.15)` is
-    76.0 deg, and that is what this returns.
+    **This became a body-frame test on 2026-08-13, and that is the point.**
 
-    Stated plainly: **the cone is a weaker guard after the merge.** What still
-    excludes the spawn phantom is the travel test and the map-frame proximity
-    test, neither of which the merge touches, and the spawn negative control is
-    asserted against the travel test by name.
+    It used to ask "is the detection where the GOAL is?", comparing the
+    detection's bearing against the bearing to the nominal goal in the MAP
+    frame. That made a map-free measurement conditional on the map -- and the
+    overshoot diagnosis showed the map pose is 0.8-2.2 m wrong along the
+    corridor exactly when docking needs to arm.
+
+    The replacement asks a question the laser can answer alone: is the thing
+    ahead of me? Nothing about the goal, the map, or where A believes it is.
+
+    It is a WEAK guard and that is deliberate -- at 100 deg it excludes only
+    what is behind A. It is not what rejects a phantom. The travel gate, the
+    radius-uniqueness test, the shape and isolation tests, and k-of-n
+    persistence are what do that work; this one exists to catch the specific
+    2026-08-12 13:16 failure, a right-shaped thing confirmed BEHIND the robot
+    near spawn, and to stop docking re-aiming at B after A has driven past it.
     """
 
-    return math.degrees(math.atan2(lateral_m, tolerance_m))
+    return ABEAM_DEG + APPROACH_CURVATURE_MARGIN_DEG
+
+
+#: How much better the best candidate's radius must fit than the runner-up's
+#: before the frame counts as unambiguous.
+#:
+#: `LandmarkDetector.candidates` already refuses anything outside
+#: MAX_RADIUS_ERROR_FRACTION of B's radius, so every survivor is roughly the
+#: right size; this asks whether ONE of them is distinctly the right size. Two
+#: equally good fits mean the scene is ambiguous and the wrong one is a coin
+#: flip -- which is the 5.754 m failure mode, arrived at honestly.
+#:
+#: A fifth of B's radius: 0.024 m at the committed scale, which is larger than
+#: the fit residual the detector admits and smaller than the gap between B and
+#: anything else the corridor offers.
+RADIUS_UNIQUENESS_FRACTION = 0.2
+
+#: Arming persists over SCANS, not over calls. The docking loop spins at 10 Hz
+#: whether or not a scan arrived -- 8119 `step()` calls against 3031 frames on
+#: a docked run, 2.7x over -- so counting invocations would confirm on a single
+#: measurement seen 27 times. Keyed on the detector's frame token instead.
+ARM_CONFIRM_K = 3
+ARM_CONFIRM_N = 5
+
+#: How far apart two laser-frame detections may be and still be called the same
+#: object. Unused by `_persisted` as shipped -- see the reverted experiment
+#: documented there -- and kept because the decoy study needs the number named.
+ARM_AGREEMENT_M = 0.25
 
 #: The governor's hard-stop range, from the fleet safety node that owns
 #: `/cmd_vel` on this chassis (`yahboomcar_safety/governor.py:44`,
@@ -139,7 +184,7 @@ GOVERNOR_STOP_DISTANCE_M = 0.35
 GOAL_TOLERANCE_M = 0.15
 
 #: Derived, never authored. See `bearing_cone_deg`.
-MAX_BEARING_ERROR_DEG = bearing_cone_deg(DELIVERY_STANDOFF_M, GOAL_TOLERANCE_M)
+MAX_BEARING_ERROR_DEG = bearing_cone_deg()
 
 
 #: Re-issue only when the estimate has actually moved. Below this the goal is
@@ -237,6 +282,9 @@ class DockingMachine:
                  max_refinements: int = MAX_REFINEMENTS,
                  route_length_m: float | None = None,
                  window_m: float | None = None,
+                 expected_radius_m: float | None = None,
+                 arm_confirm_k: int = ARM_CONFIRM_K,
+                 arm_confirm_n: int = ARM_CONFIRM_N,
                  max_bearing_error_deg: float = MAX_BEARING_ERROR_DEG) -> None:
         self.nominal_goal = nominal_goal
         #: Derived by `final_approach_m` from B's radius and A's length, never
@@ -261,6 +309,14 @@ class DockingMachine:
             else None
         )
         self.max_bearing_error_deg = max_bearing_error_deg
+        #: B's authored radius, for the uniqueness test. None means the caller
+        #: did not supply one, and uniqueness is then not tested -- stated
+        #: rather than silently defaulted, because a wrong radius here would
+        #: reject the real B on every frame.
+        self.expected_radius_m = expected_radius_m
+        self.arm_confirm_k = arm_confirm_k
+        self._arm_frames: deque = deque(maxlen=arm_confirm_n)
+        self._last_arm_frame: int | None = None
         self.rejections: dict[str, int] = {}
         self.state = self.TRANSIT
         self.refinements = 0
@@ -272,16 +328,32 @@ class DockingMachine:
         self.rejections[reason] = self.rejections.get(reason, 0) + 1
         return False
 
-    def armed(self, verdict: dict | None,
-              robot_xy: tuple[float, float] | None = None,
-              robot_yaw: float | None = None,
-              travelled_m: float | None = None) -> bool:
-        """Close enough to B by the LASER, and standing where B is.
+    def armed(self, verdict: dict | None, travelled_m: float | None = None) -> bool:
+        """Close enough to B by the LASER, far enough along by A's own odometry.
 
-        The range test is still laser-frame and still the thing the map cannot
-        corrupt. The containment tests around it are map-frame and travel-based,
-        and they are deliberately COARSE -- a 0.9 m window and a 60 deg cone --
-        because their job is to exclude the spawn region, not to localise.
+        **Nothing here reads the map pose, and that is the whole change.**
+
+        The previous version required A to be within `window_m` of the nominal
+        goal IN THE MAP FRAME. That gated a map-free measurement on the one
+        number the overshoot diagnosis showed is wrong by 0.8-2.2 m along the
+        corridor precisely when docking needs to arm: on a docked run it
+        refused 2812 times while A's own laser was measuring B correctly at
+        0.63 m, fitted radius 0.1244 against an authored 0.12. A guard that
+        cannot distinguish "the robot is not there" from "the map thinks the
+        robot is not there" is not a guard.
+
+        What replaces it does the same job -- refuse a right-shaped thing in
+        the wrong PLACE -- out of quantities the map cannot corrupt:
+
+        * **Travel**, from A's own EKF. Path length, not displacement. This is
+          what excludes the spawn region, and the spawn negative control is
+          asserted against it by name.
+        * **Radius uniqueness**, from the frame's runner-up. One thing of the
+          right size, not two.
+        * **A forward cone**, from the detection's own bearing. Abeam plus
+          margin; it excludes what is behind A and little else, by design.
+        * **k-of-n over SCANS**, keyed on the detector's frame token so a fast
+          caller cannot confirm one measurement many times.
 
         FAIL CLOSED. Containment configured but not supplied means the caller
         did not pass what it promised, and arming anyway would restore exactly
@@ -289,28 +361,102 @@ class DockingMachine:
         """
 
         if not verdict or not verdict.get("confirmed"):
+            self._forget_frame(verdict)
             return False
         candidate = verdict["candidate"]
         if candidate["range_m"] > self.arm_radius_m:
+            self._forget_frame(verdict)
             return self._reject("out of laser range")
 
         if self.min_travel_m is None:
             return True     # containment not configured: transit-only behaviour
 
-        if travelled_m is None or robot_xy is None or robot_yaw is None:
+        if travelled_m is None:
             return self._reject("containment configured but not supplied")
         if travelled_m < self.min_travel_m:
+            self._forget_frame(verdict)
             return self._reject("too early in the route")
-        if math.dist(robot_xy, self.nominal_goal) > self.window_m:
-            return self._reject("too far from the goal in the map frame")
 
-        goal_bearing = math.atan2(
-            self.nominal_goal[1] - robot_xy[1], self.nominal_goal[0] - robot_xy[0]
-        ) - robot_yaw
-        error = abs((candidate.get("bearing_rad", 0.0) - goal_bearing + math.pi)
-                    % (2.0 * math.pi) - math.pi)
-        if math.degrees(error) > self.max_bearing_error_deg:
-            return self._reject("detection is not where the goal is")
+        bearing_deg = abs(math.degrees(candidate.get("bearing_rad", 0.0)))
+        bearing_deg = min(bearing_deg, 360.0 - bearing_deg)
+        if bearing_deg > self.max_bearing_error_deg:
+            self._forget_frame(verdict)
+            return self._reject("detection is behind the robot")
+
+        if not self._radius_is_unambiguous(verdict):
+            self._forget_frame(verdict)
+            return self._reject("two candidates fit B's radius equally well")
+
+        return self._persisted(verdict)
+
+    def _radius_is_unambiguous(self, verdict: dict) -> bool:
+        """Is exactly one thing in this frame the right SIZE?
+
+        The detector ranks by residual -- how circle-like -- so its best
+        candidate is not necessarily its best-sized one. Two clusters that both
+        fit B's radius make the choice between them a coin flip.
+        """
+
+        runner_up = verdict.get("runner_up")
+        if runner_up is None:
+            return True
+        if self.expected_radius_m is None:
+            return True
+        margin = self.expected_radius_m * RADIUS_UNIQUENESS_FRACTION
+        best_error = abs(verdict["candidate"]["fitted_radius_m"] - self.expected_radius_m)
+        other_error = abs(runner_up["fitted_radius_m"] - self.expected_radius_m)
+        return other_error - best_error > margin
+
+    def _frame_of(self, verdict: dict | None) -> int | None:
+        return verdict.get("frame") if verdict else None
+
+    def _forget_frame(self, verdict: dict | None) -> None:
+        """A frame that failed a test counts as a NO, not as a silence.
+
+        Recorded as None -- a scan that saw nothing believable -- so that k-of-n
+        measures agreement across recent scans rather than across recent
+        *passing* ones. Otherwise a detection that qualifies once every two
+        seconds confirms just as fast as one that qualifies every scan.
+        """
+
+        frame = self._frame_of(verdict)
+        if frame is None or frame == self._last_arm_frame:
+            return
+        self._last_arm_frame = frame
+        self._arm_frames.append(None)
+
+    def _persisted(self, verdict: dict) -> bool:
+        """k of the last n SCANS carried a believable detection.
+
+        **A stronger-looking version of this was written, measured, and
+        reverted on 2026-08-13, and the measurement is why the weaker one is
+        here.** It additionally required the qualifying frames to agree on a
+        laser-frame position, clearing the run when they disagreed -- which
+        sounds strictly better, and reads as "three scans that agree they are
+        looking at the same object" rather than merely "three scans that each
+        saw something".
+
+        Replayed over seven recorded runs it was WORSE: arming fired on the
+        `EastWallStub` decoy on six of seven instead of four. The reason is
+        ordering, not agreement. The stub's west end cap sits at
+        (4.565, -1.926), between A and B on the approach, so A resolves it
+        FIRST; requiring consecutive agreement just hands the decision to
+        whichever object accumulates a run first, and that is the decoy.
+
+        Neither version is acceptable and neither is shipped as a fix. See
+        `docs/evidence/robot-a-gate/NOTES-the-eastwallstub-decoy-20260813.md`.
+        """
+
+        frame = self._frame_of(verdict)
+        if frame is None:
+            # No frame token: an older detector, or a hand-built verdict in a
+            # test. Persistence is the detector's own k-of-n only.
+            return True
+        if frame != self._last_arm_frame:
+            self._last_arm_frame = frame
+            self._arm_frames.append(True)
+        if sum(1 for entry in self._arm_frames if entry) < self.arm_confirm_k:
+            return self._reject("not yet persistent across scans")
         return True
 
     def step(self, robot_xy: tuple[float, float], robot_yaw: float,
@@ -319,7 +465,7 @@ class DockingMachine:
 
         if self.state in (self.DOCKED, self.UNREFINED):
             return None
-        if not self.armed(verdict, robot_xy, robot_yaw, travelled_m):
+        if not self.armed(verdict, travelled_m):
             return None
 
         self.state = self.ACQUIRE if self.state == self.TRANSIT else self.state

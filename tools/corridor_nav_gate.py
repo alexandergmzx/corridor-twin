@@ -411,11 +411,14 @@ def main() -> int:
             nominal_goal=(goal_x, goal_y),
             standoff_m=standoff_m,
             route_length_m=route_m,
+            expected_radius_m=float(actors["b_radius_m"]),
         )
         print(f"  dock: containment -- route {route_m:.3f} m, window "
               f"{machine.window_m:.3f} m, arm after {machine.min_travel_m:.3f} m "
-              f"of A's own travel, detection within "
-              f"{machine.max_bearing_error_deg:.0f} deg of the goal")
+              f"of A's OWN travel, detection within "
+              f"{machine.max_bearing_error_deg:.0f} deg of A's nose, "
+              f"{machine.arm_confirm_k}-of-{machine._arm_frames.maxlen} scans, "
+              f"radius unambiguous against the runner-up. No map-frame test.")
         print(f"  dock: final approach {standoff_m:.3f} m from B's centre, "
               f"derived -- the governor's floor and geometric contact, larger wins")
         deadline = time.monotonic() + arguments.timeout
@@ -426,7 +429,8 @@ def main() -> int:
             except Exception:  # noqa: BLE001 - TF gaps are normal mid-transit
                 continue
             # The pose is used to EXPRESS the goal, never to decide whether to
-            # dock: arming is on the detected range alone (corridor_dock.armed).
+            # dock. Since 2026-08-13 `armed()` cannot read it even by accident:
+            # it is not passed one.
             refined = machine.step(
                 (pose_x, pose_y), pose_yaw, gate.last_verdict,
                 travelled_m=gate.odom_travel_m,

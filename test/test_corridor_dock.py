@@ -251,17 +251,36 @@ def test_the_window_is_derived_from_the_route_not_copied() -> None:
     assert machine.window_m < 3.0 / 2
 
 
+def _scan(verdict: dict, frame: int) -> dict:
+    """Stamp a verdict as a distinct SCAN, which is what persistence counts."""
+
+    return {**verdict, "frame": frame}
+
+
+def _arm_over_scans(machine, verdict, travelled_m, scans: int = 5):
+    """Feed the same detection over consecutive scans, returning the last answer."""
+
+    answer = False
+    for frame in range(1, scans + 1):
+        answer = machine.armed(_scan(verdict, frame), travelled_m=travelled_m)
+    return answer
+
+
 def test_the_spawn_phantom_is_refused() -> None:
     """**The negative control.** The exact shape of the 13:16 failure.
 
     A confirmed detection, a plausible laser range, and a robot that has barely
-    moved and is nowhere near the goal. Shape and 3-of-5 agreement both pass --
-    they are about the object, not the place.
+    moved. Shape and 3-of-5 agreement both pass -- they are about the object,
+    not the place.
+
+    Asserted against the TRAVEL test by name. When the map-frame proximity test
+    was deleted on 2026-08-13, travel became the only containment that excludes
+    the spawn region, so this control is now the whole of that guarantee.
     """
 
     machine = _contained()
     verdict = _verdict(0.3, 1.0)           # confirmed, 1.06 m away
-    assert not machine.armed(verdict, robot_xy=(0.0, 0.0), robot_yaw=0.0, travelled_m=0.58)
+    assert not _arm_over_scans(machine, verdict, travelled_m=0.58)
     assert machine.step((0.0, 0.0), 0.0, verdict, travelled_m=0.58) is None
     assert "too early in the route" in machine.rejections
 
@@ -270,38 +289,107 @@ def test_the_real_post_at_the_end_of_the_route_still_arms() -> None:
     """The guard must not reject the thing it guards.
 
     A control that only ever says no is indistinguishable from docking being
-    switched off.
+    switched off. Note what is NOT passed any more: a robot pose. Arming cannot
+    read one.
     """
 
     machine = _contained()
-    robot = (4.3, -2.5)                     # 0.45 m from the goal, near route end
-    bearing = math.atan2(GOAL[1] - robot[1], GOAL[0] - robot[0])
-    verdict = _verdict(GOAL[0], GOAL[1])
-    verdict["candidate"]["bearing_rad"] = bearing
-    verdict["candidate"]["range_m"] = 0.6
+    verdict = _verdict(0.6, 0.0)            # 0.6 m dead ahead
+    verdict["candidate"]["bearing_rad"] = 0.0
+    verdict["candidate"]["fitted_radius_m"] = 0.1244
 
-    assert machine.armed(verdict, robot_xy=robot, robot_yaw=0.0, travelled_m=5.2)
-    assert machine.rejections == {}
+    assert _arm_over_scans(machine, verdict, travelled_m=5.2)
+    # The persistence ramp is not a refusal: the first two scans of any real
+    # detection are "seen, not yet confirmed", and they are counted so that a
+    # run which never arms says which. What must be absent is every reason that
+    # means "this is the wrong thing, or the wrong place".
+    assert set(machine.rejections) <= {"not yet persistent across scans"}
+    assert machine.rejections["not yet persistent across scans"] == 2
+
+
+def test_arming_reads_no_robot_pose_at_all() -> None:
+    """The property, pinned at the signature rather than at a value.
+
+    `armed` used to take `robot_xy` and `robot_yaw` and use them for two of its
+    three containment tests. Passing a pose is now a TypeError, so no future
+    edit can quietly reintroduce a map-frame condition inside it without this
+    failing first.
+    """
+
+    import inspect
+
+    from corridor_dock import DockingMachine as Machine
+
+    parameters = set(inspect.signature(Machine.armed).parameters)
+    assert parameters == {"self", "verdict", "travelled_m"}
 
 
 def test_each_containment_test_can_refuse_on_its_own() -> None:
-    """Three conditions, three separable reasons, so a rejection is diagnosable."""
+    """Four conditions, four separable reasons, so a rejection is diagnosable.
 
-    robot = (4.3, -2.5)
-    bearing = math.atan2(GOAL[1] - robot[1], GOAL[0] - robot[0])
+    Rewritten on 2026-08-13. The map-frame proximity test it used to check --
+    "too far from the goal in the map frame" -- is deleted, and the bearing test
+    it checked against the goal direction is now against A's nose.
+    """
 
-    def at(xy, yaw, travelled, bearing_rad):
-        machine = _contained()
-        verdict = _verdict(GOAL[0], GOAL[1])
+    def at(travelled, bearing_rad, *, runner_up=None, scans=5):
+        machine = _contained(expected_radius_m=0.12)
+        verdict = _verdict(0.6, 0.0)
         verdict["candidate"]["range_m"] = 0.6
         verdict["candidate"]["bearing_rad"] = bearing_rad
-        machine.armed(verdict, robot_xy=xy, robot_yaw=yaw, travelled_m=travelled)
+        verdict["candidate"]["fitted_radius_m"] = 0.1244
+        if runner_up is not None:
+            verdict["runner_up"] = {"fitted_radius_m": runner_up}
+        _arm_over_scans(machine, verdict, travelled_m=travelled, scans=scans)
         return machine.rejections
 
-    assert "too early in the route" in at(robot, 0.0, 1.0, bearing)
-    assert "too far from the goal in the map frame" in at((1.0, 0.0), 0.0, 5.2, bearing)
-    # Looking backwards: the detection sits 180 deg from the goal direction.
-    assert "detection is not where the goal is" in at(robot, 0.0, 5.2, bearing + math.pi)
+    assert "too early in the route" in at(1.0, 0.0)
+    # Behind the robot: 180 deg off the nose, which is what the cone excludes.
+    assert "detection is behind the robot" in at(5.2, math.pi)
+    # A second cluster fitting B's radius just as well: a coin flip, refused.
+    assert "two candidates fit B's radius equally well" in at(5.2, 0.0, runner_up=0.1250)
+    # One scan is not persistence, however good the detection is.
+    assert "not yet persistent across scans" in at(5.2, 0.0, scans=1)
+
+
+def test_the_cone_admits_b_abeam_because_that_is_what_closest_approach_means() -> None:
+    """The cone's floor is geometry, not a tuned number.
+
+    At the instant of closest approach the range derivative is zero, which puts
+    B exactly 90 deg off the nose. A cone narrower than abeam would refuse the
+    real B at the one moment docking most needs it. Measured across seven bags:
+    85.2 to 91.6 deg, straddling 90 as predicted.
+    """
+
+    from corridor_dock import ABEAM_DEG, MAX_BEARING_ERROR_DEG
+
+    assert MAX_BEARING_ERROR_DEG > ABEAM_DEG
+    for measured_deg in (85.2, 89.9, 90.1, 90.4, 90.8, 90.9, 91.6):
+        machine = _contained()
+        verdict = _verdict(0.6, 0.0)
+        verdict["candidate"]["range_m"] = 0.6
+        verdict["candidate"]["bearing_rad"] = math.radians(measured_deg)
+        assert _arm_over_scans(machine, verdict, travelled_m=5.2), (
+            f"{measured_deg} deg was measured on a real approach and must arm"
+        )
+
+
+def test_persistence_counts_scans_not_calls() -> None:
+    """The 2.7x over-count: 8119 `step()` calls against 3031 scan frames.
+
+    A caller spinning faster than the lidar must not confirm one measurement
+    many times. Same frame token twenty times over is one scan, not twenty.
+    """
+
+    machine = _contained()
+    verdict = _verdict(0.6, 0.0)
+    verdict["candidate"]["bearing_rad"] = 0.0
+
+    for _ in range(20):
+        answer = machine.armed(_scan(verdict, 7), travelled_m=5.2)
+
+    assert not answer
+    assert "not yet persistent across scans" in machine.rejections
 
 
 def test_containment_fails_closed_when_it_is_not_supplied() -> None:
