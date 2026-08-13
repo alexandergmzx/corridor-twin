@@ -755,24 +755,49 @@ python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT"
   --timeout "$NAV_TIMEOUT" \
   --out "$RUN_DIR/nav.json" || status=1
 
-# A GOAL THAT WAS NEVER ACCEPTED IS NOT A VERDICT ABOUT THE ROBOT.
-#
-# bt_navigator reports ACTIVE, the runner's hold-check sees no abort, and the
-# goal arriving moments later is still answered "Action server is inactive.
-# Rejecting the goal." The stack was coming up; the robot was never asked to
-# move. Recording that as a red gate is precisely the confusion this script's
-# own exit-3 doctrine exists to prevent -- and it did record it, on run
-# 20260812-183327, as `result` with three failures about a robot that never
-# received an instruction.
-if [ -f "$RUN_DIR/nav.json" ] && grep -q '"failure": "goal not accepted"' "$RUN_DIR/nav.json"; then
-  rerun "the nav stack rejected the goal as inactive; the robot was never asked to move"
-fi
-
 # The recorder's own verdict is a gate result too, so it is waited for rather
 # than killed -- but a nav gate that ended early must not hang the run behind
 # the recorder's full window.
 echo "=== transit recorder verdict ==="
 wait "$recorder_pid" || status=1
+
+# "GOAL NOT ACCEPTED" MEANS TWO DIFFERENT THINGS, and only the robot can say
+# which. Both were seen tonight, twenty minutes apart:
+#
+#   20260812-183327  bt_navigator was still inactive. The goal was refused, the
+#                    robot moved 0.13 m, and the run recorded three true numbers
+#                    about a robot that was never asked to do anything.
+#   20260812-184220  the goal was ACCEPTED -- "Begin navigating from current
+#                    location (0.00, 0.00) to (4.11, -2.93)" is in the launch
+#                    log -- and A drove 7.865 m to within 0.178 m of the
+#                    standoff. What went missing was the ACCEPTANCE RESPONSE,
+#                    which corridor_nav_gate.py:270-274 already documents as a
+#                    nav failure that never happened.
+#
+# So the question is not what the gate reported, it is whether the robot moved,
+# and the recorder already measured that. Under the gate's own "barely moved"
+# threshold this is infrastructure; over it, navigation happened and the lost
+# response is recorded as an error against a run that still counts.
+if [ -f "$RUN_DIR/nav.json" ] && grep -q '"failure": "goal not accepted"' "$RUN_DIR/nav.json"; then
+  # 1.0 m is the transit gate's own "robot barely moved" threshold, read from
+  # the same artifact, so the two cannot disagree about what moving means.
+  moved=$("$REPO/.venv/bin/python" - "$RUN_DIR/gate.json" <<'PYEOF' 2>/dev/null || echo "0.0 no"
+import json, sys
+try:
+    distance = float(json.load(open(sys.argv[1])).get("ground_truth_distance_m") or 0.0)
+except Exception:
+    distance = 0.0
+print(f"{distance:.3f} {'yes' if distance >= 1.0 else 'no'}")
+PYEOF
+)
+  if [ "${moved##* }" != "yes" ]; then
+    rerun "the nav stack rejected the goal as inactive and the robot never moved (${moved%% *} m)"
+  fi
+  moved="${moved%% *}"
+  echo "  nav reported 'goal not accepted' but the robot drove ${moved} m:" >&2
+  echo "  the acceptance response was lost, not the goal (nav_gate.py:270-274)" >&2
+  manifest_error "acceptance response lost: nav reported 'goal not accepted' while the robot drove ${moved} m"
+fi
 # Not a gate yet -- U2 measures first and decides after. Printed so the answer
 # is in front of whoever watched the run.
 kill -TERM "$probe_pid" 2>/dev/null || true

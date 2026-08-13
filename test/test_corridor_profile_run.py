@@ -268,17 +268,30 @@ def test_the_recorder_outlives_the_nav_gate() -> None:
     assert 'GATE_SECONDS="$TRANSIT_WINDOW_S"' not in source
 
 
-def test_a_goal_that_was_never_accepted_is_infrastructure() -> None:
-    """The robot cannot fail a test it was never given.
+def test_goal_not_accepted_is_decided_by_whether_the_robot_moved() -> None:
+    """"Goal not accepted" means two different things, twenty minutes apart.
 
-    bt_navigator reports ACTIVE, the hold-check sees no abort, and the goal
-    arriving moments later is still rejected as inactive. Run 20260812-183327
-    recorded that as a `result` with three failures -- 'robot barely moved',
-    'map too sparse', 'drift 0.328' -- about a robot that never received an
-    instruction. Every one of those numbers is true and none of them is a
-    verdict.
+    20260812-183327: bt_navigator was inactive, the goal was refused, the robot
+    moved 0.13 m, and the run recorded three true numbers about a robot that
+    was never asked to do anything. Infrastructure.
+
+    20260812-184220: the goal was ACCEPTED -- "Begin navigating from current
+    location (0.00, 0.00) to (4.11, -2.93)" is in the launch log -- and A drove
+    7.865 m to within 0.178 m. What went missing was the acceptance RESPONSE,
+    which corridor_nav_gate.py already documents as a nav failure that never
+    happened. A result.
+
+    So the runner asks the recorder what the robot did, rather than trusting
+    what the gate reported, and the threshold is the transit gate's own.
     """
 
     source = RUNNER.read_text(encoding="utf-8")
     assert '"failure": "goal not accepted"' in source
-    assert "the robot was never asked to move" in source
+    assert "ground_truth_distance_m" in source
+    assert "acceptance response lost" in source
+    assert "and the robot never moved" in source
+    # It must run AFTER the recorder's verdict, or the evidence it needs does
+    # not exist yet.
+    assert source.index("=== transit recorder verdict ===") < source.index(
+        "acceptance response lost"
+    )
