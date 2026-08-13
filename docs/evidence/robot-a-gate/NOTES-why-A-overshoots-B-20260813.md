@@ -1,6 +1,6 @@
 # A does not ignore B. It arrives, is told it is 1.25 m short, and keeps driving
 
-**2026-08-13, offline from six session bags plus 22 recorded runs, no GPU.** Watched live on the lens
+**2026-08-13, offline from eleven session bags across all three profiles, plus 22 recorded runs.** Watched live on the lens
 first: A runs past B and out of the corridor. The artifacts had been reporting
 `closest_approach_m 0.03` and being read as success.
 
@@ -52,6 +52,29 @@ smallest measured pose error (`20260813-110947`, 0.798 m) is also the one with
 the smallest walk-away (0.298 m) — **n = 6 measured, so that is a hint, not an
 established relationship**, and it is not claimed as one.
 
+## The fault, in one number: SLAM sees a fifth of the motion
+
+Over the **first 2 m of travel**, how far each estimator thinks A went:
+
+| profile | bags | EKF / truth | **SLAM / truth** |
+|---|---|---|---|
+| `nominal_m6_n3` | 6 | 0.986 – 1.050 | **0.365 – 0.692** |
+| `wide_corner_m6_n4_5` | 2 | 0.991 – 1.021 | **0.324 – 0.723** |
+| `uniform_m6_n6` | 2 | 0.940 – 0.985 | **0.128 – 0.198** |
+
+**The odometry is right and the matcher is not.** The EKF measures A's first two
+metres to within 6% on all eleven bags. The scan matcher registers between
+**13% and 72%** of the same motion — and SLAM then "corrects" the good
+odometry toward its own estimate. That is the whole mechanism: everything below
+is its shape.
+
+`uniform_m6_n6` — the profile with **no taper at all** — is the worst on both
+its bags, below every `nominal` and `wide_corner` value. That is consistent with
+a tapering wall giving the matcher a distance-dependent signature that parallel
+walls do not, so the taper *helps*. With n = 2 for uniform and the other two
+profiles overlapping heavily (0.32–0.72), **an ordering by profile is a
+supported hypothesis, not an established result**, and it is not claimed as one.
+
 ## The error is ALONG the corridor, and it is born in the first two metres
 
 Decomposed onto the corridor axis (map +x is A's spawn heading), run
@@ -65,12 +88,27 @@ Decomposed onto the corridor axis (map +x is A's spawn heading), run
 | 2.6 → 4.1 m | −1.19 … −1.40 m | 0.07 … 0.16 m |
 | 4.17 m (out of the corridor) | −1.114 m | 1.247 m |
 
+**And it is universal.** Over the straight approach leg, across **11 bags and
+all three profiles** (`tools/diagnostics/axis_all.py`):
+
+| profile | peak ALONG | peak ACROSS | along/across | half-error reached by |
+|---|---|---|---|---|
+| `nominal_m6_n3` ×6 | −0.76 … −1.91 m | −0.23 … +0.12 m | 7 – 34× | 0.59 – 1.92 m |
+| `wide_corner_m6_n4_5` ×2 | −1.17, −1.50 m | +0.03, −0.02 m | 39×, 72× | 0.97, 1.06 m |
+| `uniform_m6_n6` ×2 | −1.71, −2.11 m | +0.018, +0.030 m | 97×, 70× | 1.00, 1.38 m |
+
+Every bag: the along-axis error is **negative** and between 7× and 97× the
+across-axis error, and half of it is present within two metres of travel. The
+across-axis figure is computed on the approach leg only — past the corner most
+runs leave the corridor and it explodes, which measures the excursion rather
+than the corridor.
+
 Three things follow, and each is worth stating separately:
 
-1. **The error is longitudinal.** Across-corridor it stays under 0.16 m for the
-   whole transit — the two walls constrain that direction well. Along the axis
-   it reaches −1.26 m. The sign is negative: **SLAM places A behind where it
-   is**, which is exactly the error that makes a robot keep driving.
+1. **The error is longitudinal.** Across-corridor it stays under 0.16 m — the
+   two walls constrain that direction well. Along the axis it reaches −1.26 m
+   here and −2.11 m at worst. The sign is negative: **SLAM places A behind
+   where it is**, which is exactly the error that makes a robot keep driving.
 2. **It is established in the first ~12 s of motion**, over the first 2.2 m of a
    7.4 m route, in two discrete steps (+0.41 m at 0.73 m travelled, +0.32 m at
    2.16 m). Then it holds flat at ≈ −1.25 m for the rest of the corridor. Steps,
@@ -127,15 +165,22 @@ the arrival gate cannot go green even if the map problem is solved.
 
 ## Scope and limits
 
-- Six bags analysed in depth, all `nominal_m6_n3`, robot1, domain 67; the
-  population table covers 22 recorded runs of that profile. The along/across
-  decomposition is computed on ONE bag — its shape is not shown to be
-  universal, only its endpoint is, via the six-run arrival table.
+- Eleven bags, robot1, domain 67: six `nominal_m6_n3`, two
+  `wide_corner_m6_n4_5`, two `uniform_m6_n6`, plus one nominal used for the
+  time trace. The 22-run population table is `nominal` only.
+- The time-resolved trace (two discrete jumps) is from ONE bag. The endpoint
+  and the axis decomposition are confirmed on all eleven; **the two-jump shape
+  is not**.
+- `uniform_m6_n6` has n = 2. Its being worst is consistent and unexplained,
+  not established.
 - The world→map transform used here is a pure rotation by A's spawn heading,
   valid because map and world share the spawn origin. If a future scenario
   spawns A elsewhere this analysis needs the translation too.
 - The two jump magnitudes are read at 2 s sampling, so their timing is ±2 s and
   their number is a lower bound.
-- **Why** the matcher slides backwards specifically — the taper, the scan
-  filter's 0.12 m minimum, the 12 m range against a 3.6 m corridor — is not
-  answered here. That is the degeneracy study's question and it is still open.
+- **Why the matcher under-registers** is not answered here. Worth noting
+  against the obvious guess: the corridor is 3.6 m long at the committed scale
+  and the MS200 reports 0.12–8.0 m, so the far wall IS in range throughout —
+  "no longitudinal feature within range" does not survive contact with the
+  contract check's own output. That makes the cause more interesting, not less,
+  and it is the degeneracy study's question.
