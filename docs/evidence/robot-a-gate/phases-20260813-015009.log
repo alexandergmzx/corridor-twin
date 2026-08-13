@@ -1,0 +1,10 @@
+01:50:09 +0s corridor profile run: nominal_m6_n3 (GATED)--gated
+01:50:09 +0s precondition: the arena is the scenario
+01:50:10 +0s simctl start
+01:51:03 +53s precondition: robot1 contract (--domain 67 --speed 0.0 --turn 0.0 --seconds 8)
+01:51:27 +77s waiting for the TF chain
+01:51:32 +82s nav stack
+01:51:39 +89s T3.3a transit recorder (observe-only, 210s)
+01:51:39 +89s T3.3b governed Nav2 goal A->B
+01:55:03 +293s transit recorder verdict
+01:56:07 +357s map quality
