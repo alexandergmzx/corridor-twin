@@ -66,7 +66,38 @@ MAX_RADIUS_ERROR_FRACTION = 0.40
 #: exist.
 MAX_CHORD_FACTOR = 1.4
 
-#: ISOLATION, which is the check that actually separates a post from a corner.
+#: CONVEXITY, which is the check that separates a post from a wall's END.
+#:
+#: Isolation below separates a post from a CORNER -- something attached to a
+#: wall that continues. It cannot separate a post from a short wall stub whose
+#: free end genuinely has open space on both sides. `EastWallStub` is exactly
+#: that: authored geometry from the source drawing, a block protruding from the
+#: street's east wall whose 0.318 m west face passed every other test here
+#: honestly and took FIVE OF TEN live deliveries, A parking 0.45-0.63 m from B
+#: at the wrong object.
+#:
+#: What separates them is convexity, and it is exact rather than statistical. A
+#: cylinder of radius r puts its centre EXACTLY r beyond the nearest point of
+#: its own surface: the closest return lies on the segment from the sensor to
+#: the centre. That is what convex means. A circle fitted across part of a flat
+#: face has no such constraint and routinely places its centre level with, or
+#: in front of, the measured surface -- which is geometrically impossible for
+#: the object it is claiming to be.
+#:
+#: The SIGN test carries no threshold at all. Measured over seven bags it holds
+#: for 98.9% of true-B fits and fails for 21.9% of the decoy's, and end to end
+#: that moves first arming from 3-of-7 on B to 6-of-7, with no bag failing to
+#: arm.
+#:
+#: The MAGNITUDE test below is the same family as the radius and residual
+#: fractions above, and it closes the last bag: 7 of 7 on B, 0 on the decoy, 0
+#: never-armed. Its marginal contribution rests on a single bag, and at 0.40 it
+#: buys nothing -- recorded here so the next reader can see how much is
+#: geometry and how much is a chosen number.
+#: (`tools/diagnostics/centre_depth.py`, 2026-08-13.)
+MAX_CENTRE_DEPTH_ERROR_FRACTION = 0.25
+
+#: ISOLATION, which separates a post from a CORNER -- but not from a wall end.
 #:
 #: A wall feature 0.874 m from the robot fitted a radius of 0.1276 against an
 #: authored 0.12, with a good residual and a post-sized chord. It passed every
@@ -248,8 +279,20 @@ class LandmarkDetector:
             # both must be free-standing, not attached to a wall that continues.
             if not is_isolated(points, start, end):
                 continue
+            # CONVEXITY, and it is the test that separates B from a wall END.
+            # See the module constants for the geometry and the measurement.
+            centre_depth = math.hypot(cx, cy) - min(
+                math.hypot(px, py) for px, py in group
+            )
+            if centre_depth <= 0.0:
+                continue
+            if abs(centre_depth - self.radius_m) > (
+                self.radius_m * MAX_CENTRE_DEPTH_ERROR_FRACTION
+            ):
+                continue
             found.append({
                 "x": round(cx, 4), "y": round(cy, 4),
+                "centre_depth_m": round(centre_depth, 4),
                 "range_m": round(math.hypot(cx, cy), 4),
                 "bearing_rad": round(math.atan2(cy, cx), 4),
                 "fitted_radius_m": round(radius, 4),

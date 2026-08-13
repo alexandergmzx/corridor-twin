@@ -264,3 +264,45 @@ def test_the_real_post_still_passes_the_extent_check() -> None:
 
     assert found, "the extent check rejected the actual post"
     assert math.dist((found[0]["x"], found[0]["y"]), (1.2, 0.0)) < 0.05
+
+
+def test_a_flat_wall_end_is_refused_by_convexity() -> None:
+    """**The EastWallStub decoy.** It took 5 of 10 live deliveries.
+
+    A 0.318 m flat face, seen square on, at about the range A passes it. It is
+    post-sized, it fits a circle, and it is free-standing on both sides -- so
+    radius, residual, chord and isolation all pass it honestly. What it cannot
+    do is be convex: a circle fitted across a flat face places its centre at or
+    in front of the measured surface, and a cylinder's centre is always exactly
+    one radius BEHIND its nearest return.
+    """
+
+    from landmark_detector import LandmarkDetector
+
+    face_y = 0.6
+    points = [(x / 1000.0, face_y) for x in range(-159, 160, 8)]
+    detector = LandmarkDetector(0.12)
+
+    assert detector.candidates(points) == []
+
+
+def test_a_real_cylinder_still_passes_convexity() -> None:
+    """The guard must not reject the thing it guards.
+
+    Points on the near arc of a 0.12 m cylinder whose centre is 0.6 m ahead.
+    Its centre depth is one radius by construction, which is the whole test.
+    """
+
+    import math
+
+    from landmark_detector import LandmarkDetector
+
+    centre, radius = (0.0, 0.6), 0.12
+    points = [
+        (centre[0] + radius * math.sin(a), centre[1] - radius * math.cos(a))
+        for a in [math.radians(d) for d in range(-70, 71, 10)]
+    ]
+    found = LandmarkDetector(radius).candidates(points)
+
+    assert found, "the real cylinder must survive"
+    assert found[0]["centre_depth_m"] == pytest.approx(radius, abs=0.02)

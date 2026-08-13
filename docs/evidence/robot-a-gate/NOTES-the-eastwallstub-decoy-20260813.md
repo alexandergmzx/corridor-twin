@@ -200,18 +200,46 @@ pass is first seen close; something you approach is first seen far.
 
 ### Why the travel gate cannot help
 
+> **CORRECTED. The first version of this section said the arming lead was
+> 0.900 m against a 0.806 m separation — a ratio of 1.12 — and concluded that
+> shrinking the window by a few centimetres would put the decoy behind A. That
+> was wrong, it was published in `ef296b0`, and the real ratio is 3.1. The
+> conclusion it supported is dead; the section below is the measured version.**
+
     route station abeam the stub : 6.575 m
     route station at B           : 7.380 m
     along-route separation       : 0.806 m
-    arming window                : 0.900 m   (1.12x the separation)
+    arming unlocks at travel     : 4.850 m
+    ACTUAL lead before B         : 2.531 m   (3.1x the separation)
 
-Arming becomes legal 0.900 m before the delivery point, which is 0.094 m
-*before* A is level with the stub. The window is wider than the separation, so
-there is a band in which arming is permitted and the decoy is still ahead of A
-and inside the 100 deg forward cone -- and arming fires at the earliest legal
-moment by construction. The window comes from `ARM_WINDOW_ROUTE_FRACTION`,
-transferred from the authored scale (3.0 m of a 19.166 m route); nothing in it
-ever accounted for scene features.
+The 0.900 m figure was `window_m`, which is a tolerance *on
+`route_to_delivery_m`* — and **`route_to_delivery_m` is wrong**
+(`tools/corridor_nav_gate.py:83-98`). Its docstring says the departure leg
+"runs PAST B" and excludes it from the sum. It does not: the five segments run
+approach → corner arc → departure → delivery arc → delivery run, and the route
+*ends at B* — measured, the station closest to B is 7.3804 m at a distance of
+0.0000 m, which is the full trajectory length. `departure_length_m` (1.6307 m)
+lies **before** B, so omitting it understates the route by exactly that, and
+arming unlocks 2.531 m before the delivery point rather than 0.900 m.
+
+So the window is 3.1x the decoy separation, not 1.12x, and no small adjustment
+closes it. Worse, the two requirements are contradictory: the good runs armed
+with 1.681 m or more of lead, and excluding the decoy needs 0.520 m or less.
+**Window-shrinking is dead**, and it was never alive — it rested on an
+arithmetic error of mine on top of a pre-existing one in the codebase.
+
+The pre-existing bug is not simply "correct the sum", either. Corrected,
+`min_travel_m` becomes 6.480 m, and bag 113859 armed **on the real B** at
+5.699 m of odometry travel — so the correction would have refused a good
+arming. The reason is that A does not drive the authored route: Nav2 plans its
+own path, and the measured odometry distance to B is around 5.7 m against an
+authored 7.38 m. `route_to_delivery_m` is wrong in derivation and accidentally
+close in value. Correcting the derivation without re-basing
+`ARM_WINDOW_ROUTE_FRACTION` on measured travel would break arming outright.
+
+What survives from the section is only the qualitative half, and it still
+holds: every guard so far governs *whether* a detection is believable — the
+stub genuinely is — and none governs *when* the question is first asked.
 
 This also explains why every guard added so far failed. They all govern
 *whether* a detection is believable, and the stub genuinely is. None of them
