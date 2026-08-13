@@ -37,7 +37,7 @@ The guard above it does not save it. The runner passes `--manifest`, so
 throw fires on the first frame of every run.
 
 Introduced in `4e0f903`. Survived `e24e596`, which fixed a *server-side* freeze
-with the same symptom. Survived `05f3173` earlier the same night — that commit
+with the same symptom. Survived `800539d` earlier the same night — that commit
 edited this very block and the broken line sat in the diff as unchanged
 context, read past twice.
 

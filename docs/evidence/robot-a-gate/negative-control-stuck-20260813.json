@@ -62,7 +62,7 @@
     "rviz": false
   },
   "git": {
-    "commit": "8df179dfa5b8bc29de482dd03e3e3d6c6e976e3b",
+    "commit": "34e48bf9d46bca7b87f4256d63e405db5327942b",
     "dirty": true
   },
   "manifest": "/home/alexmint/Development/robot-fleet/src/corridor-twin/out/corridor.manifest.json",

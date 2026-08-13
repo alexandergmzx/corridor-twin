@@ -8,7 +8,7 @@
 >
 > **Budget 9 h — started 23:23, ends 08:00. No new unit starts after 07:30.**
 > `date` between units. Branch `phase3-launch-2026-08-12` from
-> `gate-green-2026-08-12` (`865f1d7`). The handback is this document's final
+> `gate-green-2026-08-12` (`9ef1083`). The handback is this document's final
 > section and is written even if the session fails early.
 
 **Naming.** The task author is referred to by role, never by name, in code,
@@ -18,21 +18,21 @@ docs, commits and evidence. Corrected in V0 where it was tracked.
 
 | Unit | State | Notes |
 |---|---|---|
-| V0 session plan | **DONE** 23:26 | lifecycle-glob fix `2253bf8`; name scrub `2973e04` |
-| V1a ADR 0031 — B is the cylinder | **DONE** 23:45 `05f3173` | bearing cone had to widen 60°→76°: the merged B is refused by the old one at 0.3 m |
-| V1b the camera prim moves to P | **DONE** 23:55 `4316307` | one `UsdGeom.Camera` on the stage and it is P's; certificate green; LOS 5/5 on all three profiles |
-| V2 corner-arc yaw, offline | **DONE** 00:03 `ad662d9` | **the corner is innocent** (arc 1.02–1.10); the gate compared two windows |
+| V0 session plan | **DONE** 23:26 | lifecycle-glob fix `13aded9`; name scrub `ae8c506` |
+| V1a ADR 0031 — B is the cylinder | **DONE** 23:45 `800539d` | bearing cone had to widen 60°→76°: the merged B is refused by the old one at 0.3 m |
+| V1b the camera prim moves to P | **DONE** 23:55 `3dfbbe4` | one `UsdGeom.Camera` on the stage and it is P's; certificate green; LOS 5/5 on all three profiles |
+| V2 corner-arc yaw, offline | **DONE** 00:03 `c0fe4af` | **the corner is innocent** (arc 1.02–1.10); the gate compared two windows |
 | — *handoff at 00:35: priorities reordered* | | lens first, then run duration |
-| L1 lens harness (stub + probe) | **DONE** 01:15 `8df179d` | headless chromium: screenshot **and** console. No MCP, nothing installed |
-| L2 the lens map | **DONE** 01:15 `8df179d` | `OX`/`OY`/`SC` undefined → the render loop died on frame one. **It had never rendered live** |
-| L3 stuck → diagnosed FAIL | **DONE** 01:38 `0412009` | wall-clock deadlines, log-watching bringup, INT/TERM exits. Negative control: diagnosed FAIL at +262 s |
-| L4 shorter runs | **DONE** 01:44 `9e1accb` | bring-up **144 s → 89 s (−38%)**, total 403 → 359 s |
-| L5 corrections owed | **DONE** 01:49 `501e8f7` | the false test count; two REAL orphans the preflight caught; 25 stray markers |
-| V3 acceptance re-runs | **DONE** 02:19 `d58266c` | **both gated profiles still RED**; yaw is a spread, not a bias |
-| V5 the camera session | **DONE** 02:46 `b98292d` | certificate **GREEN**, mutation **RED** on P's mast; a drive-speed literal had rotted at 0.30 scale |
-| V6 Replicator dataset | **DONE** 03:35 `09d3beb` | 3000 paired frames, 20 overlays inspected first, 0.44 s/frame |
-| V4 demo-candidate run | **DONE, informative** 04:18 `9a388fe` | every ADR 0031 derivation fired live; **docking never armed** — 2812 map-frame rejections |
-| V7 RT-DETR fine-tune | **DONE** 03:59 `09d3beb` | **0.9927 detection at IoU 0.5**, both resolutions; resolution deliberately not pinned |
+| L1 lens harness (stub + probe) | **DONE** 01:15 `34e48bf` | headless chromium: screenshot **and** console. No MCP, nothing installed |
+| L2 the lens map | **DONE** 01:15 `34e48bf` | `OX`/`OY`/`SC` undefined → the render loop died on frame one. **It had never rendered live** |
+| L3 stuck → diagnosed FAIL | **DONE** 01:38 `91333ce` | wall-clock deadlines, log-watching bringup, INT/TERM exits. Negative control: diagnosed FAIL at +262 s |
+| L4 shorter runs | **DONE** 01:44 `86e5a01` | bring-up **144 s → 89 s (−38%)**, total 403 → 359 s |
+| L5 corrections owed | **DONE** 01:49 `3b10703` | the false test count; two REAL orphans the preflight caught; 25 stray markers |
+| V3 acceptance re-runs | **DONE** 02:19 `38ad026` | **both gated profiles still RED**; yaw is a spread, not a bias |
+| V5 the camera session | **DONE** 02:46 `67ce875` | certificate **GREEN**, mutation **RED** on P's mast; a drive-speed literal had rotted at 0.30 scale |
+| V6 Replicator dataset | **DONE** 03:35 `877b701` | 3000 paired frames, 20 overlays inspected first, 0.44 s/frame |
+| V4 demo-candidate run | **DONE, informative** 04:18 `516bcf9` | every ADR 0031 derivation fired live; **docking never armed** — 2812 map-frame rejections |
+| V7 RT-DETR fine-tune | **DONE** 03:59 `877b701` | **0.9927 detection at IoU 0.5**, both resolutions; resolution deliberately not pinned |
 
 **The 00:35 handoff reordered the night.** Two priorities came in: the lens no
 longer showed the SLAM map, and runs were long and hung silently. Both are
@@ -62,13 +62,13 @@ the session proceeds on it.
 
 Three commits, each green first:
 
-1. **`2253bf8`** — the lifecycle poll globbed `*active*`, which matches
+1. **`13aded9`** — the lifecycle poll globbed `*active*`, which matches
    `"inactive [2]"`. Four of 2026-08-12's runs were declared ready while
    `bt_navigator` was still configuring, sent their goal, and were refused. It
    read as a flaky bringup race for a whole session. Both polls now test the
    state's prefix, and the second test runs the four real states through the
    real glob.
-2. **`2973e04`** — the name scrub.
+2. **`ae8c506`** — the name scrub.
 3. This file.
 
 ## V1a — ADR 0031: B is the cylinder. **75 min hard**
@@ -350,7 +350,7 @@ ls ~/Development/MicroROS/MicroROS-assets/maps/near-wall-20260810/ekf-numerics/
    nominal runs. Named, not explained.
 7. **`corridor-v2-adr-pack.md`** — untracked, carries the task author's name,
    still not mine to dispose of.
-8. **Commit `7ee4b29`'s subject** carries that name too; fixing it means
+8. **Commit `55f7b6d`'s subject** carries that name too; fixing it means
    rewriting history.
 9. **ADR 0024 decision 2** says the detector-family pin lands as its own
    record. Tonight produced the spike evidence; the record is yours.
