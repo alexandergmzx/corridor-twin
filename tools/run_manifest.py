@@ -159,6 +159,44 @@ def classify(path: str | Path, classification: str, cause: str | None = None) ->
     return payload
 
 
+def diagnose(path: str | Path, why: str, phase: str, elapsed_s: float,
+             log: str | None = None, tail: int = 25) -> dict:
+    """Record WHERE a run died and what the relevant log was saying.
+
+    A run that stops without this leaves a directory of artifacts and no
+    account of itself. Three of the first twenty-four corridor runs ended that
+    way -- every one a hand-kill -- and reconstructing the 2026-08-13 hang took
+    reading two launch logs against a runner log that carries no clock.
+
+    The log tail is the part that pays for itself. The run that hung had
+    `Failed to bring up all requested nodes. Aborting bringup.` sitting in
+    `nav-launch-attempt1.log` three seconds after launch, while the runner
+    polled on for another 115 s. The answer was already written down; nothing
+    put it where the verdict was.
+    """
+
+    payload = load(path)
+    payload.setdefault("schema_version", SCHEMA_VERSION)
+    entry: dict = {
+        "at": now_utc(),
+        "why": why,
+        "phase": phase,
+        "elapsed_s": round(float(elapsed_s), 1),
+    }
+    if log:
+        candidate = Path(log)
+        if candidate.is_file():
+            lines = candidate.read_text(
+                encoding="utf-8", errors="replace").splitlines()
+            entry["log"] = str(candidate)
+            entry["log_tail"] = lines[-tail:]
+        else:
+            entry["log"] = f"{log} (absent)"
+    payload.setdefault("diagnosis", []).append(entry)
+    write(path, payload)
+    return payload
+
+
 def _value(raw: str):
     """`k=v` values arrive from shell as text; JSON literals keep their type."""
 
@@ -185,6 +223,14 @@ def main() -> int:
     verdict.add_argument("--classification", required=True, choices=CLASSIFICATIONS)
     verdict.add_argument("--cause", default=None)
 
+    dx = sub.add_parser("diagnose", help="record where a run died, with a log tail")
+    dx.add_argument("--path", required=True)
+    dx.add_argument("--why", required=True)
+    dx.add_argument("--phase", default="unknown")
+    dx.add_argument("--elapsed-s", type=float, default=0.0)
+    dx.add_argument("--log", default=None)
+    dx.add_argument("--tail", type=int, default=25)
+
     digest = sub.add_parser("digest", help="print a file's sha256")
     digest.add_argument("--file", required=True)
 
@@ -195,6 +241,10 @@ def main() -> int:
         return 0
     if arguments.command == "error":
         add_error(arguments.path, arguments.message)
+        return 0
+    if arguments.command == "diagnose":
+        diagnose(arguments.path, arguments.why, arguments.phase,
+                 arguments.elapsed_s, arguments.log, arguments.tail)
         return 0
     if arguments.command == "classify":
         classify(arguments.path, arguments.classification, arguments.cause)

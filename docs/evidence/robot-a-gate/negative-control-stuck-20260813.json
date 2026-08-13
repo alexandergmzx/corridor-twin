@@ -1,0 +1,81 @@
+{
+  "arena": "/home/alexmint/Development/robot-fleet/src/corridor-twin/out/arena_corridor_robot1_nominal_m6_n3.usd",
+  "arena_sha256": "08345a8d1d93283a934d99e0f6679911bbd10c6822693c6fe5688a257dd58eb4",
+  "classification": "rerun",
+  "classification_attempts": [
+    {
+      "at": "2026-08-13T07:28:48+00:00",
+      "cause": "bt_navigator never reached ACTIVE in 2 attempts (last state: unknown)",
+      "classification": "rerun"
+    },
+    {
+      "at": "2026-08-13T07:29:10+00:00",
+      "cause": "run ended without a verdict (exit 3)",
+      "classification": "crash"
+    }
+  ],
+  "classification_cause": "bt_navigator never reached ACTIVE in 2 attempts (last state: unknown)",
+  "controller": "dwb",
+  "diagnosis": [
+    {
+      "at": "2026-08-13T07:28:48+00:00",
+      "elapsed_s": 262.0,
+      "log": "/home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260813-012425-robot1-nominal_m6_n3/nav-launch-attempt2.log",
+      "log_tail": [
+        "[lifecycle_manager-5] [INFO] [1786606078.287305262] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606080.287480936] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606082.287651270] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606084.287816318] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606086.287973664] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606088.288107397] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606090.288267422] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606092.288427379] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606094.288598389] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606096.288751217] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606098.288908566] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606100.289057090] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606102.289207901] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606104.289369023] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606106.289495502] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606108.289656458] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606110.289811185] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606112.289962147] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606114.290183734] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606116.290810967] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606118.290963919] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606120.291119167] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606122.291280188] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606124.291426374] [lifecycle_manager_nav]: Waiting for service controller_server/get_state...",
+        "[lifecycle_manager-5] [INFO] [1786606126.291582329] [lifecycle_manager_nav]: Waiting for service controller_server/get_state..."
+      ],
+      "phase": "nav stack",
+      "why": "bt_navigator never came up in 2 attempts"
+    }
+  ],
+  "domain": 67,
+  "exit_status": 3,
+  "flags": {
+    "allow_contract_fail": true,
+    "dock": false,
+    "gated": true,
+    "lens": true,
+    "rviz": false
+  },
+  "git": {
+    "commit": "8df179dfa5b8bc29de482dd03e3e3d6c6e976e3b",
+    "dirty": true
+  },
+  "manifest": "/home/alexmint/Development/robot-fleet/src/corridor-twin/out/corridor.manifest.json",
+  "manifest_sha256": "e5b5c52540b4869edadc271c67f9de1b2b5eaf86627bece093dab74601e34055",
+  "profile": "nominal_m6_n3",
+  "robot": "robot1",
+  "run_id": "20260813-012425-robot1-nominal_m6_n3",
+  "scan_min_valid_beams": 120,
+  "scan_walls": "/home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260813-012425-robot1-nominal_m6_n3/scan-walls.json",
+  "schema_version": "1.0.0",
+  "sim_max_s": 600,
+  "slam_params": "/home/alexmint/Development/robot-fleet/src/yahboomcar-ros2/yahboomcar_config/param/slam_toolbox.yaml",
+  "slam_params_sha256": "66cf64678c1e415a4d32d8405c8f8652b29fae4d43de24104ce2c5f1403e203d",
+  "started_utc": "2026-08-13T07:24:25+00:00",
+  "teardown_verified": 1
+}

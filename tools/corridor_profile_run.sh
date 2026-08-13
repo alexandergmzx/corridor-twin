@@ -94,6 +94,26 @@ RVIZ_FLAG=""
 # independently (below) a normal run finishes in 410-510 s and never reaches it.
 SIM_MAX_S=600
 
+# EVERY LIFECYCLE WAIT IS BOUNDED IN WALL CLOCK, NOT IN ITERATIONS.
+#
+# Both bring-up loops used to count iterations -- `for _ in $(seq 1 14)` with a
+# 5 s sleep -- on the assumption that an iteration costs about 5 s. On run
+# 20260813-002222 each `ros2 lifecycle get` blocked for ~13 s and returned
+# nothing, so 14 iterations became 255 s and the loop sailed past every bound
+# anyone thought it had. A deadline in seconds cannot do that.
+#
+# 75 s is generous against what bring-up actually needs: bt_navigator bonded to
+# its manager 3.5 s after launch on that very run, and the healthy cluster of
+# runs reaches ACTIVE inside ~20 s.
+LIFECYCLE_DEADLINE_S=75
+
+# And every ros2 CLI call gets a timeout, for the same reason. The CLI depends
+# on the ros2 daemon; simctl stops the daemon at the end of every run, so every
+# corridor run starts against a cold one. simctl's own comment (simctl:396-406)
+# says not to trust `ros2 lifecycle get` here -- these loops now corroborate
+# with it rather than depend on it.
+ROS_CLI_TIMEOUT_S=3
+
 # The nav window is DERIVED to fit inside the cap, never set past it: a nav
 # timeout longer than the session cap is a promise the watchdog will break.
 NAV_TIMEOUT=""
@@ -166,6 +186,42 @@ ln -sfn "$RUN_ID" "$EVIDENCE/latest-$ROBOT-$PROFILE"
 # The manifest helpers. Fail-open on every one of them: recording a problem
 # must never become the problem.
 manifest() { python3 "$REPO/tools/run_manifest.py" set --path "$RUN_JSON" "$@" || true; }
+
+PHASE="startup"
+phase() {
+  PHASE="$1"
+  local now elapsed
+  now=$(date +%s)
+  elapsed=$(( now - ${SESSION_START_S:-now} ))
+  printf '%s\n' "$1" > "$RUN_DIR/.phase" 2>/dev/null || true
+  printf '%s +%ss %s\n' "$(date +%H:%M:%S)" "$elapsed" "$1" \
+    >> "$RUN_DIR/phases.log" 2>/dev/null || true
+  echo ""
+  echo "=== [$(date +%H:%M:%S) +${elapsed}s] $1 ==="
+}
+
+# The launch log that best explains a death in the current phase. Newest
+# attempt first, because the last one is the one that was running.
+diagnosis_log() {
+  local candidate
+  for candidate in "$RUN_DIR/nav-launch-attempt2.log" \
+                   "$RUN_DIR/nav-launch-attempt1.log" \
+                   "$RUN_DIR/slam-attempt2.log" \
+                   "$RUN_DIR/slam-attempt1.log" \
+                   "$RUN_DIR/contract.txt"; do
+    [ -s "$candidate" ] && { printf '%s' "$candidate"; return; }
+  done
+}
+
+write_diagnosis() {
+  local why="$1" log elapsed
+  log="$(diagnosis_log)"
+  elapsed=$(( $(date +%s) - ${SESSION_START_S:-$(date +%s)} ))
+  python3 "$REPO/tools/run_manifest.py" diagnose --path "$RUN_JSON" \
+    --why "$why" --phase "${PHASE:-unknown}" --elapsed-s "$elapsed" \
+    ${log:+--log "$log"} || true
+}
+
 manifest_error() { python3 "$REPO/tools/run_manifest.py" error --path "$RUN_JSON" --message "$1" || true; }
 classify() {
   python3 "$REPO/tools/run_manifest.py" classify --path "$RUN_JSON" \
@@ -198,7 +254,7 @@ export PYTHONNOUSERSITE=1
 # as inactive, and whether the runner had waited for it was unanswerable.
 exec > >(tee -a "$RUN_DIR/runner.log") 2>&1
 
-echo "=== corridor profile run: $PROFILE ${GATED:+(GATED)}${GATED:-(reported only)} ==="
+phase "corridor profile run: $PROFILE ${GATED:+(GATED)}${GATED:-(reported only)}"
 echo "  domain : $ROS_DOMAIN_ID"
 echo "  robot  : $ROBOT"
 echo "  arena  : $ARENA"
@@ -245,7 +301,7 @@ PY
 #
 # .venv, not python3: `pxr` lives in this repo's venv, and the ROS workspace
 # this script sources does not carry it.
-echo "=== precondition: the arena is the scenario ==="
+phase "precondition: the arena is the scenario"
 if ! "$REPO/.venv/bin/python" "$REPO/tools/check_arena_matches_manifest.py" \
      --arena "$ARENA" --manifest "$MANIFEST" --profile "$PROFILE" \
      --json "$RUN_DIR/arena-check.json"; then
@@ -380,12 +436,43 @@ record_exit() {
   manifest --set "exit_status=$1" --set "teardown_verified=${teardown_verified:-0}"
 }
 on_exit() { local code=$?; teardown || true; record_exit "$code"; }
-# INT/TERM keep their original teardown-only behaviour deliberately: the
-# watchdog signals this script with TERM, the handler returns, and execution
-# continues to the flag check that classifies the run a rerun. Recording an exit
-# there would stamp `crash` over a kill the run already understands.
+
+# WHERE THE RUN IS, WRITTEN DOWN AS IT GOES.
+#
+# Three of the first twenty-four runs ended with no classification at all --
+# every one a hand-kill -- and reconstructing the 2026-08-13 hang meant reading
+# two launch logs against a runner log with no clock in it. Both are fixed
+# here: every phase banner carries the time and the elapsed seconds, and the
+# current phase is on disk so a death that skips the EXIT trap can still say
+# where it was.
+# INT/TERM MUST EXIT, and until 2026-08-13 they did not.
+#
+# The handler used to tear down and RETURN, on the theory that the watchdog's
+# flag check further down would classify the run. That only holds if the signal
+# arrives after the last `rerun` site: fire it inside the bt_navigator loop and
+# execution resumes IN THE LOOP, burns its remaining iterations against a dead
+# stack, and exits via `rerun "bt_navigator never reached ACTIVE"` -- the wrong
+# cause, recorded as the only cause, because classification is first-wins.
+#
+# It also meant Ctrl-C could not stop a run. The operator pressed it, teardown
+# ran, the script carried on, and the session had to be escalated to SIGKILL --
+# which skips the EXIT trap and is exactly how a run ends up with no verdict.
+on_signal() {
+  local signal="$1"
+  teardown || true
+  if [ -f "$WATCHDOG_FLAG" ]; then
+    rm -f "$WATCHDOG_FLAG"
+    classify rerun "watchdog killed the session at the ${SIM_MAX_S}s cap, in phase '${PHASE}'"
+    write_diagnosis "watchdog at the ${SIM_MAX_S}s cap"
+  else
+    classify rerun "$signal in phase '${PHASE}' -- operator abort"
+    write_diagnosis "$signal (operator abort)"
+  fi
+  exit 3
+}
 trap on_exit EXIT
-trap 'teardown || true' INT TERM
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
 
 # INFRASTRUCTURE failures below exit 3, distinct from a red gate (exit 1). A
 # session that never came up is a rerun, not a result about the robot.
@@ -405,7 +492,8 @@ SESSION_MARKER=$(mktemp)
 ( sleep "$SIM_MAX_S"
   : > "$WATCHDOG_FLAG"
   echo "" >&2
-  echo "**WATCHDOG: session exceeded the ${SIM_MAX_S}s cap -- tearing down**" >&2
+  echo "**WATCHDOG: session exceeded the ${SIM_MAX_S}s cap in phase" \
+       "'$(cat "$RUN_DIR/.phase" 2>/dev/null || echo unknown)' -- tearing down**" >&2
   kill -TERM $$ 2>/dev/null ) &
 watchdog_pid=$!
 SESSION_START_S=$(date +%s)
@@ -443,7 +531,7 @@ export SCAN_RELAY_MIN_VALID_BEAMS=120
 manifest --set "scan_walls=$SCAN_RELAY_WALLS_JSON" \
          --set "scan_min_valid_beams=$SCAN_RELAY_MIN_VALID_BEAMS"
 
-echo "=== simctl start ==="
+phase "simctl start"
 # --no-patrol is NOT optional. simctl's step 7 launches sim_patrol, which drives
 # 1.0 m legs at 0.18 m/s on /cmd_vel_raw for the life of the session. Every
 # corridor run before 2026-08-11 carried it, so Nav2's controller and the
@@ -502,7 +590,7 @@ else
   CONTRACT_ARGS=(--imu-hz 60 --json)
   CONTRACT_OUT="$RUN_DIR/contract.json"
 fi
-echo "=== precondition: $ROBOT contract (${CONTRACT_ARGS[*]}) ==="
+phase "precondition: $ROBOT contract (${CONTRACT_ARGS[*]})"
 # stdout only into the JSON: the checker appends a human summary and its
 # FAIL lines after the document, which made every artifact unparseable exactly
 # when it mattered most -- on the failures.
@@ -561,28 +649,37 @@ if [ -n "$SLAM_PARAMS" ]; then
     ros2 launch yahboomcar_config slam_launch.py "params_file:=$SLAM_PARAMS" \
       >"$RUN_DIR/slam-attempt$slam_attempt.log" 2>&1 &
     slam_pid=$!
-    for _ in $(seq 1 12); do
-      sleep 5
-      sstate=$(ros2 lifecycle get /slam_toolbox 2>/dev/null | head -1) || true
+    slam_deadline=$(( $(date +%s) + LIFECYCLE_DEADLINE_S ))
+    while [ "$(date +%s)" -lt "$slam_deadline" ]; do
+      # The LOG first, because it is the output that matters and it does not
+      # depend on the ros2 daemon. See LIFECYCLE_DEADLINE_S for what the daemon
+      # did to this loop's sibling below.
+      if grep -q 'Aborting bringup' "$RUN_DIR/slam-attempt$slam_attempt.log" 2>/dev/null; then
+        echo "  slam bringup aborted in its own log; not waiting out the deadline"
+        break
+      fi
+      sstate=$(timeout "$ROS_CLI_TIMEOUT_S" ros2 lifecycle get /slam_toolbox 2>/dev/null | head -1) || true
       case "$sstate" in
         # `active*`, NOT `*active*`: the second matches "inactive [2]" as well,
         # and lifecycle_manager reports exactly that while a node is still
         # configuring. See the bt_navigator poll below for what it cost.
         active*) slam_ready=1; echo "  slam_toolbox active (attempt $slam_attempt)"; break ;;
       esac
+      sleep 1
     done
     if [ "$slam_ready" != 1 ]; then
       echo "  ** slam_toolbox never reached ACTIVE (last state: ${sstate:-unknown}) **"
       kill -TERM "$slam_pid" 2>/dev/null || true
-      sleep 5
+      for _ in $(seq 1 10); do kill -0 "$slam_pid" 2>/dev/null || break; sleep 0.5; done
     fi
   done
   if [ "$slam_ready" != 1 ]; then
+    write_diagnosis "slam_toolbox never came up in $slam_attempt attempts"
     rerun "slam_toolbox never activated in $slam_attempt attempts"
   fi
 fi
 
-echo "=== waiting for the TF chain ==="
+phase "waiting for the TF chain"
 if ! python3 "$REPO/tools/wait_for_tf.py" --target map --source base_footprint --timeout 120; then
   rerun "map->base_footprint never appeared; twin TF is not up"
 fi
@@ -592,7 +689,7 @@ fi
 # update rate!" in the same window -- and everything was starting at once.
 sleep 8
 
-echo "=== nav stack ==="
+phase "nav stack"
 if [ "$ROBOT" = robot1 ]; then
   NAV_LAUNCH="$REPO/config/robot1/robot1_nav_corridor_launch.py"
   case "$CONTROLLER" in
@@ -632,8 +729,31 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
 # bt_navigator is still inactive, so the old check passed on runs whose
 # lifecycle bringup had already aborted -- and the goal was then rejected by a
 # server the runner had just called ready. Ask the lifecycle state instead.
-  echo "  waiting for bt_navigator to reach ACTIVE..."
-  for _ in $(seq 1 14); do
+  echo "  waiting for bt_navigator to reach ACTIVE (deadline ${LIFECYCLE_DEADLINE_S}s)..."
+  nav_deadline=$(( $(date +%s) + LIFECYCLE_DEADLINE_S ))
+  nav_log="$RUN_DIR/nav-launch-attempt$nav_attempt.log"
+  while [ "$(date +%s)" -lt "$nav_deadline" ]; do
+    # THE LOG IS CHECKED FIRST, AND ON EVERY ITERATION.
+    #
+    # It used to be checked only from inside the `active*)` branch below, so an
+    # attempt that aborted without ever reading active was invisible: on run
+    # 20260813-002222 the manager wrote "Aborting bringup" three seconds after
+    # launch and this loop kept polling for 115 s more. The verdict was already
+    # on disk; nothing looked at it.
+    if grep -q 'Aborting bringup' "$nav_log" 2>/dev/null; then
+      echo "  the manager aborted this bringup (its own log says so); relaunching"
+      break
+    fi
+    # AND THE BOND, which is the other thing that does not need the daemon.
+    # bt_navigator prints this the moment it is genuinely up and managed.
+    if grep -q 'Creating bond (bt_navigator)' "$nav_log" 2>/dev/null; then
+      sleep 2
+      if ! grep -q 'Aborting bringup' "$nav_log" 2>/dev/null; then
+        nav_ready=1
+        echo "  bt_navigator bonded to the manager (attempt $nav_attempt)"
+        break
+      fi
+    fi
     # `|| true` is load-bearing under `set -e`: a bare assignment from a
     # command substitution that FAILS aborts the script, and `ros2 lifecycle
     # get` fails outright while the node is still coming up -- which is exactly
@@ -641,7 +761,14 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
     # reported nothing, and the runs that appeared to "work" were the ones
     # where bt_navigator happened to be up before the first poll. That is the
     # whole of the nondeterminism this loop was blamed for.
-    state=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1) || true
+    #
+    # `timeout` is load-bearing for a different reason. On 20260813-002222 each
+    # of these calls BLOCKED FOR ~13 s AND RETURNED NOTHING while bt_navigator
+    # was active and bonded, because the CLI needs the ros2 daemon and simctl
+    # stops the daemon at the end of every run. 14 iterations x (13 + 5) became
+    # 255 s of silence. simctl's own comment says not to trust this call; the
+    # loop now corroborates with it rather than depending on it.
+    state=$(timeout "$ROS_CLI_TIMEOUT_S" ros2 lifecycle get /bt_navigator 2>/dev/null | head -1) || true
     case "$state" in
       # `active*`, NOT `*active*`. THE SECOND MATCHES "inactive".
       #
@@ -671,15 +798,16 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
         fi
         nav_ready=1; echo "  bt_navigator active and bringup held (attempt $nav_attempt)"; break ;;
     esac
-    sleep 5
+    sleep 1
   done
   if [ "$nav_ready" != 1 ]; then
     kill -TERM "$nav_pid" 2>/dev/null || true
-    sleep 5
+    for _ in $(seq 1 10); do kill -0 "$nav_pid" 2>/dev/null || break; sleep 0.5; done
   fi
 done
 if [ "$nav_ready" != 1 ]; then
   tail -5 "$RUN_DIR/nav-launch-attempt$nav_attempt.log" | sed 's/^/    /' >&2
+  write_diagnosis "bt_navigator never came up in $nav_attempt attempts"
   rerun "bt_navigator never reached ACTIVE in $nav_attempt attempts (last state: ${state:-unknown})"
 fi
 NAV_ATTEMPTS="$nav_attempt"
@@ -752,7 +880,7 @@ for _ in $(seq 1 40); do
 done
 [ -f "$PROBE_READY" ] || manifest_error "the startup probe never signalled ready"
 
-echo "=== T3.3a transit recorder (observe-only, ${GATE_SECONDS}s) ==="
+phase "T3.3a transit recorder (observe-only, ${GATE_SECONDS}s)"
 python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
   --profile "$PROFILE" --robot "$ROBOT" $GATED --observe-only \
   --manifest "$MANIFEST" \
@@ -761,7 +889,7 @@ python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \
   >"$RUN_DIR/gate.log" 2>&1 &
 recorder_pid=$!
 
-echo "=== T3.3b governed Nav2 goal A->B ==="
+phase "T3.3b governed Nav2 goal A->B"
 : > "$GOAL_MARKER"
 python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT" $GATED $DOCK \
   ${CONTRACT_CAVEAT:+--caveat "$CONTRACT_CAVEAT"} \
@@ -772,7 +900,7 @@ python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT"
 # The recorder's own verdict is a gate result too, so it is waited for rather
 # than killed -- but a nav gate that ended early must not hang the run behind
 # the recorder's full window.
-echo "=== transit recorder verdict ==="
+phase "transit recorder verdict"
 wait "$recorder_pid" || status=1
 
 # "GOAL NOT ACCEPTED" MEANS TWO DIFFERENT THINGS, and only the robot can say
@@ -869,7 +997,7 @@ done
 #
 # --self-test runs first every time. An instrument whose negative controls are
 # checked once at authoring time is an instrument nobody is checking.
-echo "=== map quality ==="
+phase "map quality"
 SCORER=/home/alexmint/Development/robot-fleet/src/yahboomcar-ros2/tools/score_slam_map.py
 if ! python3 "$SCORER" --self-test >"$RUN_DIR/map-selftest.txt" 2>&1; then
   echo "**INFRASTRUCTURE: map scorer self-test FAILED; its verdicts are not trustworthy**" >&2
@@ -949,7 +1077,8 @@ fi
 if [ -f "$WATCHDOG_FLAG" ]; then
   rm -f "$WATCHDOG_FLAG"
   echo "=== $PROFILE: **INFRASTRUCTURE -- killed at the ${SIM_MAX_S}s cap, not a result** ===" >&2
-  classify rerun "watchdog killed the session at the ${SIM_MAX_S}s cap"
+  classify rerun "watchdog killed the session at the ${SIM_MAX_S}s cap, in phase '${PHASE}'"
+  write_diagnosis "watchdog at the ${SIM_MAX_S}s cap"
   exit 3
 fi
 # A RESULT, red or green. `pass` and `classification` are separate fields on

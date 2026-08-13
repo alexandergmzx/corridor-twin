@@ -67,13 +67,23 @@ def test_every_infrastructure_exit_classifies_itself() -> None:
         for number, line in enumerate(lines, start=1)
         if re.search(r'(^|;|\s)exit 3\b', line) and not line.lstrip().startswith("#")
     ]
-    # Two only: the one inside rerun(), and the watchdog's, which classifies on
-    # the line above it.
-    assert len(bare) == 2, f"unclassified infrastructure exits: {bare}"
+    # Three: `rerun()`, the watchdog's late flag check, and the INT/TERM
+    # handler -- each of which classifies before it exits. The handler joined
+    # them on 2026-08-13, when INT/TERM stopped returning into the middle of a
+    # bring-up loop and started ending the run the way every other exit does.
+    assert len(bare) == 3, f"unclassified infrastructure exits: {bare}"
 
     source = RUNNER.read_text(encoding="utf-8")
     assert 'classify rerun "watchdog killed the session' in source
     assert 'rerun() {' in source
+
+    # Each of the three classifies within a few lines above its exit, rather
+    # than relying on something downstream noticing.
+    for number, _text in bare:
+        window = "\n".join(lines[max(0, number - 12):number])
+        assert "classify " in window or "rerun()" in window or "classify(" in window, (
+            f"exit 3 at line {number} does not classify the run first"
+        )
 
 
 def test_a_run_that_says_nothing_about_itself_is_a_crash() -> None:
@@ -292,7 +302,9 @@ def test_goal_not_accepted_is_decided_by_whether_the_robot_moved() -> None:
     assert "and the robot never moved" in source
     # It must run AFTER the recorder's verdict, or the evidence it needs does
     # not exist yet.
-    assert source.index("=== transit recorder verdict ===") < source.index(
+    # The banner is a phase() call since 2026-08-13, so every one carries a
+    # timestamp and updates the phase the run records for itself.
+    assert source.index('phase "transit recorder verdict"') < source.index(
         "acceptance response lost"
     )
 

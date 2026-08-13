@@ -1,0 +1,6 @@
+01:24:25 +0s corridor profile run: nominal_m6_n3 (GATED)--gated
+01:24:25 +0s precondition: the arena is the scenario
+01:24:26 +0s simctl start
+01:25:19 +53s precondition: robot1 contract (--domain 67 --speed 0.0 --turn 0.0)
+01:26:07 +101s waiting for the TF chain
+01:26:17 +111s nav stack
