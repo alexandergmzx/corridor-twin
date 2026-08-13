@@ -6,11 +6,12 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.8.0 |
+| Map version | 1.9.0 |
 | Last updated | 2026-08-12 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | **A delivers autonomously and perceives B.** Governed Nav2 on a live SLAM map, no authored route, reaches the delivery standoff beside B — 0.244 m at best, measured in world frame from truth (ADR 0028) — and a geometric landmark on B is detected from 2.4–2.8 m and confirmed in 3 frames (ADR 0029). Robot A is decided: robot1 (ADR 0027); isolation is verified (ADR 0026) |
-| Next milestone | **Close the map divergence, which is the one thing keeping the arrival gate red.** The fusion reports rotation its own input does not contain (0.14×–23.4× across seven runs against an IMU measuring 0.987–0.993 of truth); the fix is outside this repo. See [ADR 0029](adr/0029-map-divergence-at-the-corner.md) and [`NOTES-fusion-anomaly.md`](evidence/robot-a-gate/NOTES-fusion-anomaly.md) |
+| Current milestone | **A delivers autonomously and perceives B, and the instruments now agree with the world.** Governed Nav2 on a live SLAM map, no authored route, reaching **0.061–0.129 m** of the delivery standoff on three consecutive runs (world frame, from truth). The scenario the robot drives and the plan it navigates are the same scene and hash-checked before every run (ADR 0030); the startup pirouette is gone (it was the contract precondition driving, not navigation); the wheel radius is calibrated and midpoint drift is **0.159 → 0.0097**. Robot A is decided: robot1 (ADR 0027); isolation is verified (ADR 0026) |
+| Next milestone | **Close the map divergence, still the one thing keeping the arrival gate red.** Duplicate-wall extent reads 1.00–1.56 m against a 0.20 m limit, now scored on a masked map whose perfect-SLAM oracle reads 0.000 (ADR 0030). The LINEAR channel is no longer a suspect — calibrated 2026-08-12, 6.3% short on straight driving across seven bags — but the fusion still reports rotation its own input does not contain (0.14×–23.4×, IMU at 0.987–0.993 of truth), and that fix is outside this repo. See [ADR 0029](adr/0029-map-divergence-at-the-corner.md), [`NOTES-fusion-anomaly.md`](evidence/robot-a-gate/NOTES-fusion-anomaly.md), [`NOTES-odometry-scale.md`](evidence/robot-a-gate/NOTES-odometry-scale.md) |
+| Phase 3 opener | **P cannot see the corridor from P's own height** — ADR 0019's screen blocks all five enforcement stations. A 1.5 m mast on P's own footprint clears all five in 3-D. Awaiting Alexander's choice: [decision memo](evidence/p_cam_candidates/NOTES.md) |
 
 > Every Isaac Sim and GPU/VRAM figure in the capability matrix and resource
 > envelope below predates the 2026-07-29 police-placement correction (ADR
