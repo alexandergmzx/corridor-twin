@@ -47,10 +47,10 @@ silently substituted.
 |---|---|---|
 | **D8** | Privacy: reword, redact every branch, delete the pack file | **DONE** — see log |
 | **W0** | This plan | **DONE** |
-| **W1** | Goal yaw from the manifest + regression test + **NOTES correction** | pending |
-| **W2** | Docking preemption: D1 arming, map-frame proximity deleted, relative REFINE goal | pending |
-| **W3** | ADR 0033, arrival semantics (must resolve the ADR 0029:129 conflict) | pending |
-| **W4** | Acceptance runs, three profiles, dock ON | pending |
+| **W1** | Goal yaw from the manifest + regression test + **NOTES correction** | **DONE** — `896d304` |
+| **W2** | Docking preemption: D1 arming, map-frame proximity deleted | **DONE, RED** — `a29dc19` |
+| **W3** | ADR 0033, arrival semantics (must resolve the ADR 0029:129 conflict) | **BLOCKED on the decoy decision** |
+| **W4** | Acceptance runs, three profiles, dock ON | **BLOCKED on W3** |
 | **W5** | Matcher A/B — **only if W4 is banked**, 90 min hard cap | pending |
 | **W6** | One dedicated camera session (concurrent is impossible — see below) | pending |
 | **W7** | Speed estimator v0, if time | pending |
@@ -243,6 +243,77 @@ ruff clean, pytest 438 passed / 1 skipped, colcon 141 tests 0 failures.
 
 Written before implementation, per the long-session rule. Binding once written;
 re-read first after any context compaction; the handback is its final section.
+
+### W1 — goal orientation (`896d304`)
+
+Done, and with a **third** correction beyond the two the plan anticipated: the
+brief's prescribed fix — derive the goal yaw from the authored route's final
+heading — would have introduced a worse defect than the one it repaired.
+`delivery_standoff_world`'s own docstring says why: reading the authored route
+is exactly the "authored line and waypoints" ADR 0022:15-17 keeps out of A's
+navigation. The two derivations agree numerically because the standoff sits on
+B's approach ray, and that agreement is the trap. Derived from B's bearing
+instead; a test deletes `delivery_trajectory` from the manifest and requires
+the facing to survive.
+
+NOTES lines 155–160 corrected, with the replaced text quoted in the correction
+block so the error stays legible rather than vanishing.
+
+### W2 — docking preemption (`a29dc19`). **RED, and the red is the result**
+
+The map-frame deadlock is gone: `armed()` reads no robot pose at all, and
+replayed over seven recorded bags arming now fires on every one, where before
+it never fired at all on the docked run (2812 map-frame rejections).
+
+**But on four of seven it arms on the wrong object**, and all four agree to
+within 0.11 m. The object is authored geometry: the free west end cap of
+`EastWallStub`, 0.318 m wide, centred at (4.565, −1.926), 0.59–0.77 m from B.
+It passes shape, chord and isolation *honestly* — from the approach direction
+it genuinely has open space on both sides — and it sits between A and B, so A
+resolves it first.
+
+Two fixes were measured and both rejected:
+
+| candidate fix | result |
+|---|---|
+| rank candidates by radius error, not fit residual | indistinguishable, marginally worse |
+| require arming frames to agree on a position | **worse: 6 of 7 instead of 4 of 7** |
+
+The second is the informative one. It reads as strictly better — "k scans that
+agree they see the same object" rather than "k scans that each saw something" —
+and it fails because **the failure is ordering, not agreement**: consecutive
+agreement hands the decision to whichever object accumulates a run first, and
+that is the decoy. Reverted by default per gate discipline; the weaker rule
+ships. The full measurement is
+[`NOTES-the-eastwallstub-decoy-20260813.md`](../evidence/robot-a-gate/NOTES-the-eastwallstub-decoy-20260813.md).
+
+Useful number underneath it all: **per frame, the detector picks the real B
+88–97% of the time and the stub 2–12%.** Accuracy is not the problem. Arming
+being a first-past-the-post decision is.
+
+### Why W3 and W4 are blocked rather than attempted
+
+ADR 0033's proposed dock-on acceptance is "world-frame closest approach
+≤ 0.15 m **and** `DELIVERED`". With the decoy unresolved that criterion is red
+on four runs in seven for a reason that has nothing to do with arrival
+semantics — so pinning it now would either bake in a gate the demo cannot pass
+or invite it to be quietly loosened later. ADRs are immutable once accepted;
+this one waits for the decision below.
+
+W4 follows W3.
+
+## Morning decisions
+
+1. **The decoy: scene or arming?** Either `EastWallStub` loses its free west
+   end — arguably a modelling artefact rather than an intended feature, since
+   nothing in the scenario calls for a wall that stops in mid-air — or arming
+   stops being first-past-the-post and accumulates evidence across the whole
+   approach, where B's 9:1 per-frame advantage would decide it. The first is
+   minutes and changes the scene; the second is hours and changes the method.
+   **This is the decision that unblocks W3 and W4.**
+2. **W6's footage is not of a delivery** (deviation 3). If footage of a real
+   Nav2 delivery is the actual requirement, that needs the fleet edit and a
+   different session.
 
 ---
 
