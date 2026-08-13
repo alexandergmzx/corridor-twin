@@ -202,6 +202,46 @@ def test_arrival_is_decided_by_the_sensor_not_the_map() -> None:
     assert machine.state == DockingMachine.DOCKED
 
 
+def test_arriving_is_one_sided__too_far_out_is_not_arrival() -> None:
+    """**The live 2026-08-13 delivery, pinned.**
+
+    A saw B at 0.6655 m against a 0.470 m standoff. The old symmetric band
+    admitted it -- |0.6655 - 0.470| = 0.196 < 0.25 -- so the machine declared
+    arrival a fifth of a metre too far out, cancelled the goal and stopped. It
+    missed by 0.2472 m against a 0.15 m criterion, and 0.196 m of that was this
+    one comparison. `refinements: 0`: the mechanism for closing that distance
+    never ran, because the tolerance was wider than the step it was a tolerance
+    on.
+    """
+
+    from corridor_dock import docked_max_range_m
+
+    machine = DockingMachine(nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M)
+    assert round(STANDOFF_M, 3) == 0.470
+    assert round(docked_max_range_m(STANDOFF_M), 3) == 0.620
+
+    goal = machine.step((0.0, 0.0), 0.0, _verdict(0.6655, 0.0))
+
+    assert machine.state != DockingMachine.DOCKED, (
+        "0.6655 m is 0.196 m too far out; that is what refinement is for"
+    )
+    assert goal is not None and machine.refinements == 1
+
+
+def test_arriving_is_one_sided__nearer_than_the_standoff_is_arrival() -> None:
+    """The other side has no bound, and should not.
+
+    Closer than the standoff means A is beside B and the governor's floor is
+    what stopped it. There is nothing left to refine, and the old symmetric
+    band called this "not arrived" and issued a hold goal instead.
+    """
+
+    machine = DockingMachine(nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M)
+
+    assert machine.step((0.0, 0.0), 0.0, _verdict(0.15, 0.0)) is None
+    assert machine.state == DockingMachine.DOCKED
+
+
 def test_a_docked_machine_stops_issuing_goals() -> None:
     machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M)
     machine.step((0.0, 0.0), 0.0, _verdict(STANDOFF_M, 0.0))

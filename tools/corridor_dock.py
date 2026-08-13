@@ -195,9 +195,30 @@ REISSUE_IF_MOVED_M = 0.20
 #: that cannot converge in this many is not going to converge in more.
 MAX_REFINEMENTS = 4
 
-#: Arrived, measured by the sensor. The tolerance is generous against the
-#: standoff because what is being claimed is "A is beside B", not a survey.
-DOCKED_TOLERANCE_M = 0.25
+#: Arrived, measured by the sensor -- and the test is ONE-SIDED.
+#:
+#: It used to be `abs(detected_range - standoff) <= 0.25`, symmetric, and that
+#: cost a live delivery 0.196 m of the 0.247 m it missed by. On 2026-08-13 A
+#: saw B at 0.6655 m against a 0.470 m standoff; the symmetric band admitted it
+#: (|0.6655 - 0.470| = 0.196 < 0.25), so the machine declared arrival while
+#: still a fifth of a metre too far out, cancelled the goal, and stopped. The
+#: refinement loop that exists to close exactly that distance never ran:
+#: `refinements: 0`.
+#:
+#: Being too FAR OUT is not arrival. It is the condition refinement is for, and
+#: a tolerance wide enough to swallow the refinement step disables the
+#: mechanism it is supposed to be a tolerance on. Being NEARER than the standoff
+#: is arrival -- A is beside B, the governor's floor is what stopped it, and
+#: there is nothing left to refine.
+#:
+#: The near side therefore has no bound at all, and the far side is
+#: `GOAL_TOLERANCE_M` -- ADR 0022's pinned figure, which already means "a goal
+#: reached within tolerance may be reached this much nearer or further than
+#: commanded", the same quantity `final_approach_m` uses for the same reason.
+def docked_max_range_m(standoff_m: float) -> float:
+    """The furthest detected range that still counts as arrived."""
+
+    return standoff_m + GOAL_TOLERANCE_M
 
 
 def final_approach_m(b_radius_m: float, a_length_m: float) -> float:
@@ -291,6 +312,8 @@ class DockingMachine:
         #: authored. It is both where the refined goal is placed and, below,
         #: the range at which arrival is declared.
         self.standoff_m = standoff_m
+        #: One-sided. Derived from the standoff, so a rescale moves it too.
+        self.docked_max_range_m = docked_max_range_m(standoff_m)
         self.arm_radius_m = arm_radius_m
         self.max_refinements = max_refinements
         # Containment. `route_length_m` is the route TO THE DELIVERY, not the
@@ -473,8 +496,9 @@ class DockingMachine:
         landmark = landmark_in_map(verdict["candidate"], robot_xy, robot_yaw)
         detected_range = verdict["candidate"]["range_m"]
 
-        # Arrival is decided on the SENSOR, never on a map-frame number.
-        if abs(detected_range - self.standoff_m) <= DOCKED_TOLERANCE_M:
+        # Arrival is decided on the SENSOR, never on a map-frame number -- and
+        # it is ONE-SIDED. See `docked_max_range_m`.
+        if detected_range <= self.docked_max_range_m:
             self.state = self.DOCKED
             self.landmark_map = landmark
             self.history.append({

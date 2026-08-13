@@ -93,6 +93,64 @@ requiring consecutive agreement simply hands the decision to whichever object
 accumulates a run earliest, and that is the decoy. Reverted by default, per
 gate discipline. The weaker rule shipped.
 
+**Tighten the chord ceiling.** A circle of radius *r* has a maximum chord of
+exactly 2*r*, so `MAX_CHORD_FACTOR = 1.4` admits 2.8*r* — 40% beyond
+geometrically possible — while the stub's face is 0.318 m against B's 0.240 m
+ceiling. On paper the ceiling *is* the discriminator, and unlike a radius or
+residual threshold it is a geometric impossibility rather than a tuned number.
+
+**The prediction was recorded before the measurement: the stub tally should
+collapse between 1.4 and 1.3, and B's should stay flat until 1.0.** Measured by
+`tools/diagnostics/chord_sweep.py` over the same seven bags:
+
+| chord factor | ceiling | B frames | stub frames |
+|---|---|---|---|
+| 1.4 (shipped) | 0.336 m | 6663 | **302** |
+| 1.3 | 0.312 m | 6663 | 252 |
+| 1.2 | 0.288 m | 6663 | 186 |
+| 1.1 | 0.264 m | 6662 | 172 |
+| 1.0 | 0.240 m | 6665 | **159** |
+
+**Falsified.** No collapse anywhere — a gradual 47% decline that never
+approaches zero, with 159 stub frames surviving even at the geometric floor.
+The detector is fitting a PART of the 0.318 m face, not the whole of it, so its
+chord is already inside B's ceiling and no ceiling can separate them. This was
+named as the risk before the run and it is what happened.
+
+Half of the result is still useful: **B's tally is flat across the whole
+sweep** (6663 → 6665), so tightening is free. `1.4` permitting chords a real
+cylinder cannot produce is a defect on its own terms, and `1.1` would cost
+nothing and remove 43% of the decoy's frames. **Not applied** — a change whose
+own measurement says it does not fix the thing it was made for does not get
+shipped on the strength of a side benefit. Recorded as a recommendation.
+
+## The live run of 2026-08-13 16:02 docked on B
+
+One run, `--allow-contract-fail`, so not gate evidence — but it is the first
+direct evidence of the arming change in the field, and it disagrees with the
+replay's pessimism.
+
+    world_frame_delivery: standoff (4.438, -2.400)
+                          final    (4.4381, -2.1528)
+                          closest_approach_m 0.2472   walked_away_m 0.0
+    docking: DOCKED at 0.6655 m, refinements 0
+             rejections: {"not yet persistent across scans": 97}
+
+| from A's final position | distance |
+|---|---|
+| to **B** | **0.6489 m** — against a detected 0.6655 m |
+| to the stub's west face | 0.2601 m |
+
+It locked onto B, and the laser agreed with truth to **17 mm**. `walked_away_m`
+is **0.0**: A stopped and stayed, where every previous run either drove to the
+street's far wall or docked and then walked 3.43 m off chasing a stale map
+goal. The rejection log contains no containment refusal of any kind, against
+2812 map-frame refusals before.
+
+So the decoy is real but it is not deterministic, and it did not decide this
+run. Four of seven in replay, zero of one live. That is not a contradiction and
+neither number is a rate.
+
 ## What this means
 
 - **Docking cannot be closed by tightening the detector's thresholds.** Every
