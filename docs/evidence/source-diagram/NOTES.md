@@ -21,13 +21,21 @@ deliberately not adopted; see "Proportions" below.
 |---|---|
 | Source | `docs/ROBO_TASK.pdf`, 1 page, A4 595.32 x 841.92 pt |
 | Source sha256 | `7e00d431a39b0a7a73a48fb810444d370ce735aec21e79b3ac494a71615937a4` |
-| Source author / created | Biswal, Achyutananda — 2026-07-23, Adobe PDF Services from Word 2019 |
+| Source author / created | *the task author* (name withheld; see below) — 2026-07-23, Adobe PDF Services from Word 2019 |
 | Renderer | poppler `pdftoppm` 24.02.0 at 300 dpi, 2481 x 3508 px |
 | Analysis | `measure.py` (this directory), NumPy + Pillow colour masks |
 | Date measured | 2026-07-28 |
 | Isaac Sim version | **Not applicable** — no simulator involved |
 | GPU | **Not applicable** — CPU-only rasterisation of a vector PDF |
 | Camera resolution / rate | **Not applicable** — no camera; this is not a render probe |
+
+The author field is the PDF's own metadata and it names a real person, so this
+repository records the role rather than the name. The digest above pins the
+exact file, and `pdfinfo docs/ROBO_TASK.pdf` reads the field back for anyone who
+holds it — **so this redaction reduces casual discoverability and does not
+remove the name from the repository.** Leaving the PDF unmodified is a
+deliberate choice: rewriting it would break the digest this documentation is
+pinned to.
 
 Commands:
 
