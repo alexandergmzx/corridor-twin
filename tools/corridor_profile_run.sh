@@ -696,10 +696,16 @@ fi
 # holding position or driving past. 200 covers the worst of those with 90 s of
 # margin. Still capped by the nav window so it can never outlive the watchdog.
 TRANSIT_WINDOW_S=200
-if [ -z "$GATE_SECONDS" ]; then
-  GATE_SECONDS=$(( NAV_TIMEOUT + 10 ))
-  [ "$GATE_SECONDS" -gt "$TRANSIT_WINDOW_S" ] && GATE_SECONDS="$TRANSIT_WINDOW_S"
+# The NAV window is what gets capped, and the recorder is then sized from it --
+# never the other way round. Capping only the recorder broke the invariant its
+# own comment states: it must OUTLIVE the nav gate, or a slow-but-successful
+# delivery is truncated by the instrument watching it. Measured on run
+# 20260812-182237, where a 200 s recorder sat inside a 429 s nav window.
+if [ "$NAV_TIMEOUT" -gt "$TRANSIT_WINDOW_S" ]; then
+  echo "  transit window: ${TRANSIT_WINDOW_S}s (nav window ${NAV_TIMEOUT}s is longer than the transit needs)"
+  NAV_TIMEOUT="$TRANSIT_WINDOW_S"
 fi
+: "${GATE_SECONDS:=$((NAV_TIMEOUT + 10))}"
 if [ "$LENS" = 1 ]; then
   python3 "$REPO/tools/lens/corridor_lens.py" --domain "$DOMAIN" \
     --manifest "$MANIFEST" \

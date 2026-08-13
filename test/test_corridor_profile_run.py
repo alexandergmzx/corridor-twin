@@ -249,3 +249,20 @@ def test_the_probe_watches_the_ungoverned_topic_too() -> None:
     assert 'f"{namespace}/cmd_vel_raw"' in probe
     assert "moving_on_cmd_vel_directly" in probe
     assert "ungoverned_rotation_deg" in probe
+
+
+def test_the_recorder_outlives_the_nav_gate() -> None:
+    """The instrument must not stop before the thing it measures.
+
+    Sizing the transit window capped the RECORDER while leaving the nav window
+    at whatever the cap allowed, and run 20260812-182237 then ran a 200 s
+    recorder inside a 429 s nav window -- so a slow but successful delivery
+    would have been truncated by the instrument watching it. The nav window is
+    what gets capped; the recorder is sized from it.
+    """
+
+    source = RUNNER.read_text(encoding="utf-8")
+    assert 'NAV_TIMEOUT="$TRANSIT_WINDOW_S"' in source
+    assert ': "${GATE_SECONDS:=$((NAV_TIMEOUT + 10))}"' in source
+    # And the recorder is never capped independently of it.
+    assert 'GATE_SECONDS="$TRANSIT_WINDOW_S"' not in source
