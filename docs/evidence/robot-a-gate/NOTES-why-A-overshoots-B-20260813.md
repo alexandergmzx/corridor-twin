@@ -44,13 +44,15 @@ proportional:
 
 | outcome | runs | final position | walked away |
 |---|---|---|---|
-| drove to the street's far wall | **14** | (5.0 – 5.1, −5.6 … −5.9) | 3.18 – 3.51 m |
-| stopped near B | 4 | (4.1 – 4.9, −1.6 … −2.9) | 0.30 – 1.03 m |
-| never moved (bring-up failures) | 4 | ≈ spawn | 0.00 m |
+| drove to the street's far wall | **13** | x 4.88 – 5.12, y −5.59 … −5.89 | 3.18 – 3.51 m |
+| stopped near B | 4 | x 4.15 – 4.94, y −1.61 … −3.59 | 0.30 – 1.03 m |
+| never moved (bring-up failures) | 5 | ≈ spawn | 0.00 m |
 
 The street's south end is y = −6.0. **The majority case is A driving until the
-geometry stops it**, which is why those fourteen all land within 0.4 m of each
+geometry stops it**, which is why those thirteen all land within 0.30 m of each
 other: the distance is set by the wall, not by the size of the pose error.
+Recomputed from the artifacts rather than counted by eye — an earlier version of
+this table said 14 / 4 / 4 and was wrong in two cells.
 
 **It is not a `nominal` behaviour.** The one `uniform_m6_n6` run driven for this
 diagnosis (`20260813-113843`) did the same thing: closest approach 0.112 m,
