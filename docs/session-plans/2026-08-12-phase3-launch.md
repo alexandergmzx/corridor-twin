@@ -18,18 +18,27 @@ docs, commits and evidence. Corrected in V0 where it was tracked.
 
 | Unit | State | Notes |
 |---|---|---|
-| V0 session plan | **DONE** 23:26 | this file; lifecycle-glob fix `2253bf8`; name scrub `2973e04` |
-| V1a ADR 0031 — B is the cylinder | **DONE** 23:45 `05f3173` | 22 min of a 75 min box. Bearing cone had to widen 60°→76°: the merged B is refused by the old one at 0.3 m |
-| V1b the camera prim moves to P | **DONE** 23:55 `4316307` | 10 min of 45. One `UsdGeom.Camera` on the stage and it is P's; certificate green; LOS re-measured 5/5 on all three profiles |
-| V2 corner-arc yaw, offline | **DONE** 00:03 `ad662d9` | 8 min of 60. **The corner is innocent** (arc 1.02–1.10). The gate compared two windows; `wide_corner` 1.108 → 1.0013 clipped. `nominal`'s 1.17 survives and is fleet-side |
-| V3 acceptance re-runs | in progress | arenas must be rebuilt first — the composer change moved the manifest hash |
-| V4 demo-candidate run | pending | nominal, dock on |
-| V5 the camera session | pending | Isaac; lock held into V6 |
-| V6 Replicator dataset | pending | the overnight payload |
-| V7 training harness + first fine-tune | pending | |
+| V0 session plan | **DONE** 23:26 | lifecycle-glob fix `2253bf8`; name scrub `2973e04` |
+| V1a ADR 0031 — B is the cylinder | **DONE** 23:45 `05f3173` | bearing cone had to widen 60°→76°: the merged B is refused by the old one at 0.3 m |
+| V1b the camera prim moves to P | **DONE** 23:55 `4316307` | one `UsdGeom.Camera` on the stage and it is P's; certificate green; LOS 5/5 on all three profiles |
+| V2 corner-arc yaw, offline | **DONE** 00:03 `ad662d9` | **the corner is innocent** (arc 1.02–1.10); the gate compared two windows |
+| — *handoff at 00:35: priorities reordered* | | lens first, then run duration |
+| L1 lens harness (stub + probe) | **DONE** 01:15 `8df179d` | headless chromium: screenshot **and** console. No MCP, nothing installed |
+| L2 the lens map | **DONE** 01:15 `8df179d` | `OX`/`OY`/`SC` undefined → the render loop died on frame one. **It had never rendered live** |
+| L3 stuck → diagnosed FAIL | **DONE** 01:38 `0412009` | wall-clock deadlines, log-watching bringup, INT/TERM exits. Negative control: diagnosed FAIL at +262 s |
+| L4 shorter runs | **DONE** 01:44 `9e1accb` | bring-up **144 s → 89 s (−38%)**, total 403 → 359 s |
+| L5 corrections owed | **DONE** 01:49 `501e8f7` | the false test count; two REAL orphans the preflight caught; 25 stray markers |
+| V3 acceptance re-runs | **DONE** 02:19 `d58266c` | **both gated profiles still RED**; yaw is a spread, not a bias |
+| V5 the camera session | **DONE** 02:46 `b98292d` | certificate **GREEN**, mutation **RED** on P's mast; a drive-speed literal had rotted at 0.30 scale |
+| V6 Replicator dataset | in progress 02:58 | smoke 20/20 rendered, label overlay verified by eye; bulk running |
+| V4 demo-candidate run | not started | deprioritised: the arrival gate is red, so a docked run cannot reach DELIVERED |
+| V7 training | pending V6 | |
 
-**Running 90 minutes ahead of plan at 00:05.** The three offline units cost
-40 minutes against a 180-minute budget, so V6 and V7 inherit the slack.
+**The 00:35 handoff reordered the night.** Two priorities came in: the lens no
+longer showed the SLAM map, and runs were long and hung silently. Both are
+closed — and the lens turned out never to have rendered live at all, which is
+recorded in [`docs/evidence/lens/NOTES.md`](../evidence/lens/NOTES.md). The
+five tooling units cost 95 minutes against a 3-hour budget.
 
 ## What this session inherits
 
