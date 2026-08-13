@@ -35,6 +35,7 @@ location; it must not silently replace the reviewed artifact.
 | Live crossing and isolation certificate (v2 T2.2/T2.3) | Certificate green, mutation red; producer 0.9995, crossing 0.954 at 640x360 | [Notes, crossing JSON, and certificate pair](crossing/NOTES.md) |
 | Robot-A corridor gate and degeneracy study (v2 T3.3) | **Both gated profiles FAILED; matcher blind for the first ~5 m** | [Notes, per-profile gate JSON, covariance traces](robot-a-gate/NOTES.md) |
 | P-camera placement candidates (Phase 3 opener) | **P cannot see the corridor from where P stands** — ADR 0019's screen blocks it; one wall pose covers 4/5 stations; the mast is unmeasured in 2-D | [Decision memo and per-candidate geometry](p_cam_candidates/NOTES.md) |
+| Lens render loop (debugging instrument) | **Had never rendered live**; one undefined identifier killed the loop after a single frame. Fixed, with a headless stub + probe so a regression is catchable in seconds | [Notes, before/after screenshots, probe verdicts](lens/NOTES.md) |
 | robot1 in the corridor + scale finding (2026-08-11) | **Scaling the corridor to the robot removes the degeneracy; Nav2 still aborts; twin misses its own scan contract in the stock arena too** | [Notes, gate JSON, stock-arena control](robot1-corridor/NOTES.md) |
 
 The static topic's pixel, calibration, rate, and station-error results remain

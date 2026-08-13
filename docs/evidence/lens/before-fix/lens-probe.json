@@ -1,0 +1,142 @@
+{
+  "url": "http://127.0.0.1:8766/",
+  "verdict": "RED",
+  "wire": {
+    "frames": 39,
+    "maps": [
+      {
+        "seq": 13,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 69
+      },
+      {
+        "seq": 14,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 71
+      },
+      {
+        "seq": 15,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 72
+      },
+      {
+        "seq": 16,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 74
+      },
+      {
+        "seq": 17,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 75
+      },
+      {
+        "seq": 18,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 75
+      },
+      {
+        "seq": 19,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 75
+      },
+      {
+        "seq": 20,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 75
+      }
+    ],
+    "errors": [
+      "TimeoutError: "
+    ],
+    "checks": [
+      {
+        "check": "snapshots arrive",
+        "pass": true,
+        "detail": "39 snapshot frames"
+      },
+      {
+        "check": "a map arrives",
+        "pass": true,
+        "detail": "8 map payloads"
+      },
+      {
+        "check": "map has extent",
+        "pass": true,
+        "detail": "300x260 @ 0.02 m"
+      },
+      {
+        "check": "RLE decodes to w*h",
+        "pass": true,
+        "detail": "78000 cells vs 78000 expected"
+      },
+      {
+        "check": "map seq advances",
+        "pass": true,
+        "detail": "seqs [13, 14, 15, 16, 17, 18]..."
+      }
+    ]
+  },
+  "glass": {
+    "console": [
+      {
+        "text": "Uncaught ReferenceError: OX is not defined",
+        "source": "",
+        "line": 246
+      }
+    ],
+    "uncaught": [
+      {
+        "text": "Uncaught ReferenceError: OX is not defined",
+        "source": "",
+        "line": 246
+      }
+    ],
+    "pixels": {
+      "distinct_colours": 1025,
+      "non_background_fraction": 0.4846
+    },
+    "checks": [
+      {
+        "check": "screenshot written",
+        "pass": true,
+        "detail": "out/evidence/lens/before-fix/lens.png"
+      },
+      {
+        "check": "no uncaught exceptions",
+        "pass": false,
+        "detail": "Uncaught ReferenceError: OX is not defined (:246)"
+      },
+      {
+        "check": "canvas is not blank",
+        "pass": true,
+        "detail": "48.460% non-background, 1025 distinct colours"
+      }
+    ],
+    "exit_status": 0
+  },
+  "screenshot": "out/evidence/lens/before-fix/lens.png"
+}

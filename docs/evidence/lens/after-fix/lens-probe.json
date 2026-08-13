@@ -1,0 +1,136 @@
+{
+  "url": "http://127.0.0.1:8766/",
+  "verdict": "GREEN",
+  "wire": {
+    "frames": 39,
+    "maps": [
+      {
+        "seq": 107,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 140
+      },
+      {
+        "seq": 108,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 140
+      },
+      {
+        "seq": 109,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 140
+      },
+      {
+        "seq": 110,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 140
+      },
+      {
+        "seq": 111,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 140
+      },
+      {
+        "seq": 112,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 140
+      },
+      {
+        "seq": 113,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 140
+      },
+      {
+        "seq": 114,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 140
+      },
+      {
+        "seq": 115,
+        "w": 300,
+        "h": 260,
+        "res": 0.02,
+        "rle_cells": 78000,
+        "rle_runs": 140
+      }
+    ],
+    "errors": [],
+    "checks": [
+      {
+        "check": "snapshots arrive",
+        "pass": true,
+        "detail": "39 snapshot frames"
+      },
+      {
+        "check": "a map arrives",
+        "pass": true,
+        "detail": "9 map payloads"
+      },
+      {
+        "check": "map has extent",
+        "pass": true,
+        "detail": "300x260 @ 0.02 m"
+      },
+      {
+        "check": "RLE decodes to w*h",
+        "pass": true,
+        "detail": "78000 cells vs 78000 expected"
+      },
+      {
+        "check": "map seq advances",
+        "pass": true,
+        "detail": "seqs [107, 108, 109, 110, 111, 112]..."
+      }
+    ]
+  },
+  "glass": {
+    "console": [],
+    "uncaught": [],
+    "pixels": {
+      "distinct_colours": 2443,
+      "non_background_fraction": 0.4325
+    },
+    "checks": [
+      {
+        "check": "screenshot written",
+        "pass": true,
+        "detail": "out/evidence/lens/after-fix/lens.png"
+      },
+      {
+        "check": "no render errors",
+        "pass": true,
+        "detail": "clean"
+      },
+      {
+        "check": "canvas is not blank",
+        "pass": true,
+        "detail": "43.250% non-background, 2443 distinct colours"
+      }
+    ],
+    "exit_status": 0
+  },
+  "screenshot": "out/evidence/lens/after-fix/lens.png"
+}

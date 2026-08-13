@@ -64,6 +64,12 @@
   </div>
 </main>
 <footer id="status">waiting for data…</footer>
+<!-- The landmark readout. It had no element for four days: the page only
+     ever did getElementById('landmark-line'), the `if (el)` guard
+     swallowed the miss, and the test asserted the STRING "landmark-line"
+     appeared in the page -- which it did, inside the lookup that found
+     nothing. -->
+<footer id="landmark-line">landmark detector: not armed</footer>
 <script>
 'use strict';
 // ---------------------------------------------------------------- state
@@ -202,7 +208,29 @@ function drawTrail(tr, color) {
   g.stroke(); g.globalAlpha = 1;
 }
 
+// THE RENDER LOOP MUST SURVIVE A BAD DRAW.
+//
+// `render()` re-arms itself on its own last line, so anything that throws
+// inside it stops the loop permanently -- the map, the scan and the pose
+// ghosts all freeze while the metric tiles, which are driven by
+// `ws.onmessage`, keep updating and look perfectly healthy. That is exactly
+// what a stray `OX` did here for four days: `map seq` climbed in the footer
+// above a canvas showing frame one.
+//
+// The re-arm is now unconditional and the failure is reported once, loudly,
+// where a console capture will find it.
+let renderFailures = 0;
 function render() {
+  try {
+    draw();
+  } catch (error) {
+    if (renderFailures === 0) console.error('lens render failed:', error);
+    renderFailures += 1;
+  }
+  requestAnimationFrame(render);
+}
+
+function draw() {
   const mainEl = document.querySelector('main');
   if (canvas.width !== mainEl.clientWidth || canvas.height !== mainEl.clientHeight) {
     canvas.width = mainEl.clientWidth; canvas.height = mainEl.clientHeight;
@@ -239,11 +267,14 @@ function render() {
     // far from it is a phantom, and that is visible at a glance in a way no
     // number was. Since ADR 0031 B is one cylinder, so the pink crosshair
     // below should land ON this ring rather than a metre off it.
+    // w2s(), like every other draw in this function. The first version of this
+    // block used OX/OY/SC, which are declared nowhere -- a ReferenceError on
+    // the first frame that killed the whole render loop for four days.
     if (st.truth_markers) {
       for (const key of ['b']) {
         const pt = st.truth_markers[key];
         if (!pt || pt[0]===null || pt[0]===undefined) continue;
-        const sx = OX + pt[0]*SC, sy = OY - pt[1]*SC;
+        const [sx, sy] = w2s(pt[0], pt[1]);
         g.strokeStyle = '#ffd166'; g.lineWidth = 2;
         g.beginPath(); g.arc(sx, sy, 7, 0, 6.283); g.stroke();
         g.fillStyle = '#ffd166'; g.font = '11px system-ui';
@@ -251,7 +282,7 @@ function render() {
       }
     }
     if (st.landmark && st.landmark.map_xy) {
-      const sx = OX + st.landmark.map_xy[0]*SC, sy = OY - st.landmark.map_xy[1]*SC;
+      const [sx, sy] = w2s(st.landmark.map_xy[0], st.landmark.map_xy[1]);
       g.strokeStyle = '#ff5d8f'; g.lineWidth = 2;
       g.beginPath(); g.arc(sx, sy, 9, 0, 6.283); g.stroke();
       g.beginPath(); g.moveTo(sx-12, sy); g.lineTo(sx+12, sy);
@@ -261,7 +292,6 @@ function render() {
     if (st.truth_ghost) drawPose(st.truth_ghost, getCSS('--truth'));
     if (st.pose) drawPose(st.pose, getCSS('--pose'));
   }
-  requestAnimationFrame(render);
 }
 const cssCache = {};
 function getCSS(name) {
