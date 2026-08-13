@@ -151,6 +151,72 @@ So the decoy is real but it is not deterministic, and it did not decide this
 run. Four of seven in replay, zero of one live. That is not a contradiction and
 neither number is a rate.
 
+## Five live runs: the rate, and the signature
+
+`tools/diagnostics/run_batch.sh 5 nominal_m6_n3`, sequential, robot1, domain
+67, all `--allow-contract-fail`. Summarised by
+`tools/diagnostics/batch_summary.py`, which attributes each dock by matching the
+detected range against the true distance to B and to the stub.
+
+| run | ref | closest | walked | docked on |
+|---|---|---|---|---|
+| 155926 | 0 | 0.2472 | 0.000 | B |
+| 161855 | 0 | 0.4482 | 0.000 | **stub** |
+| 162234 | 2 | 0.1147 | 0.072 | B |
+| 162737 | 3 | 0.1007 | 0.012 | B |
+| 163112 | 2 | **0.0354** | 0.008 | B |
+| 163617 | 0 | 0.6257 | 0.000 | **stub** |
+
+**The decoy takes 2 of the 5 post-fix runs — 40%.** The replay's 4 of 7 was not
+pessimistic; it was right, and the single good live run that preceded this batch
+was the outlier. One run is not a rate, which is what the batch exists to say.
+
+Two things are now clearly separate. **Arrival semantics are fixed**: the three
+runs that acquired B refined 2-3 times and closed to 0.1147, 0.1007 and
+0.0354 m, all staying put — three consecutive results meeting both halves of
+ADR 0033's proposed criterion. **Arming target is not fixed**: two runs parked
+0.45-0.63 m away at the wrong object, and 161855 proves the two faults are
+independent, since correct arrival semantics on the wrong object is still a bad
+delivery.
+
+### The signature separates perfectly
+
+Full docking histories, detected range at each event:
+
+    B    : refine@0.854 -> 0.712 -> DOCK@0.617
+           refine@0.907 -> 0.834 -> 0.745 -> DOCK@0.618
+           refine@0.906 -> 0.620 -> DOCK@0.613
+    stub : DOCK@0.353
+           DOCK@0.468
+
+**Every B acquisition begins outside the 0.620 m arrival band; every decoy
+acquisition begins inside it, and docks instantly with no refinement.** The gap
+between the two populations is 0.386 m with no overlap.
+
+The mechanism is geometric rather than statistical. A *drives past* the stub --
+lane centre x = 4.083 against a face at x = 4.565, so 0.48 m of lateral
+clearance -- and *approaches* B head-on, stopping short of it. Something you
+pass is first seen close; something you approach is first seen far.
+
+### Why the travel gate cannot help
+
+    route station abeam the stub : 6.575 m
+    route station at B           : 7.380 m
+    along-route separation       : 0.806 m
+    arming window                : 0.900 m   (1.12x the separation)
+
+Arming becomes legal 0.900 m before the delivery point, which is 0.094 m
+*before* A is level with the stub. The window is wider than the separation, so
+there is a band in which arming is permitted and the decoy is still ahead of A
+and inside the 100 deg forward cone -- and arming fires at the earliest legal
+moment by construction. The window comes from `ARM_WINDOW_ROUTE_FRACTION`,
+transferred from the authored scale (3.0 m of a 19.166 m route); nothing in it
+ever accounted for scene features.
+
+This also explains why every guard added so far failed. They all govern
+*whether* a detection is believable, and the stub genuinely is. None of them
+govern *when* the question is first asked.
+
 ## What this means
 
 - **Docking cannot be closed by tightening the detector's thresholds.** Every
