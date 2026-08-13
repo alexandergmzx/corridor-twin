@@ -310,15 +310,40 @@ def main() -> int:
     goal.pose.pose.orientation.w = 1.0
 
     print(f"goal ({goal_x:.3f}, {goal_y:.3f}) [map] for {arguments.profile}")
-    send = gate.client.send_goal_async(goal)
-    # 45 s, not 20. bt_navigator accepts the goal but its response can miss a
-    # client that asked too early: "Failed to send goal response (timeout):
-    # client will not receive response" [measured 2026-08-11], which this gate
-    # then reported as "goal not accepted" -- a nav failure that never happened.
-    rclpy.spin_until_future_complete(gate, send, timeout_sec=45.0)
-    handle = send.result()
+
+    # SEND IT MORE THAN ONCE. bt_navigator reports ACTIVE to the runner's
+    # lifecycle poll, the hold-check sees no abort, and the goal arriving
+    # moments later is still answered "Action server is inactive. Rejecting the
+    # goal." Three runs died that way on 2026-08-12 -- the robot was never given
+    # an instruction and never moved -- and each was a whole Isaac session spent
+    # to discover that the stack needed another few seconds.
+    #
+    # The 45 s wait below is a different failure and stays: bt_navigator can
+    # ACCEPT the goal and have its response miss a client that asked too early
+    # ("Failed to send goal response (timeout)"), which this gate then reported
+    # as "goal not accepted" -- a nav failure that never happened.
+    #
+    # Bounded at three. A stack that has not activated in three tries thirty
+    # seconds apart is not activating, and that is infrastructure for the runner
+    # to classify rather than something to keep asking about.
+    handle = None
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        send = gate.client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(gate, send, timeout_sec=45.0)
+        handle = send.result()
+        if handle is not None and handle.accepted:
+            report["goal_send_attempts"] = attempt
+            break
+        if attempt < attempts:
+            print(f"  goal not accepted on attempt {attempt}/{attempts}; the "
+                  f"stack may still be activating -- waiting 10 s and asking again")
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline:
+                rclpy.spin_once(gate, timeout_sec=0.1)
     if handle is None or not handle.accepted:
         report["failure"] = "goal not accepted"
+        report["goal_send_attempts"] = attempts
         return finish(1)
     report["goal_accepted"] = True
 
