@@ -443,7 +443,12 @@ record_exit() {
   classify crash "run ended without a verdict (exit $1)"
   manifest --set "exit_status=$1" --set "teardown_verified=${teardown_verified:-0}"
 }
-on_exit() { local code=$?; teardown || true; record_exit "$code"; }
+# Removed on EVERY exit, not only on the map-scoring path it was created for.
+# Twenty-five of these were sitting in /tmp on 2026-08-13, one per run that
+# ended any other way. Defined before its caller and tolerant of an exit that
+# happens before the marker is even created.
+cleanup_marker() { [ -n "${SESSION_MARKER:-}" ] && rm -f "$SESSION_MARKER" 2>/dev/null; return 0; }
+on_exit() { local code=$?; teardown || true; record_exit "$code"; cleanup_marker; }
 
 # WHERE THE RUN IS, WRITTEN DOWN AS IT GOES.
 #

@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parent.parent
 RUNNER = ROOT / "tools/corridor_profile_run.sh"
 
@@ -113,6 +115,36 @@ def _residents_function() -> str:
     return source[start:end]
 
 
+def _a_corridor_run_is_in_flight() -> bool:
+    """Is `corridor_profile_run.sh` executing on this machine right now?
+
+    The two tests below read live host state, which is the whole point of them:
+    they caught two real orphaned nav2 nodes on 2026-08-13, still alive on
+    domain 67 an hour after a hand-killed run. That value is kept.
+
+    What is NOT kept is failing the suite merely because a run is legitimately
+    in progress. The nav stack is *supposed* to be up then, and the runner's
+    own preflight has already checked the host; blocking the suite for the
+    duration of every run is what stopped code being tested while a run
+    executed. So: a live runner means SKIP, and nav2 nodes with no runner still
+    means FAIL, because that is an orphan.
+    """
+
+    found = subprocess.run(
+        ["pgrep", "-f", "corridor_profile_run.sh"],
+        capture_output=True, text=True, timeout=30, check=False,
+    ).stdout.strip()
+    # pgrep -f also matches the shell that invoked pytest if the command line
+    # mentions the runner, so require a line that is the script itself.
+    return any(
+        "corridor_profile_run.sh --profile" in line or line.endswith("corridor_profile_run.sh")
+        for line in subprocess.run(
+            ["ps", "-eo", "args="], capture_output=True, text=True,
+            timeout=30, check=False,
+        ).stdout.splitlines()
+    ) and bool(found)
+
+
 def test_the_preflight_sees_an_orphan_and_ignores_a_namespaced_stack() -> None:
     """Run, with decoys. A detector nobody has watched fire is not a detector.
 
@@ -126,6 +158,9 @@ def test_the_preflight_sees_an_orphan_and_ignores_a_namespaced_stack() -> None:
     and somebody else's business; refusing on it would block the corridor on a
     fleet session that cannot collide with it.
     """
+
+    if _a_corridor_run_is_in_flight():
+        pytest.skip("a corridor run is in flight; its nav2 nodes are not orphans")
 
     orphan = (
         "/opt/ros/jazzy/lib/nav2_behaviors/behavior_server "
@@ -155,9 +190,15 @@ def test_the_preflight_sees_an_orphan_and_ignores_a_namespaced_stack() -> None:
 def test_the_preflight_is_quiet_when_nothing_is_running() -> None:
     """The other half of the control: it must not refuse every run.
 
-    Asserted against this machine as the tests run -- if a corridor stack is up
-    while the suite runs, this fails, and that is the correct answer.
+    Asserted against this machine as the tests run. An un-namespaced nav2 node
+    with no run behind it is an ORPHAN -- exactly the two this found on
+    2026-08-13, alive an hour after a hand-killed run -- and that is a failure.
+    A run legitimately in flight is not, and skips.
     """
+
+    if _a_corridor_run_is_in_flight():
+        pytest.skip("a corridor run is in flight; its nav2 nodes are not orphans")
+
 
     found = subprocess.run(
         ["bash", "-c", f"{_residents_function()}\nresidents\n"],
