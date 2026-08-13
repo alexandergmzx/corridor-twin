@@ -565,7 +565,10 @@ if [ -n "$SLAM_PARAMS" ]; then
       sleep 5
       sstate=$(ros2 lifecycle get /slam_toolbox 2>/dev/null | head -1) || true
       case "$sstate" in
-        *active*) slam_ready=1; echo "  slam_toolbox active (attempt $slam_attempt)"; break ;;
+        # `active*`, NOT `*active*`: the second matches "inactive [2]" as well,
+        # and lifecycle_manager reports exactly that while a node is still
+        # configuring. See the bt_navigator poll below for what it cost.
+        active*) slam_ready=1; echo "  slam_toolbox active (attempt $slam_attempt)"; break ;;
       esac
     done
     if [ "$slam_ready" != 1 ]; then
@@ -640,7 +643,18 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
     # whole of the nondeterminism this loop was blamed for.
     state=$(ros2 lifecycle get /bt_navigator 2>/dev/null | head -1) || true
     case "$state" in
-      *active*)
+      # `active*`, NOT `*active*`. THE SECOND MATCHES "inactive".
+      #
+      # `ros2 lifecycle get` prints "active [3]", "inactive [2]",
+      # "unconfigured [1]". The old glob matched the middle one, so every time
+      # bt_navigator was still configuring this loop declared it ready, the goal
+      # went out, and bt_navigator answered "Action server is inactive.
+      # Rejecting the goal." Four of 2026-08-12's runs died exactly that way and
+      # were read as a flaky bringup race; the stack was telling the truth and
+      # the runner was mis-reading it. Measured on run 20260812-222023, whose
+      # launch log shows "Configuring bt_navigator" and no activation at all,
+      # while this poll reported ready on its first attempt.
+      active*)
         # ACTIVE IS NOT ENOUGH ON ITS OWN. bt_navigator reaches active during
         # the transition and the lifecycle manager can still abort the bringup
         # a moment later -- "Failed to change state for node: bt_navigator.

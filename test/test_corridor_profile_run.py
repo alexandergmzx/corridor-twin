@@ -295,3 +295,41 @@ def test_goal_not_accepted_is_decided_by_whether_the_robot_moved() -> None:
     assert source.index("=== transit recorder verdict ===") < source.index(
         "acceptance response lost"
     )
+
+
+def test_the_lifecycle_poll_does_not_match_inactive() -> None:
+    """`*active*` matches "inactive", and that cost four runs on 2026-08-12.
+
+    `ros2 lifecycle get` prints "active [3]", "inactive [2]", "unconfigured [1]".
+    Both lifecycle polls in this runner used `*active*`, so a node that was
+    still configuring was declared ready, the goal went out, and bt_navigator
+    answered "Action server is inactive. Rejecting the goal." It read as a flaky
+    bringup race for a whole session. The stack was telling the truth; the
+    runner was mis-reading it.
+    """
+
+    source = RUNNER.read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "*active*" not in code, "the lifecycle poll matches 'inactive' again"
+    assert code.count("active*)") >= 2, "both polls must test the state's PREFIX"
+
+
+def test_the_lifecycle_glob_is_checked_against_real_states() -> None:
+    """The four states this poll can actually see, run through the glob."""
+
+    script = (
+        'for s in "active [3]" "inactive [2]" "unconfigured [1]" "activating [6]"; do\n'
+        '  case "$s" in active*) echo "$s|yes";; *) echo "$s|no";; esac\n'
+        "done\n"
+    )
+    out = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, timeout=30
+    ).stdout.strip().splitlines()
+    verdict = dict(line.split("|") for line in out)
+
+    assert verdict["active [3]"] == "yes"
+    assert verdict["inactive [2]"] == "no", "this is the bug that cost four runs"
+    assert verdict["unconfigured [1]"] == "no"
+    assert verdict["activating [6]"] == "no"
