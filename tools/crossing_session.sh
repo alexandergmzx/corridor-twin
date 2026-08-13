@@ -24,11 +24,28 @@ STAGE="$REPO/out/corridor.usda"
 SECONDS_CAPTURE=60
 RATE_HZ=15
 UPDATES=15000
-# 1.0 m/s finishes the authored route in ~24 s, which is shorter than the
-# capture window and made the first run score 0.37 of nominal on a bridge that
-# was in fact carrying 95.7% of everything published. Slower drive, longer
-# source, honest ratio.
-DRIVE_SPEED=0.35
+# THE DRIVE MUST OUTLIVE THE WHOLE SESSION, and a literal speed cannot promise
+# that across a rescale.
+#
+# The adapter stops when A reaches the end of the route
+# (isaac_5_1_ros_camera.py:366), so the drive speed decides how long the
+# producer lives. 1.0 m/s finished the authored route in ~24 s, shorter than
+# the capture window, and made the first run score 0.37 of nominal on a bridge
+# carrying 95.7% of everything published. 0.35 fixed that -- for the authored
+# 24.601 m route.
+#
+# ADR 0031's session then scaled the scenario to 0.30 and the route became
+# 7.38 m, so 0.35 m/s ran out after 21 s: the producer was dead before the
+# isolation certificate ran, /clock delivered ZERO messages into P's plane, and
+# the certificate went RED on `clock_advancing` while its actual isolation
+# claim -- observed graph equals the declared allowlist EXACTLY -- passed.
+# Measured, 20260813 label 640x360-pmast: updates_completed 1267 against a
+# 15000 cap.
+#
+# So it is derived, from the route the manifest actually carries and the time
+# this session actually needs: the capture, the truth-source setup, the
+# certificate, and the mutation control after it. Empty means "derive".
+DRIVE_SPEED=""
 CERTIFICATE=yes
 CAMERA_RES=""
 ISAAC_PYTHON="${ISAAC_PYTHON:-$HOME/isaac/env_isaaclab/bin/python}"
@@ -48,6 +65,29 @@ while [ $# -gt 0 ]; do
 done
 case "$STAGE" in /*) ;; *) STAGE="$REPO/$STAGE" ;; esac
 MANIFEST="${STAGE%.usda}.manifest.json"
+
+# Derive the drive speed once the manifest is known. A's speed is irrelevant to
+# a transport measurement -- what matters is that it is still publishing when
+# every gate downstream of the capture runs.
+if [ -z "$DRIVE_SPEED" ]; then
+  DRIVE_SPEED=$(python3 - "$MANIFEST" "$SECONDS_CAPTURE" <<'PYEOF'
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+capture = float(sys.argv[2])
+entry = manifest["profiles"][manifest["selected_profile"]]["delivery_trajectory"]
+route = (entry["approach_length_m"]
+         + entry["arc_radius_m"] * entry["arc_sweep_rad"]
+         + entry["departure_length_m"]
+         + entry["delivery_arc_radius_m"] * entry["delivery_arc_sweep_rad"]
+         + entry["delivery_length_m"])
+# Bring-up, the capture, then the certificate and its mutation control. 150 s
+# of headroom past the capture is what the 20260813 session measured itself
+# needing between the adapter starting and the mutation control finishing.
+print(f"{route / (capture + 150.0):.4f}")
+PYEOF
+)
+  echo "  drive speed derived: $DRIVE_SPEED m/s (route / (capture + 150 s), so the producer outlives every gate)"
+fi
 EVIDENCE="$REPO/out/evidence/crossing"
 mkdir -p "$EVIDENCE"
 
