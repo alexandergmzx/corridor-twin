@@ -30,9 +30,9 @@ docs, commits and evidence. Corrected in V0 where it was tracked.
 | L5 corrections owed | **DONE** 01:49 `501e8f7` | the false test count; two REAL orphans the preflight caught; 25 stray markers |
 | V3 acceptance re-runs | **DONE** 02:19 `d58266c` | **both gated profiles still RED**; yaw is a spread, not a bias |
 | V5 the camera session | **DONE** 02:46 `b98292d` | certificate **GREEN**, mutation **RED** on P's mast; a drive-speed literal had rotted at 0.30 scale |
-| V6 Replicator dataset | in progress 02:58 | smoke 20/20 rendered, label overlay verified by eye; bulk running |
-| V4 demo-candidate run | not started | deprioritised: the arrival gate is red, so a docked run cannot reach DELIVERED |
-| V7 training | pending V6 | |
+| V6 Replicator dataset | **DONE** 03:35 `09d3beb` | 3000 paired frames, 20 overlays inspected first, 0.44 s/frame |
+| V4 demo-candidate run | **DONE, informative** 04:18 `9a388fe` | every ADR 0031 derivation fired live; **docking never armed** — 2812 map-frame rejections |
+| V7 RT-DETR fine-tune | **DONE** 03:59 `09d3beb` | **0.9927 detection at IoU 0.5**, both resolutions; resolution deliberately not pinned |
 
 **The 00:35 handoff reordered the night.** Two priorities came in: the lens no
 longer showed the SLAM map, and runs were long and hung silently. Both are
@@ -243,4 +243,114 @@ pushed.**
 
 ## Handback
 
-*(written at session close)*
+**Session 23:23 → 04:20, 17 commits on `phase3-launch-2026-08-12`, nothing
+pushed.** Machine left clean: no ROS or kit processes, GPU at 552 MiB idle,
+Isaac lock free, 116 G disk. `bash tools/check_workspace.sh` green at close —
+ruff clean, **438 passed / 1 skipped**, colcon 141 tests, 0 failures. Working
+tree clean except the untracked `corridor-v2-adr-pack.md`, still not mine.
+
+### The two priorities from the 00:35 handoff
+
+**1. The lens.** Fixed, and it turned out never to have worked. `OX`, `OY` and
+`SC` at `corridor_lens.html:246` are declared nowhere; reading them threw
+inside `render()` before its `requestAnimationFrame` re-arm, so the loop died
+after one frame while the metric tiles — driven by a different path — kept
+updating and looked healthy. `map seq 21` above a canvas showing frame one.
+
+It is now watchable in **seconds without a robot**: `lens_stub.py` serves the
+real page against a synthetic growing map, and `lens_probe.py` checks the wire
+*and* the glass with headless chromium — screenshot plus browser console. No
+MCP server, nothing installed. The negative control caught my own error inside
+four minutes: hardening `render()` with try/catch turned the fatal `Uncaught`
+into a caught `console.error` and the probe went green on a page throwing every
+frame. Both ends of that marker string are now pinned by a test.
+
+**It paid for itself the same night.** The first live look at a corridor run
+drew ADR 0029's map divergence: the corridor mapped twice at an angle to
+itself, scan-to-map fit collapsed to 0.01, B's marker outside the map. Seven
+seconds to capture.
+
+**2. Runs.** Bring-up **144 s → 89 s (−38%)**, total 403 → 359 s. And a stuck
+run is now a diagnosed FAIL: wall-clock deadlines instead of iteration counts,
+bring-up read from the launch log rather than a daemon-backed CLI that blocked
+13 s and returned nothing, `Aborting bringup` checked every iteration, and
+INT/TERM that **exit** — Ctrl-C could not stop a run before, which is why the
+02:22 run had to be SIGKILLed, and SIGKILL is how a run ends with no verdict.
+Proven by a negative control: sabotaged nav params produced a classified,
+log-quoting FAIL at +262 s instead of a hang.
+
+The transit did **not** get shorter, and cannot: Nav2 returns no result, so
+there is no arrival event to end on. Recorded rather than credited.
+
+### The scoreboard against the 2026-08-04 interview corrections
+
+**Correction 1 — domain isolation: DONE, re-verified on the new topology.**
+Certificate GREEN with mutation RED with the camera on P's mast; observed graph
+equals the declared allowlist exactly. Producer 0.9984. The crossing image
+ratio, though, sits **on** its 0.95 floor and moves: 0.954, 0.9745, 0.9265
+across three runs of one configuration. Reported, not tuned.
+
+**Correction 2 — autonomous navigation: works, gate still RED, and the reds are
+better understood.**
+
+| profile | yaw scale | duplicate wall | verdict |
+|---|---|---|---|
+| `nominal_m6_n3` | 0.9454 ✅ | 0.340 m ❌ | FAIL |
+| `wide_corner_m6_n4_5` | 1.3011 ❌ | 0.540 m ❌ | FAIL |
+
+Duplicate wall improved on both (0.72 → 0.34, 0.78 → 0.54). **The corner is
+innocent** — measured on the bags, the EKF tracks truth around the arc to
+1.02–1.10 on all three profiles. The gate had been comparing two different time
+windows; clipped to a shared span, `wide_corner`'s 1.108 became 1.0013. What
+remains is a **run-to-run spread**, not a fixed bias, and it is fleet-side.
+
+**Correction 3 — active AI/ML: STARTED, and it works.** 3000 paired Replicator
+frames from P's mast, RT-DETR (Apache-2.0) at **0.9927 detection** on held-out
+synthetic, 1.000 / 0.992 / 0.986 per profile.
+
+### The exact first commands to resume
+
+```bash
+# The lens, without a robot (seconds, no GPU):
+python3 tools/lens/lens_stub.py --port 8766 &
+python3 tools/lens/lens_probe.py --url http://127.0.0.1:8766/ --out out/evidence/lens/check
+
+# The lens against a live run:
+python3 tools/lens/lens_probe.py --url http://127.0.0.1:8765/ --out out/evidence/lens/live
+
+# Resume training (no Isaac lock needed; weights are cached):
+~/isaac/env_isaaclab/bin/python tools/train_p_cam_detector.py \
+  --dataset out/datasets/p_cam_v1 --resolution hi --epochs 20 \
+  --out out/evidence/detector/rtdetr-hi-long
+
+# The offline EKF A/B, never started (V2 parked it):
+ls ~/Development/MicroROS/MicroROS-assets/maps/near-wall-20260810/ekf-numerics/
+```
+
+### Morning decisions
+
+1. **The docking deadlock.** Laser-only arming admits a phantom; map-frame
+   containment blocks the real thing exactly when the map is bad, which is what
+   docking is for. 2812 rejections on that test tonight while the laser was
+   measuring B correctly at 0.576 m. Choose which risk to carry, or find a
+   third discriminator.
+2. **The P-camera resolution.** Detection rate is 0.9927 at *both*, so it
+   cannot decide. Localisation says 720p is 1.9× better as an angle — 2.3 mm
+   against 4.3 mm at 5 m, both far inside what a 0.6 m station spacing needs.
+   On this evidence 640×360 looks sufficient, which contradicts ADR 0024
+   decision 5's expectation. **Not pinned**: speed error is the number that
+   should decide, and the estimator does not exist.
+3. **Whether the ratified mast wants visible scenery.** Only a camera prim is
+   authored; the certificate is untouched and the choice is reversible.
+4. **B's proportions** — 0.24 m across, 0.51 m tall. The sensor's radius beat
+   the person's silhouette. Judge it on a lens capture.
+5. **The nav gate's serial timeouts.** `--timeout 200` does not bound it to
+   200 s; the docked run finished 4 s inside a 600 s cap.
+6. **The EKF output gap is worsening** — 0.242 s, 0.727 s, 1.028 s across three
+   nominal runs. Named, not explained.
+7. **`corridor-v2-adr-pack.md`** — untracked, carries the task author's name,
+   still not mine to dispose of.
+8. **Commit `7ee4b29`'s subject** carries that name too; fixing it means
+   rewriting history.
+9. **ADR 0024 decision 2** says the detector-family pin lands as its own
+   record. Tonight produced the spike evidence; the record is yours.
