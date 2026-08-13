@@ -221,6 +221,25 @@ def yaw_scale(
     Reported as unavailable rather than as a pass when the robot barely turned:
     a ratio of two small numbers is noise, and a transit that never turned says
     nothing about a yaw scale error either way.
+
+    **BOTH SIDES ARE CLIPPED TO THE SPAN THEY SHARE, and that is not a detail.**
+    The two series arrive on two independent subscriptions that neither start
+    nor stop together, and this function used to sum each over its own full
+    extent -- so the numerator and the denominator could describe different
+    intervals of the same run. Measured offline against the session bags on
+    2026-08-12 (`tools/corridor_yaw_stage_audit.py`):
+
+    * `wide_corner_m6_n4_5` reported **1.1081**. Its `estimated_deg` of -75.95
+      reproduces the bag's whole-bag EKF rotation EXACTLY, while its
+      `truth_deg` of -68.54 matches the bag's TRANSIT-only truth. Two windows,
+      one ratio. Clipped to a common span the same run reads **1.0013**.
+    * `nominal_m6_n3` reported 1.1663 against a bag figure of 1.1725 over the
+      whole bag and 1.1616 over the transit -- there the windows happened to
+      agree, and the red is real.
+
+    A gate whose value depends on which subscription happened to be listening
+    is not measuring the robot. This does not make the yaw gate pass; it makes
+    it mean something.
     """
 
     def turned(track: list[tuple]) -> float:
@@ -231,18 +250,34 @@ def yaw_scale(
 
     if len(truth) < 2 or len(estimate) < 2:
         return {"available": False, "reason": "no truth or estimate track"}
-    truth_turned = turned(truth)
+
+    low = max(truth[0][0], estimate[0][0])
+    high = min(truth[-1][0], estimate[-1][0])
+    if high <= low:
+        return {"available": False, "reason": "truth and estimate never overlapped"}
+    truth_window = [row for row in truth if low <= row[0] <= high]
+    estimate_window = [row for row in estimate if low <= row[0] <= high]
+    if len(truth_window) < 2 or len(estimate_window) < 2:
+        return {"available": False, "reason": "too few samples in the shared span"}
+
+    truth_turned = turned(truth_window)
     if abs(truth_turned) < math.radians(45.0):
         return {
             "available": False,
             "reason": f"the robot turned only {math.degrees(truth_turned):.1f} deg",
         }
-    estimated = turned(estimate)
+    estimated = turned(estimate_window)
     return {
         "available": True,
         "truth_deg": round(math.degrees(truth_turned), 2),
         "estimated_deg": round(math.degrees(estimated), 2),
         "ratio": round(estimated / truth_turned, 4),
+        # The window is part of the measurement, so it is reported with it.
+        "window_s": round(high - low, 3),
+        "truth_samples": len(truth_window),
+        "estimate_samples": len(estimate_window),
+        "truth_dropped_outside_window": len(truth) - len(truth_window),
+        "estimate_dropped_outside_window": len(estimate) - len(estimate_window),
     }
 
 
