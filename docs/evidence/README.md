@@ -36,6 +36,7 @@ location; it must not silently replace the reviewed artifact.
 | Robot-A corridor gate and degeneracy study (v2 T3.3) | **Both gated profiles FAILED; matcher blind for the first ~5 m** | [Notes, per-profile gate JSON, covariance traces](robot-a-gate/NOTES.md) |
 | P-camera placement candidates (Phase 3 opener) | **P cannot see the corridor from where P stands** — ADR 0019's screen blocks it; one wall pose covers 4/5 stations; the mast is unmeasured in 2-D | [Decision memo and per-candidate geometry](p_cam_candidates/NOTES.md) |
 | Lens render loop (debugging instrument) | **Had never rendered live**; one undefined identifier killed the loop after a single frame. Fixed, with a headless stub + probe so a regression is catchable in seconds | [Notes, before/after screenshots, probe verdicts](lens/NOTES.md) |
+| Learned enforcement detector (Phase 3, ADR 0024) | **Correction 3 has a first result**: 3000 paired Replicator frames from P's mast, RT-DETR at **99.3%** detection on held-out synthetic. Resolution deliberately **not pinned** — detection rate cannot discriminate 640×360 from 1280×720 | [Notes, dataset summary, training curves, label overlays](detector/NOTES.md) |
 | robot1 in the corridor + scale finding (2026-08-11) | **Scaling the corridor to the robot removes the degeneracy; Nav2 still aborts; twin misses its own scan contract in the stock arena too** | [Notes, gate JSON, stock-arena control](robot1-corridor/NOTES.md) |
 
 The static topic's pixel, calibration, rate, and station-error results remain

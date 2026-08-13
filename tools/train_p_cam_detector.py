@@ -158,9 +158,19 @@ def main() -> int:
                 for box in frame["boxes"]
             ]
             annotations.append({"image_id": position, "annotations": objects})
-        return processor(
+        encoded = processor(
             images=images, annotations=annotations, return_tensors="pt"
-        ).to(device)
+        )
+        # `BatchEncoding.to()` moves pixel_values but NOT the per-image label
+        # dicts, which are a plain list. RT-DETR indexes an embedding with them,
+        # so leaving them on the CPU raises "found at least two devices".
+        return {
+            "pixel_values": encoded["pixel_values"].to(device),
+            "labels": [
+                {key: value.to(device) for key, value in item.items()}
+                for item in encoded["labels"]
+            ],
+        }
 
     history = []
     started = time.time()

@@ -1,0 +1,32 @@
+{
+  "spec": "docs/DATASET-SPEC.md",
+  "camera_prim": "/World/Actors/PCameraMast/PCam",
+  "resolutions": {
+    "lo": [
+      640,
+      360
+    ],
+    "hi": [
+      1280,
+      720
+    ]
+  },
+  "seed": 20260813,
+  "frames": 3000,
+  "by_profile": {
+    "nominal_m6_n3": 1000,
+    "wide_corner_m6_n4_5": 1000,
+    "uniform_m6_n6": 1000
+  },
+  "splits": {
+    "train": 2381,
+    "val": 619
+  },
+  "a_boxed_in_both": 1993,
+  "range_m": [
+    1.196,
+    5.329
+  ],
+  "dataset_json_sha256": "334479be1a6ff4e42c98ee70f969a23af95f365207b249af7c529f1589e2bebe",
+  "note": "per-file sha256 for all 6000 images lives in dataset.json itself; this is the summary promoted as evidence"
+}
