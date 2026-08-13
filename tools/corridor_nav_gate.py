@@ -119,6 +119,50 @@ def delivery_standoff_world(
     return (float(b_x) + direction * standoff_m, float(b_y))
 
 
+def delivery_facing_world(
+    manifest: dict, standoff_m: float = DELIVERY_STANDOFF_M
+) -> float:
+    """Which way A should be pointing when it delivers: at B.
+
+    Derived from the same two manifest facts as the standoff itself -- B's
+    position and the street centreline -- and deliberately NOT from the
+    authored route's final heading, which numerically agrees (the standoff sits
+    on B's approach ray, so it must) but is the "authored line and waypoints"
+    ADR 0022:15-17 keeps out of A's navigation. The agreement is asserted in
+    the tests as a property; it is not the derivation.
+    """
+
+    b_x, b_y, _b_z = manifest["actors"]["b_xyz_m"]
+    stand_x, stand_y = delivery_standoff_world(manifest, standoff_m)
+    return math.atan2(float(b_y) - stand_y, float(b_x) - stand_x)
+
+
+def goal_yaw_in_map_frame(
+    manifest: dict, profile: str, standoff_m: float = DELIVERY_STANDOFF_M
+) -> float:
+    """`delivery_facing_world` expressed in the map frame, for one profile.
+
+    The map frame is anchored on A's spawn pose, so a map yaw of zero means
+    "A's spawn heading" -- which is +7.13 deg of world on `nominal_m6_n3` and
+    +3.58 on `wide_corner_m6_n4_5`. The identity quaternion this replaced was
+    therefore not a neutral default; it was an instruction to finish on the
+    heading A started on, which is only correct on `uniform_m6_n6` by accident.
+
+    What this does NOT fix: A arrives mid-turn, 51-79 deg from any sensible
+    delivery heading, and with a 1.3 m map-frame position error it never gets
+    to rotate. Measured, the correction moves the yaw error from 58.5-85.7 deg
+    to 51.4-78.6 against a 34.4 deg tolerance -- still failing. See
+    docs/evidence/robot-a-gate/NOTES-why-A-overshoots-B-20260813.md. This is a
+    correctness fix, not the fix for the delivery.
+    """
+
+    entry = manifest["profiles"][profile]
+    heading_x, heading_y = entry["delivery_trajectory"]["approach_heading"]
+    spawn_yaw = math.atan2(float(heading_y), float(heading_x))
+    delta = delivery_facing_world(manifest, standoff_m) - spawn_yaw
+    return math.atan2(math.sin(delta), math.cos(delta))
+
+
 def goal_in_map_frame(manifest: dict, profile: str) -> tuple[float, float]:
     """The delivery standoff expressed in the map frame, for one profile.
 
@@ -253,6 +297,7 @@ def main() -> int:
 
     manifest = json.loads(Path(arguments.manifest).read_text(encoding="utf-8"))
     goal_x, goal_y = goal_in_map_frame(manifest, arguments.profile)
+    goal_yaw = goal_yaw_in_map_frame(manifest, arguments.profile)
 
     rclpy.init()
     gate = NavGate(ROBOT_TARGETS[arguments.robot])
@@ -262,6 +307,7 @@ def main() -> int:
         "caveat": arguments.caveat,
         "gated": arguments.gated,
         "goal_map_frame": [round(goal_x, 4), round(goal_y, 4)],
+        "goal_map_yaw_deg": round(math.degrees(goal_yaw), 4),
         "tolerance_m": GOAL_TOLERANCE_M,
     }
 
@@ -298,9 +344,16 @@ def main() -> int:
     goal.pose.header.frame_id = "map"
     goal.pose.pose.position.x = goal_x
     goal.pose.pose.position.y = goal_y
-    goal.pose.pose.orientation.w = 1.0
+    # Facing B, not facing A's spawn heading. `orientation.w = 1.0` is map yaw
+    # zero, which the map frame defines as the spawn heading -- an accidental
+    # instruction, wrong by 7.13 deg on nominal and 3.58 on wide_corner.
+    goal.pose.pose.orientation.z = math.sin(goal_yaw / 2.0)
+    goal.pose.pose.orientation.w = math.cos(goal_yaw / 2.0)
 
-    print(f"goal ({goal_x:.3f}, {goal_y:.3f}) [map] for {arguments.profile}")
+    print(
+        f"goal ({goal_x:.3f}, {goal_y:.3f}) yaw {math.degrees(goal_yaw):+.2f} deg "
+        f"[map] for {arguments.profile}"
+    )
 
     # SEND IT MORE THAN ONCE. bt_navigator reports ACTIVE to the runner's
     # lifecycle poll, the hold-check sees no abort, and the goal arriving

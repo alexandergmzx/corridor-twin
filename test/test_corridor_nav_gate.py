@@ -30,7 +30,9 @@ import corridor_nav_gate as nav_gate  # noqa: E402
 from corridor_nav_gate import (  # noqa: E402
     DELIVERY_STANDOFF_M,
     GOAL_TOLERANCE_M,
+    delivery_facing_world,
     goal_in_map_frame,
+    goal_yaw_in_map_frame,
 )
 
 
@@ -102,6 +104,81 @@ def test_the_real_corridor_headings_give_materially_different_goals() -> None:
     uniform = goal_in_map_frame(_manifest((0.0, 0.0, 0.0), (1.0, 0.0), b), "p")
 
     assert math.dist(nominal, uniform) > 2.0
+
+
+def test_the_goal_yaw_faces_b_and_is_never_the_identity_by_default() -> None:
+    """`orientation.w = 1.0` was an instruction, not a neutral default.
+
+    The map frame is anchored on A's spawn POSE, so map yaw zero means "finish
+    on the heading you started on". On a profile that spawns at +7.13 deg of
+    world that is simply a wrong instruction, and it was never chosen -- it was
+    the quaternion's zero value left in place.
+    """
+
+    # Spawned facing +x, B due +x: facing B IS the spawn heading, so zero here
+    # is correct rather than accidental.
+    assert goal_yaw_in_map_frame(_manifest((0.0, 0.0, 0.0), (1.0, 0.0)), "p") == (
+        pytest.approx(0.0)
+    )
+
+    # Spawned 90 deg off. The goal yaw must undo it, or A finishes broadside.
+    rotated = goal_yaw_in_map_frame(_manifest((0.0, 0.0, 0.0), (0.0, 1.0)), "p")
+    assert rotated == pytest.approx(-math.pi / 2)
+
+
+def test_the_goal_yaw_points_from_the_standoff_at_b() -> None:
+    """The two are one derivation: stand off B, then look back at it."""
+
+    manifest = _manifest((0.0, 0.0, 0.0), (1.0, 0.0), b_xyz=(10.0, 4.0, 0.0))
+    stand_x, stand_y = nav_gate.delivery_standoff_world(manifest)
+    facing = delivery_facing_world(manifest)
+
+    assert facing == pytest.approx(math.atan2(4.0 - stand_y, 10.0 - stand_x))
+    # Walking DELIVERY_STANDOFF_M along the facing direction lands on B.
+    assert (
+        stand_x + DELIVERY_STANDOFF_M * math.cos(facing),
+        stand_y + DELIVERY_STANDOFF_M * math.sin(facing),
+    ) == pytest.approx((10.0, 4.0))
+
+
+def test_the_facing_is_not_read_from_the_authored_route() -> None:
+    """ADR 0022:15-17 keeps the authored line out of A's navigation.
+
+    The route's final heading numerically AGREES -- the standoff sits on B's
+    approach ray, so it must -- and that agreement is the trap: it makes the
+    forbidden source look like a valid derivation. Pinned by removing the
+    trajectory entirely and requiring the facing to survive.
+    """
+
+    manifest = _manifest((0.0, 0.0, 0.0), (1.0, 0.0), b_xyz=(10.0, 4.0, 0.0))
+    del manifest["profiles"]["p"]["delivery_trajectory"]
+
+    assert delivery_facing_world(manifest) == pytest.approx(0.0)
+
+
+def test_the_goal_yaw_is_not_what_closes_the_delivery() -> None:
+    """Kept honest on purpose: this fix does not fix the run.
+
+    A arrives mid-turn at -51.4 to -78.6 deg of world. Against the measured
+    arrival band, correcting the goal yaw moves the error from 58.5-85.7 deg to
+    51.4-78.6 -- both sides of a 34.4 deg tolerance. If someone later reads the
+    W1 commit as "the yaw bug is fixed", this test says otherwise in the only
+    place that cannot go stale.
+    """
+
+    tolerance_deg = 34.4
+    arrival_band_world_deg = (-51.4, -78.6)
+    # nominal_m6_n3: spawns +7.13 deg of world, B due +x from the standoff.
+    nominal = _manifest(
+        (0.0, 0.0, 0.0), (0.9922778767136677, 0.12403473458920847), (10.0, 0.0, 0.0)
+    )
+    corrected_world_deg = math.degrees(
+        goal_yaw_in_map_frame(nominal, "p")
+    ) + 7.1250163489
+    assert corrected_world_deg == pytest.approx(0.0, abs=1e-6)
+
+    for arrival in arrival_band_world_deg:
+        assert abs(arrival - corrected_world_deg) > tolerance_deg
 
 
 def test_the_tolerance_is_the_pinned_adr_0022_value() -> None:

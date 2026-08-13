@@ -152,16 +152,51 @@ goal still would not have completed.**
 | xy check | 1.361 m → FAIL | 0.032 m → **PASS** |
 | yaw check | 76.9° → FAIL | **81.1° → FAIL** |
 
-`corridor_nav_gate.py:301` sends `goal.pose.pose.orientation.w = 1.0` — a goal
-yaw of **zero**, i.e. "arrive facing along the map's +x axis", which is back up
-the corridor. A arrives facing −51° to −74° (south, having turned onto the
-street). With `stateful: true` the checker tests position first, so the xy
-failure has been hiding this the whole time: **the delivery goal has never
-carried a reachable orientation.**
+> **CORRECTED 2026-08-13** — the four paragraphs that stood here were wrong
+> about *why*, and the correction matters because the next session's plan was
+> built on them. They are replaced rather than edited, and what they claimed is
+> restated below so the error is legible: they said the goal's `w = 1.0` meant
+> "facing **back up the corridor**", and that the goal "has never carried a
+> **reachable** orientation". Neither is true. The measurement in the table
+> above — an 81.1° yaw failure against a perfect map — is unaffected and stands.
 
-Cheap, corridor-side, and independent of the map. It does not fix the overshoot
-on its own — the xy check still fails by 1.36 m — but leaving it in place means
-the arrival gate cannot go green even if the map problem is solved.
+`corridor_nav_gate.py:301` sent `goal.pose.pose.orientation.w = 1.0`: a goal yaw
+of **zero in the map frame**. The map frame is anchored on A's spawn *pose*, so
+that is not "+x of the world" and it is not back up the corridor — it is **A's
+spawn heading**, which is +7.13° of world on `nominal_m6_n3`, +3.58° on
+`wide_corner_m6_n4_5` and 0.00° on `uniform_m6_n6`. Measured against the bearing
+from the delivery standoff to B, which is 0.00° of world:
+
+| | world yaw |
+|---|---|
+| map +x axis, i.e. A's spawn heading | **+7.13°** |
+| the goal as sent, `w = 1.0` | **+7.13°** |
+| bearing from the standoff to B | **0.00°** |
+
+**The goal was already pointing at B, 7.1° off.** It was a wrong instruction —
+an unchosen quaternion default, correct only on `uniform_m6_n6` and only by
+coincidence — but a nearly-right one, and it was perfectly reachable.
+
+So the orientation is worth fixing for correctness, and fixing it changes almost
+nothing. Against measured arrival yaws of −51.4° to −78.6°:
+
+| goal yaw | yaw error | vs the 34.4° tolerance |
+|---|---|---|
+| as sent, +7.13° | 58.5 – 85.7° | FAILS |
+| corrected to 0.00° | 51.4 – 78.6° | **STILL FAILS** |
+
+**The real reason the yaw check fails is that A arrives mid-turn.** It is still
+heading south off the corner, 51–79° from any sensible delivery heading, and
+would have to rotate in place to finish — which, with a 1.3 m position error and
+`stateful: true` testing position first, it never gets the chance to do. No
+static goal yaw fixes that; the position error has to go first.
+
+Fixed in W1 (goal yaw derived from B's bearing, never a literal, with the
+identity quaternion forbidden by test). Deriving it instead from the authored
+route's final heading — which agrees numerically, because the standoff sits on
+B's approach ray — was rejected: that is the "authored line and waypoints" ADR
+0022:15-17 keeps out of A's navigation, and the agreement is what makes the
+forbidden source look like a valid one.
 
 ## What this changes
 
@@ -172,7 +207,11 @@ the arrival gate cannot go green even if the map problem is solved.
   measuring B correctly at 0.63 m with a fitted radius of 0.1244 against an
   authored 0.12.
 - **The arrival gate has two blockers, not one.** Both need naming in whatever
-  ADR closes it; fixing the map alone would leave a 81° yaw failure behind.
+  ADR closes it; fixing the map alone would leave a 81° yaw failure behind. And
+  the second blocker is *arriving mid-turn*, not a wrong goal orientation —
+  correcting the goal yaw leaves 51–79° of error against a 34.4° tolerance, so
+  an ADR that names "unreachable orientation" as the blocker names the wrong
+  thing and would be closed by a fix that changes nothing.
 - **No `slam_toolbox` or Nav2 parameter was touched** — ADR 0029's standing law
   holds. This is a diagnosis.
 
