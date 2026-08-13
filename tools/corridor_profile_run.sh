@@ -107,6 +107,12 @@ SIM_MAX_S=600
 # runs reaches ACTIVE inside ~20 s.
 LIFECYCLE_DEADLINE_S=75
 
+# How much post-arrival data the transit recorder keeps after the nav gate has
+# returned. The recorder's job is to outlive the gate, not to outlast it by two
+# minutes: 15 s covers the settle and any late map update without paying for
+# the rest of a 210 s window the robot finished with at t+60.
+RECORDER_SETTLE_S=15
+
 # And every ros2 CLI call gets a timeout, for the same reason. The CLI depends
 # on the ros2 daemon; simctl stops the daemon at the end of every run, so every
 # corridor run starts against a cold one. simctl's own comment (simctl:396-406)
@@ -391,9 +397,11 @@ teardown() {
   # "it was not dead 3 s ago" and then said nothing more: the 13:16 run's
   # behavior_server survived its own teardown and was still running 84 minutes
   # later, on the domain the next run would use.
-  for _ in $(seq 1 10); do
-    sleep 2
+  # CHECK FIRST, then sleep. Sleeping first spent 2 s on every teardown that
+  # was already clean, and teardown measured 42.9 s of a 403 s run.
+  for _ in $(seq 1 40); do
     [ -z "$(occupants)" ] && [ -z "$(residents)" ] && break
+    sleep 0.5
   done
   if [ -n "$(occupants)" ]; then
     echo "!! SESSION NOT DEAD:" >&2; occupants >&2
@@ -584,7 +592,14 @@ if [ "$ROBOT" = robot1 ]; then
   # corridor also overrides this checker's verdict on every run
   # (--allow-contract-fail, scan runs 14-16 Hz against a declared 12), so what it
   # contributes here is a RATE REPORT, and a rate report does not need motion.
-  CONTRACT_ARGS=(--domain "$DOMAIN" --speed 0.0 --turn 0.0)
+  # AND IT DOES NOT NEED THIRTY SECONDS. The checker defaults to --seconds 30
+  # and measured 38.3-38.7 s of wall clock on every recorded run, for a rate
+  # report whose verdict this run overrides every time. 8 s is ~100 scans and
+  # ~200 IMU samples at the measured rates -- ample to catch a dead topic or a
+  # rate that is wrong by more than a few percent, which is all this gate is
+  # being asked. The full-length check remains available with --gate-seconds
+  # style overrides if a rate question ever needs the precision.
+  CONTRACT_ARGS=(--domain "$DOMAIN" --speed 0.0 --turn 0.0 --seconds 8)
   CONTRACT_OUT="$RUN_DIR/contract.txt"
 else
   CONTRACT_ARGS=(--imu-hz 60 --json)
@@ -687,7 +702,13 @@ fi
 # Let the box settle between SLAM and Nav2. The lifecycle service timeouts that
 # abort this bringup are a contention symptom -- the EKF logs "Failed to meet
 # update rate!" in the same window -- and everything was starting at once.
-sleep 8
+#
+# Halved, not removed. The contention it guards against is real and it is what
+# the nav bringup aborts on, so this stays a deliberate pause rather than
+# becoming a poll for a condition nobody has identified. The bring-up loops
+# below now hold their own wall-clock deadlines, so a settle that turns out to
+# be too short costs a bounded retry rather than a hang.
+sleep 4
 
 phase "nav stack"
 if [ "$ROBOT" = robot1 ]; then
@@ -854,7 +875,13 @@ if [ "$LENS" = 1 ]; then
     --dump "$RUN_DIR/lens.json" \
     >"$RUN_DIR/lens.log" 2>&1 &
   lens_pid=$!
-  sleep 3
+  # Poll /healthz, which the lens serves for exactly this. A fixed sleep here
+  # was both too long on a warm box and too short on a cold one.
+  for _ in $(seq 1 40); do
+    curl -sf --max-time 1 "http://127.0.0.1:8765/healthz" >/dev/null 2>&1 && break
+    kill -0 "$lens_pid" 2>/dev/null || break
+    sleep 0.25
+  done
   echo "=== lens: http://127.0.0.1:8765/  (map, scan, 3 pose ghosts, landmark) ==="
 fi
 
@@ -900,7 +927,25 @@ python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT"
 # The recorder's own verdict is a gate result too, so it is waited for rather
 # than killed -- but a nav gate that ended early must not hang the run behind
 # the recorder's full window.
+#
+# AND IT USED TO. GATE_SECONDS is 210 and the recorder ran every second of it
+# whatever the robot did, while measured closest approach happens at t+52 to
+# t+110 s. On 20260813-000546 the nav gate returned at +201 s and the run then
+# sat behind the recorder for another 14 s; on a fast transit the dead tail is
+# most of two minutes.
+#
+# The window is NOT shortened, because its 200 s is sized on measurement and
+# the recorder must outlive the nav gate or a slow-but-successful delivery is
+# truncated by the instrument watching it (measured, 20260812-182237). Instead
+# the recorder is told the gate is done: `corridor_sim_gate.observe()` handles
+# SIGTERM and writes a COMPLETE report, so this is a clean early finish rather
+# than a kill. The settle keeps a few seconds of post-arrival data.
 phase "transit recorder verdict"
+if kill -0 "$recorder_pid" 2>/dev/null; then
+  echo "  nav gate returned; letting the recorder settle ${RECORDER_SETTLE_S}s, then closing it"
+  sleep "$RECORDER_SETTLE_S"
+  kill -TERM "$recorder_pid" 2>/dev/null || true
+fi
 wait "$recorder_pid" || status=1
 
 # "GOAL NOT ACCEPTED" MEANS TWO DIFFERENT THINGS, and only the robot can say
