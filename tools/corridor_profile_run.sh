@@ -83,11 +83,16 @@ RVIZ_FLAG=""
 # contract measurement, and Nav2's lifecycle activation -- so a 300 s cap left
 # a run with no window to navigate in and the watchdog killed it mid-bring-up.
 #
-# 420 keeps the property that matters (a session cannot hang holding the GPU and
-# the machine-wide lock) while leaving ~220 s of transit, which is ample: A's
-# closest approach to B was measured at t+60 s, t+68 s and t+119.8 s on the runs
-# that reached it, and everything after that was A driving back to spawn.
-SIM_MAX_S=420
+# RAISED 420 -> 600 on 2026-08-12, because bring-up is not a constant and 420
+# assumed it was. Measured across six runs that night: 135, 146, 149, 243, 253 s.
+# At the top of that range a 420 s cap leaves 157 s of nav window, and four runs
+# were killed mid-teardown holding complete measurements they were then not
+# allowed to call results.
+#
+# 600 still bounds the thing the cap is FOR -- a session cannot hang holding the
+# GPU and the machine-wide lock -- and with the transit window now sized
+# independently (below) a normal run finishes in 410-510 s and never reaches it.
+SIM_MAX_S=600
 
 # The nav window is DERIVED to fit inside the cap, never set past it: a nav
 # timeout longer than the session cap is a promise the watchdog will break.
@@ -679,7 +684,22 @@ if [ -z "$NAV_TIMEOUT" ]; then
   fi
   echo "  nav window: ${NAV_TIMEOUT}s (cap ${SIM_MAX_S}s, bring-up took ${elapsed}s)"
 fi
-: "${GATE_SECONDS:=$((NAV_TIMEOUT + 10))}"
+# THE TRANSIT WINDOW IS SIZED TO THE TRANSIT, not to whatever the cap has left.
+#
+# GATE_SECONDS used to be NAV_TIMEOUT + 10, i.e. a budget remainder, which is
+# how a 551 s window came to be requested for a 256 s transit -- and, before the
+# rate basis was fixed, how a healthy 11.50 Hz matcher was reported as 5.35 Hz.
+# It also made the run's LENGTH depend on how slow bring-up happened to be.
+#
+# 200 s is measured: A reached its closest approach to B at t+52.4, t+56.4,
+# t+58.3 and t+109.9 s across tonight's runs, and everything after that is A
+# holding position or driving past. 200 covers the worst of those with 90 s of
+# margin. Still capped by the nav window so it can never outlive the watchdog.
+TRANSIT_WINDOW_S=200
+if [ -z "$GATE_SECONDS" ]; then
+  GATE_SECONDS=$(( NAV_TIMEOUT + 10 ))
+  [ "$GATE_SECONDS" -gt "$TRANSIT_WINDOW_S" ] && GATE_SECONDS="$TRANSIT_WINDOW_S"
+fi
 if [ "$LENS" = 1 ]; then
   python3 "$REPO/tools/lens/corridor_lens.py" --domain "$DOMAIN" \
     --manifest "$MANIFEST" \
