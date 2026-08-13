@@ -18,15 +18,18 @@ docs, commits and evidence. Corrected in V0 where it was tracked.
 
 | Unit | State | Notes |
 |---|---|---|
-| V0 session plan | **DONE** 23:35 | this file; lifecycle-glob fix `2253bf8`; name scrub `2973e04` |
-| V1a ADR 0031 — B is the cylinder | pending | 75 min hard |
-| V1b the camera prim moves to P | pending | 45 min hard, pulled forward from V5 |
-| V2 corner-arc yaw, offline | pending | 60 min hard, no GPU |
-| V3 acceptance re-runs | pending | tight profiles, dock off, lens up |
+| V0 session plan | **DONE** 23:26 | this file; lifecycle-glob fix `2253bf8`; name scrub `2973e04` |
+| V1a ADR 0031 — B is the cylinder | **DONE** 23:45 `05f3173` | 22 min of a 75 min box. Bearing cone had to widen 60°→76°: the merged B is refused by the old one at 0.3 m |
+| V1b the camera prim moves to P | **DONE** 23:55 `4316307` | 10 min of 45. One `UsdGeom.Camera` on the stage and it is P's; certificate green; LOS re-measured 5/5 on all three profiles |
+| V2 corner-arc yaw, offline | **DONE** 00:03 `ad662d9` | 8 min of 60. **The corner is innocent** (arc 1.02–1.10). The gate compared two windows; `wide_corner` 1.108 → 1.0013 clipped. `nominal`'s 1.17 survives and is fleet-side |
+| V3 acceptance re-runs | in progress | arenas must be rebuilt first — the composer change moved the manifest hash |
 | V4 demo-candidate run | pending | nominal, dock on |
 | V5 the camera session | pending | Isaac; lock held into V6 |
-| V6 Replicator dataset | pending | the overnight payload, 2 h |
-| V7 training harness + first fine-tune | pending | 45 min |
+| V6 Replicator dataset | pending | the overnight payload |
+| V7 training harness + first fine-tune | pending | |
+
+**Running 90 minutes ahead of plan at 00:05.** The three offline units cost
+40 minutes against a 180-minute budget, so V6 and V7 inherit the slack.
 
 ## What this session inherits
 
