@@ -68,21 +68,12 @@ ROBOT_TARGETS = {
 #: ADR 0022's pinned delivery tolerance. Printed AND enforced from here.
 GOAL_TOLERANCE_M = 0.15
 
-#: How far the delivery goal stands off from B's centre.
-#:
-#: B is NOT decoration. It carries no PhysicsCollisionAPI, but the RTX lidar
-#: sees RENDER geometry, so B appears in /scan and therefore in the costmap as
-#: an obstacle. A goal at B's centre is a goal inside its own inflated
-#: footprint: unreachable at a 0.15 m tolerance no matter how well the planner
-#: and controller behave. That is a delivery robot stopping *inside* the
-#: recipient, which is wrong even before it is infeasible.
-#:
-#: The value clears the obstacle by construction -- B's half-diagonal (0.106 m
-#: at robot scale) + robot_radius (0.12) + inflation_radius (0.16) = 0.386 --
-#: and is then rounded up to the 0.6 m floor the docking spec pins for the
-#: refined goal, so the nominal and refined standoffs are one rule rather than
-#: two numbers that can drift apart.
-DELIVERY_STANDOFF_M = 0.6
+#: How far the delivery goal stands off from B's centre. Since ADR 0031
+#: this lives with the rest of the contact semantics in `corridor_dock`,
+#: because the docking bearing cone is derived from it and two homes for
+#: one number is how they drift apart.
+sys.path.insert(0, str(Path(__file__).parent))
+from corridor_dock import DELIVERY_STANDOFF_M  # noqa: E402
 
 #: nav2_msgs action status codes.
 STATUS_NAMES = {2: "EXECUTING", 4: "SUCCEEDED", 5: "CANCELED", 6: "ABORTED"}
@@ -288,7 +279,7 @@ def main() -> int:
         return code if arguments.gated else 0
 
     if arguments.dock:
-        radius = manifest.get("actors", {}).get("landmark_radius_m")
+        radius = manifest.get("actors", {}).get("b_radius_m")
         if radius:
             sys.path.insert(0, str(Path(__file__).parent))
             from landmark_detector import LandmarkDetector
@@ -355,16 +346,25 @@ def main() -> int:
     # is. Every metre is still driven by Nav2; this only chooses the goal.
     dock_report = {"enabled": False}
     if arguments.dock and gate.detector is not None:
-        from corridor_dock import DockingMachine
+        from corridor_dock import DockingMachine, final_approach_m
 
         route_m = route_to_delivery_m(manifest, arguments.profile)
+        actors = manifest.get("actors", {})
+        # ADR 0031: derived from B's radius and A's length, never authored.
+        standoff_m = final_approach_m(
+            float(actors["b_radius_m"]), float(actors["a_size_xyz_m"][0])
+        )
         machine = DockingMachine(
-            nominal_goal=(goal_x, goal_y), route_length_m=route_m
+            nominal_goal=(goal_x, goal_y),
+            standoff_m=standoff_m,
+            route_length_m=route_m,
         )
         print(f"  dock: containment -- route {route_m:.3f} m, window "
               f"{machine.window_m:.3f} m, arm after {machine.min_travel_m:.3f} m "
               f"of A's own travel, detection within "
               f"{machine.max_bearing_error_deg:.0f} deg of the goal")
+        print(f"  dock: final approach {standoff_m:.3f} m from B's centre, "
+              f"derived -- the governor's floor and geometric contact, larger wins")
         deadline = time.monotonic() + arguments.timeout
         while time.monotonic() < deadline and not result_future.done():
             rclpy.spin_once(gate, timeout_sec=0.1)

@@ -98,17 +98,12 @@ fiducials:
       size_m: 0.18
       cant_deg: 0.0
 actors:
-  b_size_xyz_m:
-  - 0.135
-  - 0.135
-  - 0.51
+  b_radius_m: 0.12
+  b_height_m: 0.51
   a_size_xyz_m:
   - 0.195
   - 0.135
   - 0.15
-  landmark_radius_m: 0.12
-  landmark_height_m: 0.5
-  landmark_offset_m: 0.8
 police:
   body_size_xyz_m:
   - 0.18

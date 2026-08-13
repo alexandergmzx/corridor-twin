@@ -17,7 +17,6 @@ from .geometry import (
     a_start_xyz,
     all_surveys,
     building_footprints,
-    landmark_xyz,
     occluders,
     person_b_xyz,
     police_bounds,
@@ -106,13 +105,19 @@ def manifest_data(
             # so B is an obstacle in the costmap and a delivery goal has to
             # stand off from it. A consumer cannot derive that from b_xyz_m
             # alone, so the size travels with the position.
-            "b_size_xyz_m": scenario.actors.b_size_xyz_m,
-            # The landmark detector's ONLY source for the radius it fits. A
-            # second literal in the detector would silently keep matching an
-            # old prop after a scenario rescale.
-            "landmark_xyz_m": list(landmark_xyz(scenario)),
-            "landmark_radius_m": scenario.actors.landmark_radius_m,
-            "landmark_height_m": scenario.actors.landmark_height_m,
+            #
+            # Since ADR 0031 this is also the landmark detector's ONLY source
+            # for the radius it fits. A second literal in the detector would
+            # silently keep matching an old prop after a scenario rescale, and
+            # a second PRIM -- which is what a post beside B was -- gave the
+            # scene two places to say where B is.
+            "b_radius_m": scenario.actors.b_radius_m,
+            "b_height_m": scenario.actors.b_height_m,
+            # A's extent, because ADR 0031's final-approach distance is derived
+            # from A's half-length as well as B's radius. A consumer that had to
+            # look A's size up somewhere else would be looking it up in a second
+            # place, which is the failure this manifest exists to prevent.
+            "a_size_xyz_m": scenario.actors.a_size_xyz_m,
         },
         "fiducials": {
             "dictionary": scenario.fiducials.dictionary,

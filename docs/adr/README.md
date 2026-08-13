@@ -48,6 +48,7 @@ Three status strings differ between a file and this index, each deliberately:
 | [0028](0028-goal-directed-navigation-on-a-live-map.md) | Accepted | A is told B's address, never the route; goal is a standoff beside B. **Method validated in world frame; the arrival gate stays red** |
 | [0029](0029-map-divergence-at-the-corner.md) | Accepted | Corridor clean (2.2 cm), map dies at the far end; **fusion reports 23.4x its own input, unexplained**. B carries a geometric landmark |
 | [0030](0030-the-committed-scale-and-what-is-measured-against-it.md) | Accepted | Scale **0.30** committed and the as-run scenario is the build default; prior factors superseded; corner screen authored not coded; map scored on a **masked** map with the 0.20 m limit unmoved |
+| [0031](0031-b-is-the-cylinder.md) | Accepted | **B is one cylinder at the delivery point**; radius is the sensor's and height is the person's; final approach derived from the governor's floor, never bypassed |
 
 0026 and 0027 have since landed with their evidence and are listed above; the
 line that reserved them is retired rather than left to read as pending.
@@ -122,6 +123,9 @@ flowchart LR
     A27 --> A28
     A28 --> A29["0029<br/>Map dies at the corner<br/>B carries a landmark"]
     A29 --> A30["0030<br/>Scale 0.30 committed<br/>masked map score"]
+    A30 --> A31["0031<br/>B is the cylinder<br/>contact from the governor"]
+    A29 -. "beside-B geometry<br/>superseded by" .-> A31
+    A28 --> A31
     A19 --> A30
     A18 --> A30
     A23 --> A29

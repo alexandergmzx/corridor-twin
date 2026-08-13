@@ -531,15 +531,16 @@ def main():
             with open(args.manifest) as f:
                 man = json.load(f)
             actors = man.get('actors', {})
-            radius = actors.get('landmark_radius_m')
+            radius = actors.get('b_radius_m')
             if radius:
                 from landmark_detector import LandmarkDetector
                 node.detector = LandmarkDetector(radius)
                 print(f'corridor_lens: detector armed, radius {radius} m', flush=True)
-            node.truth_markers = {
-                'b': actors.get('b_xyz_m', [None])[:2],
-                'landmark': actors.get('landmark_xyz_m', [None])[:2],
-            }
+            # ADR 0031: one marker, because there is one object. The pink
+            # confirmed-detection crosshair is supposed to land ON the yellow
+            # B ring now -- two circles far apart is the phantom, and it is the
+            # single most useful thing this canvas shows.
+            node.truth_markers = {'b': actors.get('b_xyz_m', [None])[:2]}
         except Exception as e:
             print(f'corridor_lens: no manifest markers ({e})', flush=True)
 

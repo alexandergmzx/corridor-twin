@@ -58,7 +58,7 @@
          <span style="background:var(--bad)"></span>scan miss</div>
     <div><span style="background:var(--pose)"></span>SLAM pose (TF map→base)</div>
     <div><span style="background:var(--truth)"></span>ground-truth ghost (aligned at start)</div>
-    <div><span style="background:#ffd166"></span>B and its post, from the manifest (where B REALLY is)</div>
+    <div><span style="background:#ffd166"></span>B, from the manifest (where B REALLY is)</div>
     <div><span style="background:#ff5d8f"></span>landmark the detector confirmed (a phantom shows here, far from B)</div>
     <div><span style="background:var(--odomg)"></span>pure-odometry ghost (no SLAM correction)</div>
   </div>
@@ -235,18 +235,19 @@ function render() {
         g.fillRect(sx - 1.5, sy - 1.5, 3, 3);
       }
     }
-    // Manifest truth markers: where B and its post ACTUALLY are. A confirmed
-    // detection drawn far from these is a phantom, and that is visible at a
-    // glance in a way no number was.
+    // Manifest truth marker: where B ACTUALLY is. A confirmed detection drawn
+    // far from it is a phantom, and that is visible at a glance in a way no
+    // number was. Since ADR 0031 B is one cylinder, so the pink crosshair
+    // below should land ON this ring rather than a metre off it.
     if (st.truth_markers) {
-      for (const key of ['b','landmark']) {
+      for (const key of ['b']) {
         const pt = st.truth_markers[key];
         if (!pt || pt[0]===null || pt[0]===undefined) continue;
         const sx = OX + pt[0]*SC, sy = OY - pt[1]*SC;
         g.strokeStyle = '#ffd166'; g.lineWidth = 2;
         g.beginPath(); g.arc(sx, sy, 7, 0, 6.283); g.stroke();
         g.fillStyle = '#ffd166'; g.font = '11px system-ui';
-        g.fillText(key === 'b' ? 'B' : 'post', sx + 10, sy - 8);
+        g.fillText('B', sx + 10, sy - 8);
       }
     }
     if (st.landmark && st.landmark.map_xy) {

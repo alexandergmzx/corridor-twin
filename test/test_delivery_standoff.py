@@ -41,8 +41,15 @@ PROFILES = ("nominal_m6_n3", "wide_corner_m6_n4_5", "uniform_m6_n6")
 
 #: Robot facts. These do NOT scale with the scenario — the world shrinks toward
 #: a fixed robot — so they are stated here rather than read from the scene.
-ROBOT_RADIUS_M = 0.12
-INFLATION_RADIUS_M = 0.16
+#:
+#: Corrected 2026-08-12 with ADR 0031: they were 0.12 / 0.16, stale against the
+#: 0.128 / 0.18 that ADR 0029 measured and pinned in
+#: `config/robot1/nav2_robot1_corridor.yaml`. robot1's chassis is 0.20 x 0.16 m,
+#: so its circumscribed radius is 0.128 -- the eight millimetres Nav2 believed
+#: it did not have, in the one place where eight millimetres decides whether a
+#: path fits.
+ROBOT_RADIUS_M = 0.128
+INFLATION_RADIUS_M = 0.18
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +63,10 @@ def scaled(tmp_path_factory) -> tuple[dict, object]:
     workdir = tmp_path_factory.mktemp("standoff")
     config = workdir / "scaled.yaml"
     subprocess.run(
-        [sys.executable, "tools/scale_scenario.py", "--factor", "0.3333",
+        # The COMMITTED factor (ADR 0030), not the 0.3333 of an abandoned
+        # iteration: a standoff test that builds a scenario nothing runs is
+        # measuring a scene that does not exist.
+        [sys.executable, "tools/scale_scenario.py", "--factor", "0.30",
          "--out", str(config)],
         cwd=ROOT, check=True, capture_output=True,
     )
@@ -95,12 +105,13 @@ def test_the_standoff_clears_b_by_more_than_the_robot_needs(scaled) -> None:
 
     manifest, _ = scaled
     b_x, b_y, _ = manifest["actors"]["b_xyz_m"]
-    b_size = manifest["actors"]["b_size_xyz_m"]
+    # ADR 0031: B is a cylinder, so its footprint is its radius -- no half-
+    # diagonal, and no second description of B's extent to keep in step.
+    b_radius = manifest["actors"]["b_radius_m"]
     x, y = delivery_standoff_world(manifest)
 
     gap = math.dist((x, y), (b_x, b_y))
-    b_half_diagonal = math.hypot(b_size[0] / 2.0, b_size[1] / 2.0)
-    required = b_half_diagonal + ROBOT_RADIUS_M + INFLATION_RADIUS_M
+    required = b_radius + ROBOT_RADIUS_M + INFLATION_RADIUS_M
 
     assert gap > required, (
         f"standoff {gap:.3f} m does not clear B's inflated footprint ({required:.3f} m)"
@@ -116,10 +127,9 @@ def test_b_centre_itself_would_have_been_unreachable(scaled) -> None:
 
     manifest, _ = scaled
     b_x, b_y, _ = manifest["actors"]["b_xyz_m"]
-    b_size = manifest["actors"]["b_size_xyz_m"]
+    b_radius = manifest["actors"]["b_radius_m"]
 
-    b_half_diagonal = math.hypot(b_size[0] / 2.0, b_size[1] / 2.0)
-    required = b_half_diagonal + ROBOT_RADIUS_M + INFLATION_RADIUS_M
+    required = b_radius + ROBOT_RADIUS_M + INFLATION_RADIUS_M
 
     assert math.dist((b_x, b_y), (b_x, b_y)) < required, (
         "B's centre is somehow outside B's own inflated footprint"

@@ -108,12 +108,10 @@ def compare(arena: Path, manifest_path: Path, profile: str) -> dict:
             "pass": error <= TOLERANCE_M,
         })
 
+    # ADR 0031: one prim. B is the cylinder the detector fits and the object the
+    # goal stands off from, so a stale arena is caught by one comparison rather
+    # than by two that could disagree with each other.
     planar("B", actors.get("b_xyz_m"), _centre(_bounds(stage, f"{ACTORS_PATH}/B")))
-    planar(
-        "B's landmark post",
-        actors.get("landmark_xyz_m"),
-        _centre(_bounds(stage, f"{ACTORS_PATH}/BLandmark")),
-    )
 
     corridor = _bounds(stage, CORRIDOR_PATH)
     if corridor is None:

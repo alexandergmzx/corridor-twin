@@ -2,7 +2,7 @@
 """Find B's post in a laser scan, by SHAPE, without consulting the map.
 
     from landmark_detector import LandmarkDetector
-    detector = LandmarkDetector(radius_m=manifest["actors"]["landmark_radius_m"])
+    detector = LandmarkDetector(radius_m=manifest["actors"]["b_radius_m"])
     hit = detector.feed(ranges, angle_min, angle_increment, range_min, range_max)
 
 WHY A SHAPE, AND WHY NOT INTENSITY

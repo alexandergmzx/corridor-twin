@@ -40,16 +40,21 @@ def test_the_rebuilt_arena_agrees_with_the_manifest() -> None:
     assert report["pass"], report["failures"]
 
     named = {check["name"] for check in report["checks"]}
+    # ADR 0031: ONE object. B is both what the viewer sees and what the
+    # detector fits, so a stale arena is caught by one comparison instead of
+    # two that could disagree with each other.
     assert "B" in named
-    assert "B's landmark post" in named, "the post is the thing the stale arena lacked"
+    assert "B's landmark post" not in named, "the post is gone; B is the cylinder"
     assert all(check["error_m"] <= TOLERANCE_M for check in report["checks"])
 
 
 def test_the_stale_twelve_metre_arena_is_rejected() -> None:
     """The exact fault, on the exact file that caused it.
 
-    B is 11.76 m from where the plan says it is, the landmark post is absent
-    from the stage entirely, and the corridor's east kerb is 12.95 m out.
+    B is 11.76 m from where the plan says it is and the corridor's east kerb is
+    12.95 m out. Before ADR 0031 the loudest symptom was a landmark post absent
+    from the stage entirely; with one object that signal folds into B's own
+    displacement, which is the check that survives the merge.
     """
 
     _skip_unless(MANIFEST, STALE_ARENA)
@@ -59,8 +64,6 @@ def test_the_stale_twelve_metre_arena_is_rejected() -> None:
 
     by_name = {check["name"]: check for check in report["checks"]}
     assert by_name["B"]["error_m"] > 10.0
-    assert by_name["B's landmark post"]["measured"] is None
-    assert "absent from the arena" in by_name["B's landmark post"]["note"]
 
 
 def test_a_missing_arena_fails_rather_than_raises(tmp_path: Path) -> None:

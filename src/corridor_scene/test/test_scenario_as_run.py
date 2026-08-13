@@ -39,11 +39,13 @@ SCALE_FACTOR = 0.30
 UNSCALED = {
     # policy, not geometry (ADR 0023 -- still un-pinned)
     "limit_mps",
-    # the post is sized for the SENSOR: at 0.30 it became 0.045 m, the MS200 put
-    # 1.7 beams on it at 3 m, and the detector confirmed a phantom (c805e26)
-    "landmark_radius_m",
-    "landmark_height_m",
-    "landmark_offset_m",
+    # B's radius is sized for the SENSOR: at 0.30 it became 0.045 m, the MS200
+    # put 1.7 beams on it at 3 m, and the detector confirmed a phantom
+    # (c805e26). Since ADR 0031 B is one cylinder, and its HEIGHT is
+    # deliberately absent from this set -- a height describes a person and
+    # scales, a detectable radius describes what the lidar can resolve and does
+    # not. One object, two authorities, both named.
+    "b_radius_m",
 }
 
 
@@ -196,7 +198,13 @@ def test_building_with_no_config_writes_the_scenario_that_runs(tmp_path: Path) -
 
     assert manifest["corridor_length_m"] == pytest.approx(3.6)
     assert manifest["selected_profile"] == "nominal_m6_n3"
-    # B, and the post beside B, both present and at robot scale. The arenas
-    # built before this had B twelve metres further out and no post at all.
+    # B present and at robot scale. The arenas built before this had B twelve
+    # metres further out and no detectable body at all.
     assert manifest["actors"]["b_xyz_m"][0] == pytest.approx(5.038, abs=1e-3)
-    assert manifest["actors"]["landmark_radius_m"] == pytest.approx(0.12)
+    # ADR 0031: one object. The radius the detector fits and the position the
+    # goal is derived from now describe the same prim, and the radius is the
+    # sensor's while the height is the person's.
+    assert manifest["actors"]["b_radius_m"] == pytest.approx(0.12)
+    assert manifest["actors"]["b_height_m"] == pytest.approx(1.7 * SCALE_FACTOR)
+    assert "landmark_radius_m" not in manifest["actors"]
+    assert "landmark_xyz_m" not in manifest["actors"]

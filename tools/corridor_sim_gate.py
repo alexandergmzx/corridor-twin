@@ -727,7 +727,7 @@ def main() -> int:
         actors = json.loads(
             Path(arguments.manifest).read_text(encoding="utf-8")
         ).get("actors", {})
-        landmark_radius = actors.get("landmark_radius_m")
+        landmark_radius = actors.get("b_radius_m")
 
     rclpy.init()
     gate = CorridorGate(target, observe_only=arguments.observe_only)

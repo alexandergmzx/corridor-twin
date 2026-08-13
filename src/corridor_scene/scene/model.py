@@ -146,16 +146,20 @@ class ActorSpec:
     B in particular is not decoration: the RTX lidar sees render geometry, so
     B's footprint is an obstacle in the costmap and it sets the standoff the
     delivery goal has to keep.
+
+    Since ADR 0031 B **is** the cylinder -- one object at the delivery point,
+    rather than a box for the eye with a detectable post beside it.
     """
 
-    b_size_xyz_m: Vec3
+    #: B's radius, and the detector's single source of truth for the circle it
+    #: fits: it reaches the detector through the manifest so the expected size
+    #: and the authored size can never drift apart into two literals. ABSOLUTE
+    #: metres -- sized for the MS200, not for the scenario (scale_scenario's
+    #: NOT_LENGTHS).
+    b_radius_m: float
+    #: B's height, which describes a person and therefore DOES scale.
+    b_height_m: float
     a_size_xyz_m: Vec3
-    #: B's lidar-detectable landmark. Radius is the detector's single source of
-    #: truth: it reaches the detector through the manifest so the expected size
-    #: and the authored size can never drift apart into two literals.
-    landmark_radius_m: float
-    landmark_height_m: float
-    landmark_offset_m: float
 
 
 @dataclass(frozen=True)
@@ -320,11 +324,9 @@ def load_scenario(path: Path | None = None) -> Scenario:
     )
     actors_raw = raw["actors"]
     actors = ActorSpec(
-        b_size_xyz_m=_xyz(actors_raw["b_size_xyz_m"], "actors.b_size_xyz_m"),
+        b_radius_m=float(actors_raw["b_radius_m"]),
+        b_height_m=float(actors_raw["b_height_m"]),
         a_size_xyz_m=_xyz(actors_raw["a_size_xyz_m"], "actors.a_size_xyz_m"),
-        landmark_radius_m=float(actors_raw["landmark_radius_m"]),
-        landmark_height_m=float(actors_raw["landmark_height_m"]),
-        landmark_offset_m=float(actors_raw["landmark_offset_m"]),
     )
     police_raw = raw["police"]
     police = PoliceSpec(

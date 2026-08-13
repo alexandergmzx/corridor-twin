@@ -37,8 +37,10 @@ no motion at all.
 
 ARRIVAL IS MEASURED IN THE LASER FRAME
 --------------------------------------
-"A is 0.6 m from B, by its own sensor" is a claim the map cannot corrupt.
-`docked` is decided on the detected range, never on a map-frame number.
+"A is this close to B, by its own sensor" is a claim the map cannot corrupt.
+`docked` is decided on the detected range, never on a map-frame number, and
+the range it is compared against is derived by `final_approach_m` rather
+than authored (ADR 0031).
 """
 
 from __future__ import annotations
@@ -77,16 +79,68 @@ ARM_RADIUS_M = 3.0
 #: would be more than half the route.
 ARM_WINDOW_ROUTE_FRACTION = 0.15653
 
-#: The detection must lie roughly where the goal lies. +/-60 deg is generous --
-#: it admits a post seen well off to one side during the turn onto the street --
-#: while excluding anything behind the robot, which is where the phantom was.
-MAX_BEARING_ERROR_DEG = 60.0
+#: How far the transit goal stands off from B's CENTRE.
+#:
+#: Lives here rather than in the gate because since ADR 0031 it is a
+#: contact-semantics number: it is the lateral separation between what the
+#: detector confirms and where the transit goal sits, and the bearing cone
+#: below is derived from it. `corridor_nav_gate` imports it from here so the
+#: nominal and refined standoffs stay one rule.
+#:
+#: It clears B's inflated footprint by construction -- B's radius 0.12 +
+#: robot_radius 0.128 + inflation_radius 0.18 = 0.428 -- and it stands OUTSIDE
+#: the derived final approach (0.470 m), which is the right ordering: transit
+#: gets A near B, docking closes the last stretch on the sensor.
+DELIVERY_STANDOFF_M = 0.6
 
-#: Where to stop, measured from the landmark's CENTRE. The post is lidar-visible
-#: and therefore a costmap obstacle exactly as B is, so the goal has to sit
-#: outside its inflation: robot_radius 0.128 + inflation 0.30 leaves margin at
-#: 0.60, and it matches the transit standoff so both goals mean the same thing.
-DOCK_STANDOFF_M = 0.60
+
+def bearing_cone_deg(lateral_m: float, tolerance_m: float) -> float:
+    """The widest the detection may sit off the goal bearing, derived.
+
+    **ADR 0031 widened this, and the widening is a real cost of the merge.**
+
+    The cone exists to refuse a right-shaped thing in the wrong PLACE -- the
+    2026-08-12 13:16 phantom, confirmed behind the robot near spawn. Its old
+    +/-60 deg was sized when the detectable post stood 0.8 m south of B while
+    the goal sat 0.6 m west, putting detection and goal 1.000 m apart on
+    different sides.
+
+    With one object the detection IS B, 0.6 m lateral of the goal on the side A
+    approaches from, so the bearing to it swings *harder* as A closes: 63.4 deg
+    at 0.3 m from the goal, which the old cone refused. Measured, not guessed --
+    the test that caught it is
+    `test_the_bearing_gate_admits_the_REAL_B_from_the_real_manifest`.
+
+    The floor is therefore the bearing at A's closest legitimate position: the
+    goal itself, give or take the arrival tolerance. `atan2(0.6, 0.15)` is
+    76.0 deg, and that is what this returns.
+
+    Stated plainly: **the cone is a weaker guard after the merge.** What still
+    excludes the spawn phantom is the travel test and the map-frame proximity
+    test, neither of which the merge touches, and the spawn negative control is
+    asserted against the travel test by name.
+    """
+
+    return math.degrees(math.atan2(lateral_m, tolerance_m))
+
+#: The governor's hard-stop range, from the fleet safety node that owns
+#: `/cmd_vel` on this chassis (`yahboomcar_safety/governor.py:44`,
+#: `stop_distance: float = 0.35`). It is a LASER range: the governor stops the
+#: robot when the nearest scan return is inside it. The laser sits within a
+#: centimetre of `base_footprint` (measured x = -4.6 mm), so it is read here as
+#: a distance from A's centre without correction, an order of magnitude below
+#: the docking tolerance.
+GOVERNOR_STOP_DISTANCE_M = 0.35
+
+#: ADR 0022's pinned arrival tolerance, restated from `corridor_nav_gate`'s
+#: constant of the same name. A goal reached "within tolerance" may be reached
+#: this much NEARER than commanded, so the contact term has to carry it or the
+#: derivation permits a delivery that ends inside B.
+GOAL_TOLERANCE_M = 0.15
+
+#: Derived, never authored. See `bearing_cone_deg`.
+MAX_BEARING_ERROR_DEG = bearing_cone_deg(DELIVERY_STANDOFF_M, GOAL_TOLERANCE_M)
+
 
 #: Re-issue only when the estimate has actually moved. Below this the goal is
 #: the same goal and re-sending it just interrupts a working approach.
@@ -99,6 +153,31 @@ MAX_REFINEMENTS = 4
 #: Arrived, measured by the sensor. The tolerance is generous against the
 #: standoff because what is being claimed is "A is beside B", not a survey.
 DOCKED_TOLERANCE_M = 0.25
+
+
+def final_approach_m(b_radius_m: float, a_length_m: float) -> float:
+    """How close A may end up to B's CENTRE, derived rather than authored.
+
+    ADR 0031. Two terms, and the larger wins:
+
+    **The governor's floor.** `stop_distance` is measured to B's *surface*, so
+    in centre-to-centre terms it is ``0.35 + b_radius``. The governor is never
+    bypassed -- the demo win is defined at a distance the safety envelope
+    actually permits, which is the whole point of deriving this instead of
+    picking a number that looks good in a video.
+
+    **Geometric contact.** A's half-length plus B's radius is the distance at
+    which the two touch; the arrival tolerance is added because A is allowed to
+    stop that much short of its goal, or that much past it.
+
+    At the committed scenario these are 0.470 m and 0.368 m, so the governor
+    decides. That ordering is not assumed anywhere -- both are computed and
+    compared on every call, because a larger B or a longer robot flips it.
+    """
+
+    governor_floor = GOVERNOR_STOP_DISTANCE_M + b_radius_m
+    geometric_contact = a_length_m / 2.0 + b_radius_m + GOAL_TOLERANCE_M
+    return max(governor_floor, geometric_contact)
 
 
 def landmark_in_map(detection: dict, robot_xy: tuple[float, float],
@@ -119,8 +198,12 @@ def landmark_in_map(detection: dict, robot_xy: tuple[float, float],
 
 
 def dock_goal(landmark_xy: tuple[float, float], robot_xy: tuple[float, float],
-              standoff_m: float = DOCK_STANDOFF_M) -> tuple[float, float]:
-    """Stop `standoff_m` short of the landmark, on the side A is approaching from.
+              standoff_m: float) -> tuple[float, float]:
+    """Stop `standoff_m` short of B, on the side A is approaching from.
+
+    `standoff_m` is required, not defaulted: since ADR 0031 it is derived from
+    the scenario by `final_approach_m`, and a default here would be a stale
+    literal waiting for the next rescale to make it wrong.
 
     The bearing comes from A's own position rather than from the scene, so the
     goal is always reachable from where A actually is -- no assumption about
@@ -149,12 +232,17 @@ class DockingMachine:
     UNREFINED = "DELIVERED_UNREFINED"
 
     def __init__(self, nominal_goal: tuple[float, float], *,
+                 standoff_m: float,
                  arm_radius_m: float = ARM_RADIUS_M,
                  max_refinements: int = MAX_REFINEMENTS,
                  route_length_m: float | None = None,
                  window_m: float | None = None,
                  max_bearing_error_deg: float = MAX_BEARING_ERROR_DEG) -> None:
         self.nominal_goal = nominal_goal
+        #: Derived by `final_approach_m` from B's radius and A's length, never
+        #: authored. It is both where the refined goal is placed and, below,
+        #: the range at which arrival is declared.
+        self.standoff_m = standoff_m
         self.arm_radius_m = arm_radius_m
         self.max_refinements = max_refinements
         # Containment. `route_length_m` is the route TO THE DELIVERY, not the
@@ -240,7 +328,7 @@ class DockingMachine:
         detected_range = verdict["candidate"]["range_m"]
 
         # Arrival is decided on the SENSOR, never on a map-frame number.
-        if abs(detected_range - DOCK_STANDOFF_M) <= DOCKED_TOLERANCE_M:
+        if abs(detected_range - self.standoff_m) <= DOCKED_TOLERANCE_M:
             self.state = self.DOCKED
             self.landmark_map = landmark
             self.history.append({
@@ -265,7 +353,7 @@ class DockingMachine:
         self.landmark_map = landmark
         self.refinements += 1
         self.state = self.REFINE
-        goal = dock_goal(landmark, robot_xy)
+        goal = dock_goal(landmark, robot_xy, self.standoff_m)
         self.current_goal = goal
         self.history.append({
             "event": "refine",

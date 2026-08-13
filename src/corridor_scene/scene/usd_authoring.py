@@ -11,7 +11,6 @@ from .geometry import (
     all_surveys,
     building_footprints,
     corridor_faces,
-    landmark_xyz,
     person_b_xyz,
     plate_backing_corners,
     police_bounds,
@@ -301,20 +300,18 @@ def _author_shared_actors(
     """Author the actors whose placement does not depend on the profile."""
 
     UsdGeom.Xform.Define(stage, "/World/Actors")
-    bx, by, bz = person_b_xyz(scenario)
-    b_size = scenario.actors.b_size_xyz_m
-    _cube(stage, "/World/Actors/B", b_size, (bx, by, bz + b_size[2] / 2.0), actor_material)
 
-    # B's landmark: the post A senses. Placed by geometry.landmark_xyz so the
-    # prop and the manifest the detector reads cannot describe two places.
-    lx, ly, lz = landmark_xyz(scenario)
+    # B IS THE CYLINDER (ADR 0031). One prim: the thing the viewer sees and the
+    # thing A's lidar fits a circle to are the same object, so there is no
+    # second place for them to disagree about where B is.
+    bx, by, bz = person_b_xyz(scenario)
     actors = scenario.actors
     _cylinder(
         stage,
-        "/World/Actors/BLandmark",
-        actors.landmark_radius_m,
-        actors.landmark_height_m,
-        (lx, ly, lz + actors.landmark_height_m / 2.0),
+        "/World/Actors/B",
+        actors.b_radius_m,
+        actors.b_height_m,
+        (bx, by, bz + actors.b_height_m / 2.0),
         actor_material,
     )
 
