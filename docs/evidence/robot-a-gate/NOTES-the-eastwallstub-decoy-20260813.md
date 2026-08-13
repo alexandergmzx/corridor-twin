@@ -245,6 +245,66 @@ This also explains why every guard added so far failed. They all govern
 *whether* a detection is believable, and the stub genuinely is. None of them
 govern *when* the question is first asked.
 
+## The fix: a wall's end is not convex
+
+Found by putting the "must approach from outside the arrival band" rule through
+adversarial review, which **rejected** it — it is exactly `refinements >= 1`, it
+encodes A's route rather than any property of the objects, and its margin was
+31 mm — and proposed this instead.
+
+**A cylinder of radius r puts its centre exactly r beyond the nearest point of
+its own surface.** The closest return lies on the segment from the sensor to
+the centre; that is what convex means. A circle fitted across part of a flat
+face has no such constraint, and routinely places its centre level with — or in
+front of — the measured surface, which is impossible for the object it claims
+to be.
+
+    centre_depth = |centre| - min(|point|)   over the fitted cluster
+
+Isolation could never have caught this. It separates a post from a CORNER,
+something attached to a wall that continues; the stub's free end genuinely has
+open space on both sides. Convexity is a property of the OBJECT, so it survives
+re-authoring, the other two profiles, and any change to A's route.
+
+### The marginal distribution nearly talked me out of it
+
+`tools/diagnostics/centre_depth.py`, seven bags, every accepted fit:
+
+| | median | p05 | depth ≤ 0 |
+|---|---|---|---|
+| B | +0.1020 (≈ r) | +0.0719 | **1.1%** |
+| stub | +0.0849 | −0.0772 | **21.9%** |
+| other | −0.0236 | −0.1093 | 54.5% |
+
+Right direction, but 78% of decoy frames survive a sign test — and I wrote that
+this "doesn't obviously support" the predicted 4/7 → 1/7. **That was the wrong
+statistic.** Arming needs 3-of-5 persistence, so the question is not what
+fraction of frames survive but whether the survivors still form a chain. End to
+end:
+
+| filter | first arming on B | on the decoy | never armed |
+|---|---|---|---|
+| baseline | 3 | **4** | 0 |
+| `depth > 0` | 6 | 1 | 0 |
+| `depth > 0` and `abs(d − r) ≤ 0.40r` | 6 | 1 | 0 |
+| **`depth > 0` and `abs(d − r) ≤ 0.25r`** | **7** | **0** | **0** |
+| `depth > 0.5r` | 6 | 1 | 0 |
+
+Both pre-registered predictions landed exactly. Removing 22% of the decoy's
+frames does break its chain.
+
+Confirmed against the shipped detector: **7 of 7 bags arm on the real B**,
+misses 0.005–0.024 m, first arming at 0.651–0.893 m — all outside the 0.620 m
+arrival band, so refinement runs rather than instant-docking. Runner-up counts
+collapse as well (204 → 33, 51 → 9): the same decoy leaving the
+radius-ambiguity path, which was eating B's arming window.
+
+**How much of this is geometry and how much is a chosen number.** The sign test
+has no threshold at all and does most of the work, 3/7 → 6/7. The magnitude
+band closes the seventh, its marginal contribution rests on one bag, and at
+0.40 it buys nothing. Both figures are in the constant's own comment so the
+next reader does not have to take the 7/7 at face value.
+
 ## What this means
 
 - **Docking cannot be closed by tightening the detector's thresholds.** Every

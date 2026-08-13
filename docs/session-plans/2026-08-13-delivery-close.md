@@ -291,7 +291,48 @@ Useful number underneath it all: **per frame, the detector picks the real B
 88–97% of the time and the stub 2–12%.** Accuracy is not the problem. Arming
 being a first-past-the-post decision is.
 
-### Why W3 and W4 are blocked rather than attempted
+### The afternoon: the delivery closed, twice over
+
+Three further defects found and fixed, each by a live run or a replay rather
+than by reasoning:
+
+1. **Arrival was symmetric** (`862e655`). `abs(range - standoff) <= 0.25` on a
+   0.470 m standoff is 53% slack, evaluated *before* the refine branch, so A
+   declared arrival 0.196 m too far out with `refinements: 0`. Now one-sided:
+   at or nearer than `standoff + GOAL_TOLERANCE_M`, unbounded on the near side.
+   Immediately produced three consecutive nominal deliveries at 0.1147, 0.1007
+   and 0.0354 m, all staying put.
+2. **The decoy took 5 of 10 live deliveries** — on all three profiles, so the
+   replay's 4-of-7 was right and the first good live run was the outlier.
+3. **Fixed by convexity** (`2a4e706`), not by any of the four things tried
+   before it. A cylinder's centre sits exactly one radius behind its nearest
+   return; a circle fitted across a flat wall end does not. 7 of 7 bags now arm
+   on the real B, misses 0.005–0.024 m, zero never-armed.
+
+**An error of mine, published and corrected.** I claimed arming unlocks 0.900 m
+before B against a 0.806 m decoy separation and proposed shrinking the window.
+The real lead is 2.531 m: `route_to_delivery_m` omits `departure_length_m` on
+the false premise that the departure leg runs past B, when the route *ends* at
+B (station 7.3804 m, distance 0.0000). Corrected in the evidence and named in
+`2a4e706`.
+
+**Method note.** The convexity fix came out of an adversarial review that
+rejected my own proposed rule. Two of my hypotheses were falsified by
+measurement today (chord ceiling, arming window) and I was also too quick to
+doubt the one that worked — the marginal distribution showed convexity removing
+only 22% of decoy frames and I called that unsupportive, when the relevant
+question was whether the survivors still form a 3-of-5 chain. They do not.
+Measure end to end, not at the margin.
+
+### Open, with the fix known
+
+| defect | state |
+|---|---|
+| Refined goals inherit the transit goal's orientation (`corridor_nav_gate.py:457`) | W1's defect one level down; fix is the same rule applied at the refined position |
+| `route_to_delivery_m` omits a leg | must re-base `ARM_WINDOW_ROUTE_FRACTION` on *measured* travel in the same commit — corrected alone, `min_travel` 6.480 m refuses bag 113859's good arming at 5.699 m, because Nav2 does not drive the authored route |
+| No cancel path when DOCK is refused | `corridor_nav_gate.py:445` keys on `DOCKED`; an `ARRIVED_UNPROVEN` state would stop A without claiming success. Lower priority now that arming reaches DOCK legitimately |
+
+### Why W3 and W4 were blocked earlier
 
 ADR 0033's proposed dock-on acceptance is "world-frame closest approach
 ≤ 0.15 m **and** `DELIVERED`". With the decoy unresolved that criterion is red
