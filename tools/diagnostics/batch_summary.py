@@ -38,6 +38,21 @@ ATTRIBUTION_M = 0.15
 
 def classify(run: Path) -> dict | None:
     gate_path, nav_path = run / "gate.json", run / "nav.json"
+    record_path = run / "run.json"
+    record = (
+        json.loads(record_path.read_text(encoding="utf-8"))
+        if record_path.exists() else {}
+    )
+    if record.get("classification") == "infrastructure":
+        # A session that never got far enough to answer the question. Gate
+        # discipline: a rerun, never a result, and it must not silently join
+        # the tallies as a bad outcome.
+        return {
+            "run": run.name, "profile": record.get("profile", "?"),
+            "kind": "infra", "state": "-", "refinements": None,
+            "closest_m": None, "walked_m": None, "docked_on": "-",
+            "note": record.get("classification_cause", "infrastructure"),
+        }
     if not gate_path.exists() or not nav_path.exists():
         return None
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
@@ -47,6 +62,7 @@ def classify(run: Path) -> dict | None:
     dock = nav.get("docking") or {}
     row = {
         "run": run.name,
+        "kind": "result",
         "profile": nav.get("profile", "?"),
         "state": dock.get("state", "-"),
         "refinements": dock.get("refinements"),
@@ -57,6 +73,15 @@ def classify(run: Path) -> dict | None:
         ),
         "docked_on": "-",
     }
+
+    # Docking ENABLED but absent means the gate returned before its dock loop
+    # -- on 2026-08-13 17:17 because bt_navigator's acceptance response was
+    # lost while the robot drove 10.709 m anyway. The transit is a result; the
+    # DOCKING is not, and counting it as a docking failure would understate
+    # every docking change measured against it.
+    if nav.get("docking") is None:
+        row["kind"] = "dock-n/a"
+        row["note"] = nav.get("failure", "docking never ran")
 
     final = delivery.get("final_position_m")
     docked = next(
@@ -96,11 +121,21 @@ def main() -> int:
           f"{'docked on':>10}")
     print("-" * 88)
     for row in rows:
+        if row["kind"] != "result":
+            print(f"{row['run']:<44} {'EXCLUDED':<9} {row['kind']:>3}  "
+                  f"{row.get('note', '')[:40]}")
+            continue
         closest = f"{row['closest_m']:.4f}" if row["closest_m"] is not None else "-"
         walked = f"{row['walked_m']:.3f}" if row["walked_m"] is not None else "-"
         print(f"{row['run']:<44} {row['state']:<9} {str(row['refinements']):>3} "
               f"{closest:>8} {walked:>7} {row['docked_on']:>10}")
 
+    infra = [r for r in rows if r["kind"] == "infra"]
+    no_dock = [r for r in rows if r["kind"] == "dock-n/a"]
+    rows = [r for r in rows if r["kind"] == "result"]
+    if not rows:
+        print("\n  no scoreable runs")
+        return 1
     docked = [r for r in rows if r["state"] == "DOCKED"]
     on_b = [r for r in docked if r["docked_on"] == "B"]
     on_stub = [r for r in docked if r["docked_on"] == "stub"]
@@ -108,7 +143,9 @@ def main() -> int:
     stayed = [r for r in rows if (r["walked_m"] or 0.0) < 0.3]
     within = [c for c in closest if c <= 0.15]
 
-    print(f"\n  runs                     {len(rows)}")
+    print(f"\n  scoreable runs           {len(rows)}")
+    print(f"  excluded: infrastructure {len(infra)}")
+    print(f"  excluded: dock never ran {len(no_dock)}")
     print(f"  reached DOCKED           {len(docked)}")
     print(f"    ...on B                {len(on_b)}")
     print(f"    ...on the stub decoy   {len(on_stub)}")
