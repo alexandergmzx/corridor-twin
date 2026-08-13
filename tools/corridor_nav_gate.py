@@ -54,9 +54,15 @@ from tf2_ros import Buffer, TransformListener
 NS = "/robot2"
 
 #: robot1 runs at ROOT with unprefixed frames (architecture.md:46-51).
+#: `ekf_topic` is A's OWN filtered odometry, which the containment gate
+#: integrates for travel. robot1's EKF publishes /odom at root;
+#: robot2's is odometry/filtered inside its namespace
+#: (bringup_corrected_launch.py:82). Same split as corridor_sim_gate's table.
 ROBOT_TARGETS = {
-    "robot2": {"namespace": "/robot2", "base_frame": "robot2/base_footprint"},
-    "robot1": {"namespace": "", "base_frame": "base_footprint"},
+    "robot2": {"namespace": "/robot2", "base_frame": "robot2/base_footprint",
+               "ekf_topic": "odometry/filtered"},
+    "robot1": {"namespace": "", "base_frame": "base_footprint",
+               "ekf_topic": "/odom"},
 }
 
 #: ADR 0022's pinned delivery tolerance. Printed AND enforced from here.
@@ -162,11 +168,10 @@ class NavGate(Node):
         # filter A already navigates on.
         self.odom_travel_m = 0.0
         self._last_odom_xy: tuple[float, float] | None = None
-        self.create_subscription(
-            Odometry, self.target["ekf_topic"] if self.target["ekf_topic"].startswith("/")
-            else f"{namespace}/{self.target['ekf_topic']}",
-            self._on_odom, 20,
-        )
+        ekf_topic = self.target.get("ekf_topic", "/odom")
+        if not ekf_topic.startswith("/"):
+            ekf_topic = f"{namespace}/{ekf_topic}"
+        self.create_subscription(Odometry, ekf_topic, self._on_odom, 20)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.client = ActionClient(self, NavigateToPose, f"{namespace}/navigate_to_pose")

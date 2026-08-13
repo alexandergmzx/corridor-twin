@@ -46,7 +46,8 @@ Three status strings differ between a file and this index, each deliberately:
 | [0026](0026-isolation-verification.md) | Accepted | Verify the committed isolation mechanism: producer + crossing gates, certificate green, mutation red |
 | [0027](0027-robot-a-selection-outcome.md) | Accepted | **Corridor gate FAILED on both gated profiles; robot A stays robot1** (ADR 0022 fallback) |
 | [0028](0028-goal-directed-navigation-on-a-live-map.md) | Accepted | A is told B's address, never the route; goal is a standoff beside B. **Method validated in world frame; the arrival gate stays red** |
-| [0029](0029-the-corner-is-where-the-map-dies.md) | Accepted | Corridor clean (2.2 cm), map dies at the far end; **fusion reports 23.4x its own input, unexplained**. B carries a geometric landmark |
+| [0029](0029-map-divergence-at-the-corner.md) | Accepted | Corridor clean (2.2 cm), map dies at the far end; **fusion reports 23.4x its own input, unexplained**. B carries a geometric landmark |
+| [0030](0030-the-committed-scale-and-what-is-measured-against-it.md) | Accepted | Scale **0.30** committed and the as-run scenario is the build default; prior factors superseded; corner screen authored not coded; map scored on a **masked** map with the 0.20 m limit unmoved |
 
 0026 and 0027 have since landed with their evidence and are listed above; the
 line that reserved them is retired rather than left to read as pending.
@@ -120,6 +121,9 @@ flowchart LR
     A23 --> A28["0028<br/>Address not route<br/>goal = standoff beside B"]
     A27 --> A28
     A28 --> A29["0029<br/>Map dies at the corner<br/>B carries a landmark"]
+    A29 --> A30["0030<br/>Scale 0.30 committed<br/>masked map score"]
+    A19 --> A30
+    A18 --> A30
     A23 --> A29
     A20 --> A26["0026<br/>Isolation<br/>VERIFIED"]
     A21 --> A26

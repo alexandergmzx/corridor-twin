@@ -292,3 +292,50 @@ def test_an_unconfigured_machine_keeps_its_old_behaviour() -> None:
     machine = DockingMachine(GOAL)
     assert machine.min_travel_m is None
     assert machine.armed(_verdict(0.3, 1.0))
+
+
+def test_the_bearing_gate_admits_the_REAL_post_from_the_real_manifest() -> None:
+    """The guard-must-not-reject-the-guarded test, done properly.
+
+    `test_the_real_post_at_the_end_of_the_route_still_arms` above sets the
+    detection's bearing TO the goal bearing, so it passes by construction and
+    proves nothing about the scene. The post is not at the goal: B's post stands
+    0.8 m from B and the delivery standoff is 0.6 m from B on another side, so
+    the two are **1.000 m apart** in the committed scenario -- comparable to the
+    0.9 m window itself.
+
+    That is exactly the geometry that could make a bearing gate reject the thing
+    it exists to admit, so it is measured against the manifest rather than
+    assumed.
+    """
+
+    import json
+
+    manifest_path = Path(__file__).parent.parent / "out/corridor.manifest.json"
+    if not manifest_path.is_file():
+        pytest.skip("out/corridor.manifest.json is a generated artifact")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
+    from corridor_dock import MAX_BEARING_ERROR_DEG
+    from corridor_nav_gate import delivery_standoff_world
+
+    goal = delivery_standoff_world(manifest)
+    post = manifest["actors"]["landmark_xyz_m"]
+    assert math.dist(goal[:2], post[:2]) == pytest.approx(1.0, abs=0.05)
+
+    worst = 0.0
+    for standoff in (2.0, 1.5, 1.0, 0.7, 0.5, 0.3):
+        # Approaching the goal down the street, which is how A arrives.
+        robot = (goal[0], goal[1] + standoff)
+        to_goal = math.atan2(goal[1] - robot[1], goal[0] - robot[0])
+        to_post = math.atan2(post[1] - robot[1], post[0] - robot[0])
+        error = abs(math.degrees((to_post - to_goal + math.pi) % (2 * math.pi) - math.pi))
+        worst = max(worst, error)
+        assert error <= MAX_BEARING_ERROR_DEG, (
+            f"at {standoff} m from the goal the real post is {error:.1f} deg off "
+            f"the goal bearing, and containment would refuse it"
+        )
+    # Measured 28.6 deg at the closest approach. Recorded so a scenario change
+    # that halves the margin is visible rather than silent.
+    assert worst < MAX_BEARING_ERROR_DEG / 2, f"margin has eroded to {worst:.1f} deg"

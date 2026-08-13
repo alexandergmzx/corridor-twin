@@ -26,6 +26,7 @@ import pytest
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
+import corridor_nav_gate as nav_gate  # noqa: E402
 from corridor_nav_gate import (  # noqa: E402
     DELIVERY_STANDOFF_M,
     GOAL_TOLERANCE_M,
@@ -107,3 +108,25 @@ def test_the_tolerance_is_the_pinned_adr_0022_value() -> None:
     """The fleet original printed 150 mm and enforced 300; one constant, one number."""
 
     assert GOAL_TOLERANCE_M == 0.15
+
+
+def test_every_target_names_the_ekf_topic_the_containment_integrates() -> None:
+    """A missing key here killed the nav gate mid-run.
+
+    P2 added EKF-integrated travel to the arming gate and read
+    `target["ekf_topic"]` from a table that had never carried it: the goal was
+    never sent, the run produced no delivery, and the failure surfaced as a
+    KeyError in a log rather than as a gate verdict.
+
+    robot1's EKF publishes /odom at root; robot2's is odometry/filtered inside
+    its namespace, so the two cannot share one literal.
+    """
+
+    for name, target in nav_gate.ROBOT_TARGETS.items():
+        assert "ekf_topic" in target, f"{name} has no ekf_topic"
+        topic = target["ekf_topic"]
+        resolved = topic if topic.startswith("/") else f"{target['namespace']}/{topic}"
+        assert resolved.startswith("/"), f"{name}: {resolved} is not an absolute topic"
+
+    assert nav_gate.ROBOT_TARGETS["robot1"]["ekf_topic"] == "/odom"
+    assert nav_gate.ROBOT_TARGETS["robot2"]["ekf_topic"] == "odometry/filtered"

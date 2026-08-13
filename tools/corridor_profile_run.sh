@@ -150,6 +150,12 @@ RUN_ID="$(date +%Y%m%d-%H%M%S)-$ROBOT-$PROFILE"
 RUN_DIR="$EVIDENCE/$RUN_ID"
 RUN_JSON="$RUN_DIR/run.json"
 mkdir -p "$RUN_DIR"
+# Stamped ONCE, before anything starts. run.json cannot serve as this: it is
+# rewritten throughout the run, so it is always newer than the session bag and
+# `find -newer` matched nothing -- the startup criterion went unmeasured on the
+# first run that needed it.
+RUN_START_MARKER="$RUN_DIR/.started"
+: > "$RUN_START_MARKER"
 ln -sfn "$RUN_ID" "$EVIDENCE/latest-$ROBOT-$PROFILE"
 
 # The manifest helpers. Fail-open on every one of them: recording a problem
@@ -847,7 +853,7 @@ fi
 SESSION_BAG=$(find \
   "$HOME"/Development/MicroROS/MicroROS-assets/bags \
   "$HOME"/Development/robot-fleet/src/MicroROS/MicroROS-assets/bags \
-  -maxdepth 1 -name "*-isaac-d$DOMAIN" -newer "$RUN_DIR/run.json" 2>/dev/null | sort | tail -1)
+  -maxdepth 1 -name "*-isaac-d$DOMAIN" -newer "$RUN_START_MARKER" 2>/dev/null | sort | tail -1)
 if [ -n "$SESSION_BAG" ]; then
   echo "=== startup criterion (ground truth, $(basename "$SESSION_BAG")) ==="
   "$REPO/.venv/bin/python" "$REPO/tools/startup_acceptance.py" \

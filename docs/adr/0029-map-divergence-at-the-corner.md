@@ -1,4 +1,4 @@
-# ADR 0029: The corner is where the map dies, and B carries a landmark that does not care
+# ADR 0029: Map divergence at the corner, and a landmark that does not depend on the map
 
 - Status: Accepted
 - Date: 2026-08-12
@@ -42,7 +42,7 @@ not by argument:
 | candidate | verdict | evidence |
 |---|---|---|
 | competing motion sources | **fixed, not the cause** | `sim_patrol` + a warm-up drive + Nav2 all commanded `/cmd_vel_raw`; removing them did not fix the map |
-| odometry calibration | **acquitted** | EKF yaw within ±4% across 0.3–1.5 rad/s, both directions |
+| odometry **yaw** calibration, ON THE BENCH | **acquitted under those conditions** | EKF yaw within ±4% across 0.3–1.5 rad/s, both directions, chassis stationary on a stand. Scoped 2026-08-12 (pre-merge review): this row is a bench yaw-rate sweep and was read as a general acquittal of odometry. It is not one. The LINEAR channel was never in this sweep, and was later measured 6.3% short on straight driving across seven transit bags, which moved `WHEEL_R` 0.0458 → 0.0489 — see [`NOTES-odometry-scale.md`](../evidence/robot-a-gate/NOTES-odometry-scale.md) |
 | rate-dependent gyro fault | **acquitted** | ratio spread 0.083 across that sweep |
 | inverted yaw channel | **acquitted** | signed rotation agrees in sign everywhere |
 | simulator slowdown | **acquitted** | real-time factor 1.001 |
