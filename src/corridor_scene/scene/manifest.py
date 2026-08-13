@@ -18,6 +18,7 @@ from .geometry import (
     all_surveys,
     building_footprints,
     occluders,
+    p_cam_pose,
     person_b_xyz,
     police_bounds,
 )
@@ -52,6 +53,12 @@ def manifest_data(
                 for name, footprint in building_footprints(scenario, profile).items()
             },
             "occluders": [asdict(slab) for slab in occluders(scenario, profile)],
+            # P's enforcement camera pose, per profile because P's own bounds
+            # are per profile. The adapter targets this prim, the occlusion
+            # certificate proves the composed stage agrees with it, and the
+            # Replicator dataset renders from it -- one derivation
+            # (`geometry.p_cam_pose`), three consumers, no second opinion.
+            "p_cam": p_cam_pose(scenario, profile),
             "delivery_trajectory": asdict(delivery_trajectory(scenario, profile)),
             "markers": [
                 {

@@ -540,9 +540,12 @@ def main() -> int:
         # travelled 0.043 m in 90 s while every other signal -- odometry, EKF,
         # TF, map updates, covariance -- looked perfectly healthy.
         #
-        # Only the Visual is deactivated. The Xform and CameraMount stay, so
-        # the v1 camera prim path the 0009 adapter resolves is untouched and
-        # this arena remains usable for a camera run.
+        # Only the Visual is deactivated. The Xform and CameraMount stay --
+        # CameraMount is now a plain Xform holding A's v1 EYE POINT, which the
+        # occlusion certificate casts its geometric gate from. The camera itself
+        # moved to P's mast at /World/Actors/PCameraMast/PCam, which is not
+        # under A and is therefore untouched by this deactivation; the arena
+        # remains usable for a camera run for that reason rather than this one.
         stand_in = stage.GetPrimAtPath(f"{V1_ACTOR_A_PRIM}/Visual")
         if stand_in.IsValid():
             stand_in.SetActive(False)

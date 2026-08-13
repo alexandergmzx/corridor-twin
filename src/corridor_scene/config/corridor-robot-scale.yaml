@@ -109,6 +109,7 @@ police:
   - 0.18
   - 0.18
   - 0.54
+  camera_mast_height_m: 1.5
   east_wall_clearance_m: 0.075
   north_offset_m: 0.18
   minimum_clearance_m: 0.075

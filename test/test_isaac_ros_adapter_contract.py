@@ -22,7 +22,7 @@ def literal_assignment(path: Path, name: str):
 def test_adapter_has_one_small_rgb_camera_and_clock() -> None:
     contract = literal_assignment(ADAPTER, "ADAPTER_CONTRACT")
     assert contract == {
-        "camera_prim": "/World/Actors/A/CameraMount/FrontCamera",
+        "camera_prim": "/World/Actors/PCameraMast/PCam",
         "image_topic": "/p_cam/image_raw",
         "camera_info_topic": "/p_cam/camera_info",
         "clock_topic": "/clock",

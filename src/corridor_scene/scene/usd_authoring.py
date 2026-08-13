@@ -11,6 +11,7 @@ from .geometry import (
     all_surveys,
     building_footprints,
     corridor_faces,
+    p_cam_pose,
     person_b_xyz,
     plate_backing_corners,
     police_bounds,
@@ -338,37 +339,43 @@ def _author_profile_actors(
     actor_a.AddRotateZOp().Set(math.degrees(start.yaw_rad))
     a_size = scenario.actors.a_size_xyz_m
     _cube(stage, "/World/Actors/A/Visual", a_size, (0.0, 0.0, a_size[2] / 2.0), actor_material)
+    # A's v1 eye point, and NOT a camera. ADR 0021 moved the render product to
+    # P and ADR 0024 made A camera-less; this Xform survives because the
+    # geometric visibility gate -- "does an opaque wall block the segment from
+    # A's eye to P's body" -- is scenario realism this project does not disavow
+    # (CLAUDE.md invariant 2). It carries no UsdGeom.Camera, so the stage holds
+    # exactly one camera and it is P's.
     mount = UsdGeom.Xform.Define(stage, "/World/Actors/A/CameraMount")
     mount.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, scenario.camera.mount_height_m))
-    camera = UsdGeom.Camera.Define(stage, "/World/Actors/A/CameraMount/FrontCamera")
-    # USD cameras look down local -Z with +Y up. This maps forward to world +X
-    # and image-up to world +Z at A's initial corridor pose.
-    camera.AddTransformOp().Set(
-        Gf.Matrix4d(
-            0.0,
-            -1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-            0.0,
-            -1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-        )
-    )
-    _camera_aperture(camera, scenario)
 
     pmin, pmax = police_bounds(scenario, profile)
     psize = tuple(high - low for low, high in zip(pmin, pmax, strict=True))
     pcenter = tuple((low + high) / 2.0 for low, high in zip(pmin, pmax, strict=True))
     _cube(stage, "/World/Actors/P", psize, pcenter, actor_material)
+
+    # P's enforcement camera: the stage's ONE UsdGeom.Camera, and the one render
+    # product the adapter attaches (CLAUDE.md invariant 3, as ADR 0021 recast
+    # it). A sibling of P rather than a child, because `_cube` scales P's prim
+    # and a child would inherit that scale into the camera's basis.
+    pose = p_cam_pose(scenario, profile)
+    mast = UsdGeom.Xform.Define(stage, "/World/Actors/PCameraMast")
+    mast.AddTranslateOp().Set(Gf.Vec3d(*pose["eye_xyz_m"]))
+    p_cam = UsdGeom.Camera.Define(stage, "/World/Actors/PCameraMast/PCam")
+    right, up, forward = pose["right_xyz"], pose["up_xyz"], pose["forward_xyz"]
+    # Rows are the camera's local axes in world: (right, image-up, -forward),
+    # because a USD camera looks down local -Z with +Y up. Derived in
+    # `geometry.p_cam_pose` rather than written as a literal matrix, so a mast
+    # that moves takes its orientation with it.
+    p_cam.AddTransformOp().Set(
+        Gf.Matrix4d(
+            right[0], right[1], right[2], 0.0,
+            up[0], up[1], up[2], 0.0,
+            -forward[0], -forward[1], -forward[2], 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        )
+    )
+    _camera_aperture(p_cam, scenario)
+
     _author_path(stage, trajectory)
 
 

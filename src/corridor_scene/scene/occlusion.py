@@ -685,7 +685,14 @@ def usd_raycast_audit(
 
 
 POLICE_PRIM_PATH = "/World/Actors/P"
-CAMERA_PRIM_PATH = "/World/Actors/A/CameraMount/FrontCamera"
+#: The stage's ONE camera, and since ADR 0021 it is P's enforcement instrument
+#: on the mast that clears ADR 0019's corner screen. It was
+#: `/World/Actors/A/CameraMount/FrontCamera` in v1.
+CAMERA_PRIM_PATH = "/World/Actors/PCameraMast/PCam"
+#: A's v1 eye point, kept as a plain Xform. A is camera-less in v2, but the
+#: geometric visibility gate below still needs an eye to cast from, and this
+#: project does not disavow its geometric proofs (CLAUDE.md invariant 2).
+A_EYE_PRIM_PATH = "/World/Actors/A/CameraMount"
 # Loose enough to absorb the float32 scale-op rounding a Cube's authored size
 # picks up (order 1e-7 on these coordinates), tight enough that a substitution
 # measured in centimetres cannot slip through.
@@ -719,13 +726,26 @@ def stage_police_bounds(stage: Usd.Stage) -> tuple[Vec3, Vec3]:
     )
 
 
-def stage_camera_facts(stage: Usd.Stage) -> tuple[Vec3, float, Vec3, Vec3]:
-    """Return the front camera's world position, FOV, forward axis and up axis.
+def stage_a_eye_xyz(stage: Usd.Stage) -> Vec3:
+    """Return A's v1 eye point as the composed stage actually places it.
 
-    The stage authors one static pose -- A's route start -- rather than the
-    swept trajectory, so this is a start-of-route consistency check; the route
-    shape itself stays manifest-owned, per the same reasoning that keeps the
-    delivery trajectory's arcs and radii out of this comparison. Position and
+    A carries no camera since ADR 0024, but the geometric gate is cast from
+    A's eye, so the stage's Xform is still certified against the manifest's
+    route-start camera pose. Dropping the check with the camera would have
+    quietly removed the only thing tying the proof's origin to the scene.
+    """
+
+    prim = stage.GetPrimAtPath(A_EYE_PRIM_PATH)
+    if not prim:
+        raise ValueError(f"stage has no {A_EYE_PRIM_PATH} prim to certify against")
+    translation = UsdGeom.XformCache().GetLocalToWorldTransform(prim).ExtractTranslation()
+    return (float(translation[0]), float(translation[1]), float(translation[2]))
+
+
+def stage_camera_facts(stage: Usd.Stage) -> tuple[Vec3, float, Vec3, Vec3]:
+    """Return P's camera world position, FOV, forward axis and up axis.
+
+    Position and
     FOV alone do not pin down which way the camera looks: a camera rolled or
     yawed in place keeps the same position and aperture, so the certificate
     below would otherwise prove a viewing direction the composed stage does
@@ -802,37 +822,56 @@ def verify(stage_path: Path, manifest_path: Path, profile_name: str | None = Non
             "the stage and manifest have diverged"
         )
 
-    stage_camera_xyz, stage_fov_deg, stage_forward, stage_up = stage_camera_facts(stage)
+    # A's eye, for the geometric gate. The stage authors one static pose -- A's
+    # route start -- rather than the swept trajectory, so this is a
+    # start-of-route consistency check; the route shape itself stays
+    # manifest-owned.
     route_start = trajectory.camera_pose_at(0.0)
-    manifest_camera_xyz = (route_start.x_m, route_start.y_m, route_start.z_m)
-    if _vec3_mismatch(stage_camera_xyz, manifest_camera_xyz, BOUNDS_TOLERANCE_M):
+    manifest_a_eye = (route_start.x_m, route_start.y_m, route_start.z_m)
+    stage_a_eye = stage_a_eye_xyz(stage)
+    if _vec3_mismatch(stage_a_eye, manifest_a_eye, BOUNDS_TOLERANCE_M):
         raise ValueError(
-            f"profile {profile!r}: manifest route-start camera position {manifest_camera_xyz} "
-            f"does not match the composed stage's {CAMERA_PRIM_PATH} position {stage_camera_xyz}"
+            f"profile {profile!r}: manifest route-start eye position {manifest_a_eye} "
+            f"does not match the composed stage's {A_EYE_PRIM_PATH} position {stage_a_eye}"
+        )
+
+    # P's camera: the stage's one render-product target, certified against the
+    # manifest pose the adapter and the dataset generator both read.
+    stage_camera_xyz, stage_fov_deg, stage_forward, stage_up = stage_camera_facts(stage)
+    manifest_p_cam = manifest["profiles"][profile]["p_cam"]
+    manifest_p_eye = tuple(float(v) for v in manifest_p_cam["eye_xyz_m"])
+    if _vec3_mismatch(stage_camera_xyz, manifest_p_eye, BOUNDS_TOLERANCE_M):
+        raise ValueError(
+            f"profile {profile!r}: manifest p_cam eye {manifest_p_eye} does not match the "
+            f"composed stage's {CAMERA_PRIM_PATH} position {stage_camera_xyz}"
         )
     if abs(stage_fov_deg - manifest_fov) > FOV_TOLERANCE_DEG:
         raise ValueError(
             f"profile {profile!r}: manifest horizontal_fov_deg={manifest_fov} does not match "
             f"the composed stage camera's derived FOV {stage_fov_deg:.4f} deg"
         )
-    manifest_forward = (route_start.heading[0], route_start.heading[1], 0.0)
-    manifest_up = (0.0, 0.0, 1.0)
+    manifest_forward = tuple(float(v) for v in manifest_p_cam["forward_xyz"])
+    manifest_up = tuple(float(v) for v in manifest_p_cam["up_xyz"])
     if _vec3_mismatch(
         stage_forward, manifest_forward, ORIENTATION_TOLERANCE
     ) or _vec3_mismatch(stage_up, manifest_up, ORIENTATION_TOLERANCE):
         raise ValueError(
-            f"profile {profile!r}: manifest route-start camera orientation "
+            f"profile {profile!r}: manifest p_cam orientation "
             f"(forward={manifest_forward}, up={manifest_up}) does not match the composed "
             f"stage's {CAMERA_PRIM_PATH} orientation (forward={stage_forward}, up={stage_up}); "
             "the stage and manifest have diverged"
         )
 
+    # The geometric gate is A's, so it uses the DECLARED contract FOV rather
+    # than reading it off P's prim. Numerically the same today -- both come from
+    # `scenario.camera.horizontal_fov_deg` -- but a future P-specific lens must
+    # not silently redefine what A could see.
     certificate = continuous_certificate(
         trajectory,
         stage_police_min,
         stage_police_max,
         slabs,
-        stage_fov_deg,
+        manifest_fov,
         profile,
     )
 
@@ -841,7 +880,7 @@ def verify(stage_path: Path, manifest_path: Path, profile_name: str | None = Non
         trajectory,
         stage_police_min,
         stage_police_max,
-        stage_fov_deg,
+        manifest_fov,
     )
 
     return Certificate(

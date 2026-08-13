@@ -497,6 +497,73 @@ def street_drive_center_x_m(scenario: Scenario) -> float:
     return (scenario.street_west_m + stub_west) / 2.0
 
 
+def p_cam_pose(scenario: Scenario, profile: CorridorProfile) -> dict:
+    """Where P's enforcement camera stands, and which way it looks.
+
+    ADR 0021 made the single render product P's instrument; nothing had ever
+    PLACED it, and placing it turned out to be a decision. ADR 0019's corner
+    screen is authored so that A cannot see P. It works, and it also blocks the
+    reverse sightline: from a camera at P's own height, 0 of 5 enforcement
+    stations are visible, and so is every point of A's approach. Raising the
+    same footprint onto a mast clears all five. **The constraint is height, not
+    position** -- measured 2026-08-12 with `scene.occlusion`'s own raycaster
+    against the stage's opaque triangles, and ratified the same evening.
+
+    Eye: the midpoint of P's authored bounds in plan, at
+    `police.camera_mast_height_m`. Derived from P's own body rather than
+    written down, so the camera follows P when a profile or a scale moves it.
+
+    Aim: the corridor entry at the origin, which is where A comes from. Every
+    enforcement station then falls within a degree of dead ahead.
+
+    ONE function, so the authored prim and the manifest the adapter and the
+    certificate read can never describe two different cameras.
+    """
+
+    low, high = police_bounds(scenario, profile)
+    eye = (
+        (low[0] + high[0]) / 2.0,
+        (low[1] + high[1]) / 2.0,
+        scenario.police.camera_mast_height_m,
+    )
+    look_at = (0.0, 0.0, 0.0)
+
+    forward = tuple(target - origin for target, origin in zip(look_at, eye, strict=True))
+    norm = math.sqrt(sum(component * component for component in forward))
+    if norm < 1e-9:
+        raise ValueError("P's camera cannot look at its own eye point")
+    forward = tuple(component / norm for component in forward)
+
+    # USD cameras look down local -Z with +Y up, so the basis is
+    # (right, image-up, -forward). Right comes from world up, which is the
+    # convention that keeps the horizon level; image-up is then exact rather
+    # than approximated.
+    world_up = (0.0, 0.0, 1.0)
+    right = (
+        forward[1] * world_up[2] - forward[2] * world_up[1],
+        forward[2] * world_up[0] - forward[0] * world_up[2],
+        forward[0] * world_up[1] - forward[1] * world_up[0],
+    )
+    right_norm = math.sqrt(sum(component * component for component in right))
+    if right_norm < 1e-9:
+        raise ValueError("P's camera looks straight up or down; the roll is undefined")
+    right = tuple(component / right_norm for component in right)
+    up = (
+        right[1] * forward[2] - right[2] * forward[1],
+        right[2] * forward[0] - right[0] * forward[2],
+        right[0] * forward[1] - right[1] * forward[0],
+    )
+
+    return {
+        "eye_xyz_m": eye,
+        "look_at_xyz_m": look_at,
+        "forward_xyz": forward,
+        "up_xyz": up,
+        "right_xyz": right,
+        "mast_height_m": scenario.police.camera_mast_height_m,
+    }
+
+
 def person_b_xyz(scenario: Scenario) -> Vec3:
     """Return B's position in the pocket behind the east-wall stub.
 

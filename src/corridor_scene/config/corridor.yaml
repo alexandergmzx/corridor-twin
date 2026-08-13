@@ -218,6 +218,13 @@ police:
   # moves P with the geometry instead of stranding it inside a wall.
   body_size_xyz_m: [0.6, 0.6, 1.8]
   # West of the east wall's inner face, so P stands inside the channel.
+  # P's enforcement camera rides a mast on P's own footprint (ADR 0021 makes
+  # the single render product P's instrument). 5.0 m authored is 1.50 m at the
+  # committed 0.30 factor, which is the pose ratified on 2026-08-12: 5/5
+  # line of sight to the enforcement stations in 3-D and 5/5 in frustum, at
+  # 2.29-4.68 m. At P's own height it is 0/5 -- ADR 0019's corner screen, which
+  # hides P from A, also hides the corridor from P.
+  camera_mast_height_m: 5.0
   east_wall_clearance_m: 0.25
   # South of the north wall's inner face, which is m/2. Closer to that face
   # than ADR 0017's 1.20 m, both because it matches the drawing more closely

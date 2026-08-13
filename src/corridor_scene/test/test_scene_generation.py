@@ -85,7 +85,7 @@ def test_stage_contract_and_every_variant_width(generated: tuple[Path, Path]) ->
         "/World/PhysicsScene",
         "/World/Environment/Ground",
         *[f"/World/Environment/Corridor/{name}" for name in BUILDINGS],
-        "/World/Actors/A/CameraMount/FrontCamera",
+        "/World/Actors/PCameraMast/PCam",
         "/World/Actors/B",
         "/World/Actors/P",
         "/World/Paths/DeliveryPath",
@@ -1141,3 +1141,38 @@ def test_manifest_publishes_every_authored_wall(generated: tuple[Path, Path]) ->
             assert mesh, f"{name}: {wall} is published but not authored"
             authored = {(round(p[0], 6), round(p[1], 6)) for p in mesh.GetPointsAttr().Get()}
             assert {(round(x, 6), round(y, 6)) for x, y in footprint} <= authored
+
+
+def test_the_stage_holds_exactly_one_camera_and_it_is_Ps(tmp_path) -> None:
+    """The render-product budget, checked on the composed stage.
+
+    CLAUDE.md invariant 3 as ADR 0021 recast it: one render product, and it is
+    P's enforcement instrument. The budget is about render products, but the
+    honest place to enforce it is here -- a stage with two authored cameras is
+    a stage where someone can attach a second product without noticing.
+
+    A is camera-less (ADR 0024). Its `CameraMount` survives as a plain Xform
+    because the geometric visibility gate is cast from A's eye and this project
+    does not disavow its geometric proofs.
+    """
+
+    stage_path = tmp_path / "corridor.usda"
+    _, manifest_path = build_scene(None, stage_path, 1.8, 0.9)
+    stage = Usd.Stage.Open(str(stage_path))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    cameras = [str(p.GetPath()) for p in stage.Traverse() if p.IsA(UsdGeom.Camera)]
+    assert cameras == ["/World/Actors/PCameraMast/PCam"], cameras
+
+    mount = stage.GetPrimAtPath("/World/Actors/A/CameraMount")
+    assert mount, "A's eye point must survive: the geometric gate casts from it"
+    assert mount.GetTypeName() == "Xform", "A is camera-less since ADR 0024"
+
+    # The composed prim and the manifest pose are one derivation, not two.
+    matrix = UsdGeom.XformCache().GetLocalToWorldTransform(
+        stage.GetPrimAtPath(cameras[0])
+    )
+    placed = matrix.ExtractTranslation()
+    declared = manifest["profiles"][manifest["selected_profile"]]["p_cam"]["eye_xyz_m"]
+    for got, want in zip(placed, declared, strict=True):
+        assert got == pytest.approx(want, abs=1e-6)

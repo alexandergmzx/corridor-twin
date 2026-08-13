@@ -61,7 +61,9 @@ from isaacsim import SimulationApp  # noqa: E402
 
 # This literal is inspected by ordinary pytest without importing Isaac Sim.
 ADAPTER_CONTRACT = {
-    "camera_prim": "/World/Actors/A/CameraMount/FrontCamera",
+    # ADR 0021 made the single render product P's enforcement instrument;
+    # ADR 0031's session moved the prim to match. A is camera-less.
+    "camera_prim": "/World/Actors/PCameraMast/PCam",
     "image_topic": "/p_cam/image_raw",
     "camera_info_topic": "/p_cam/camera_info",
     "clock_topic": "/clock",
@@ -449,6 +451,24 @@ def _run_static_probe(
     observed_active_render_modes: set[str] = set()
     observed_default_render_modes: set[str] = set()
     total_updates = 0
+    # THE STATIC PROBE ASSUMES THE CAMERA RIDES A, AND IT NO LONGER DOES.
+    #
+    # Every dwell below records `expected_station_x_m` from
+    # `trajectory.camera_pose_at(s)` -- A's pose plus the v1 mount height --
+    # and compares rendered pixels against it. With the render product on P's
+    # fixed mast that expectation is meaningless: moving A does not move the
+    # camera, so the "expected station" describes a viewpoint that does not
+    # exist. Silently repurposing it would produce a probe that still emits
+    # numbers, which is worse than one that stops.
+    #
+    # A P-camera static probe is a different measurement -- A at a station,
+    # seen FROM the mast -- and it belongs with the detector work, not here.
+    raise SystemExit(
+        "the static probe measures A's own camera, which no longer exists: the "
+        "single render product is P's mast (/World/Actors/PCameraMast/PCam). "
+        "Re-specify this probe for a fixed observer before running it."
+    )
+
     for index, station_x_m in enumerate(stations_x_m):
         route_s_m = trajectory.approach_s_at_x(station_x_m)
         actor_pose = trajectory.pose_at(route_s_m)
@@ -571,7 +591,7 @@ def _configure_camera_model() -> None:
     contract = ADAPTER_CONTRACT
     camera = Camera(
         prim_path=contract["camera_prim"],
-        name="corridor_front_camera",
+        name="corridor_p_cam",
         resolution=(contract["width"], contract["height"]),
     )
     width, height = camera.get_resolution()

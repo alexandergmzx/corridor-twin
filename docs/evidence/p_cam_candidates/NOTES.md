@@ -1,6 +1,50 @@
 # Where P's enforcement camera can stand — a decision memo
 
-**2026-08-12, geometry only, no GPU.** For Alexander. **Nothing is chosen here.**
+> ## RATIFIED 2026-08-12 (evening)
+>
+> **P's camera pose is `corner_mast_over_the_screen`: the 1.50 m mast at P's
+> own position.** Ratified by Alexander in the Phase-3-launch handoff, on the
+> 5/5 line-of-sight, 5/5 frustum, 2.29–4.68 m row below.
+>
+> Implemented the same session. The mast height is now authored as
+> `police.camera_mast_height_m` (5.0 m authored → **1.50 m** at the committed
+> 0.30 factor), the pose is derived once by `scene.geometry.p_cam_pose` and
+> reaches the composer, the manifest and the occlusion certificate from there,
+> and the stage's single `UsdGeom.Camera` is
+> `/World/Actors/PCameraMast/PCam`. A is camera-less; `/World/Actors/A/
+> CameraMount` survives as a plain Xform because the geometric visibility gate
+> is cast from A's eye.
+>
+> **Re-measured against the merged-B stage** (ADR 0031, which turned B into one
+> cylinder at the delivery point) and now by a committed, repeatable tool
+> rather than an ad-hoc snippet:
+>
+> ```
+> python3 tools/p_cam_line_of_sight.py --profile <p> \
+>   --out out/evidence/p_cam_candidates/los-3d-<p>.json
+> ```
+>
+> | profile | usable | range to A | worst bearing off axis |
+> |---|---|---|---|
+> | `nominal_m6_n3` | **5/5** | 2.34 – 4.81 m | 21.8° |
+> | `wide_corner_m6_n4_5` | **5/5** | 2.34 – 4.81 m | 22.7° |
+> | `uniform_m6_n6` | **5/5** | 2.37 – 4.81 m | 24.7° |
+>
+> 72 opaque triangles, the same set the A-cannot-see-P proof casts against.
+> The ranges differ from the 2.29–4.68 m below because these stations are
+> fractions of the approach leg rather than the absolute 0.60–3.00 m used
+> originally; they also now cover **all three profiles**, where the original
+> claimed only nominal. B is not an occluder in either measurement: the
+> raycaster walks `/World/Environment`, and B stands under `/World/Actors`
+> down the next street, away from the corridor sightlines.
+>
+> **Still open, and parked for the morning:** whether the mast wants visible
+> scenery. Only the camera prim is authored — no pole, no collider — so the
+> occlusion certificate is untouched and the choice is reversible. A camera
+> floating at 1.5 m reads badly in a third-person viewport.
+
+**2026-08-12, geometry only, no GPU.** The original memo follows, unedited.
+**It chose nothing; the ratification above is what chose.**
 
 ```
 python3 tools/p_cam_candidates.py --manifest out/corridor.manifest.json \

@@ -133,6 +133,17 @@ class PoliceSpec:
     """
 
     body_size_xyz_m: Vec3
+    #: How high P's enforcement camera rides above the ground, on P's own
+    #: footprint. ADR 0019's corner screen hides P from A, and it hides the
+    #: corridor from P at P's own height -- 0/5 enforcement stations visible.
+    #: A mast clears it: measured 5/5 line of sight and 5/5 in-frustum at
+    #: 2.29-4.68 m range. Ratified 2026-08-12; see
+    #: docs/evidence/p_cam_candidates/NOTES.md.
+    #:
+    #: It SCALES with the scenario. The mast has to clear the screen and the
+    #: corridor walls, and those scale, so the ratio is what carries the
+    #: argument -- exactly ADR 0030's reason for scaling by a factor.
+    camera_mast_height_m: float
     east_wall_clearance_m: float
     north_offset_m: float
     minimum_clearance_m: float
@@ -331,6 +342,7 @@ def load_scenario(path: Path | None = None) -> Scenario:
     police_raw = raw["police"]
     police = PoliceSpec(
         body_size_xyz_m=_xyz(police_raw["body_size_xyz_m"], "police.body_size_xyz_m"),
+        camera_mast_height_m=float(police_raw["camera_mast_height_m"]),
         east_wall_clearance_m=float(police_raw["east_wall_clearance_m"]),
         north_offset_m=float(police_raw["north_offset_m"]),
         minimum_clearance_m=float(police_raw["minimum_clearance_m"]),
