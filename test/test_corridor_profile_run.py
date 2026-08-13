@@ -266,3 +266,19 @@ def test_the_recorder_outlives_the_nav_gate() -> None:
     assert ': "${GATE_SECONDS:=$((NAV_TIMEOUT + 10))}"' in source
     # And the recorder is never capped independently of it.
     assert 'GATE_SECONDS="$TRANSIT_WINDOW_S"' not in source
+
+
+def test_a_goal_that_was_never_accepted_is_infrastructure() -> None:
+    """The robot cannot fail a test it was never given.
+
+    bt_navigator reports ACTIVE, the hold-check sees no abort, and the goal
+    arriving moments later is still rejected as inactive. Run 20260812-183327
+    recorded that as a `result` with three failures -- 'robot barely moved',
+    'map too sparse', 'drift 0.328' -- about a robot that never received an
+    instruction. Every one of those numbers is true and none of them is a
+    verdict.
+    """
+
+    source = RUNNER.read_text(encoding="utf-8")
+    assert '"failure": "goal not accepted"' in source
+    assert "the robot was never asked to move" in source

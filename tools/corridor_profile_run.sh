@@ -755,6 +755,19 @@ python3 "$REPO/tools/corridor_nav_gate.py" --profile "$PROFILE" --robot "$ROBOT"
   --timeout "$NAV_TIMEOUT" \
   --out "$RUN_DIR/nav.json" || status=1
 
+# A GOAL THAT WAS NEVER ACCEPTED IS NOT A VERDICT ABOUT THE ROBOT.
+#
+# bt_navigator reports ACTIVE, the runner's hold-check sees no abort, and the
+# goal arriving moments later is still answered "Action server is inactive.
+# Rejecting the goal." The stack was coming up; the robot was never asked to
+# move. Recording that as a red gate is precisely the confusion this script's
+# own exit-3 doctrine exists to prevent -- and it did record it, on run
+# 20260812-183327, as `result` with three failures about a robot that never
+# received an instruction.
+if [ -f "$RUN_DIR/nav.json" ] && grep -q '"failure": "goal not accepted"' "$RUN_DIR/nav.json"; then
+  rerun "the nav stack rejected the goal as inactive; the robot was never asked to move"
+fi
+
 # The recorder's own verdict is a gate result too, so it is waited for rather
 # than killed -- but a nav gate that ended early must not hang the run behind
 # the recorder's full window.
