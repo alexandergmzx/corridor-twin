@@ -61,7 +61,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _lens_core import (                                        # noqa: E402
-    PoseAligner, StalenessTracker, TruthHistory, YawRatioWindow,
+    PoseAligner, RateWindow, StalenessTracker, TruthHistory, YawRatioWindow,
     divergence, occupied_mask_dilated, rle_encode, scan_endpoints,
     scan_map_fit, transform_points)
 
@@ -77,7 +77,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'corridor_lens.html')
 SNAPSHOT_HZ = 5.0
-HISTORY_LEN = 1500              # 5 min at SNAPSHOT_HZ
+# 15 min at SNAPSHOT_HZ. Was 1500 (5 min), which was longer than any run when
+# the lens started after Nav2 -- and shorter than one the moment it started
+# before the simulator (ADR 0035). SIM_MAX_S is 600, plus bring-up and the
+# post-teardown freeze. A bare literal, because the constant-parsing tests read
+# it as one.
+HISTORY_LEN = 4500
 TF_WINDOW = 100                 # snapshots in the TF-health ratio window
 
 # The history row, named ONCE. The sampler built this row from a literal list
@@ -93,6 +98,52 @@ TF_WINDOW = 100                 # snapshots in the TF-health ratio window
 #
 # 't' comes from the snapshot itself; the rest are keys of state['metrics'].
 HISTORY_COLUMNS = ('t', 'fit', 'div_pos', 'yaw_ratio', 'stale_run')
+
+
+#: Samples between dumps. 50 at SNAPSHOT_HZ is every 10 s.
+DUMP_EVERY = 50
+
+#: Set once, so a broken dump path says so exactly one time.
+_dump_failed = False
+
+
+def write_history_dump(path, history):
+    """File the metric history with the session it watched. Returns True if written.
+
+    **Called DURING the run, not only at the end.** The end-of-run form was
+    lost on 3 of 5 runs on 2026-08-14: the log ends at "ROS context shut down,
+    exiting" with no dump line, because the process was KILLed between the
+    server context closing and the write. A history that exists only when the
+    shutdown is graceful is not evidence, and the runs that lose it are the
+    runs that went wrong -- which are the ones worth reading.
+
+    tmp + `os.replace`, so a reader never sees a half-written file and a kill
+    mid-write leaves the previous complete dump rather than a truncated one.
+
+    Fail-open, and loud exactly once. A dump problem must never turn a run into
+    a traceback; a silent one would put us back where we started.
+    """
+
+    global _dump_failed
+    if not path or not history:
+        return False
+    tmp = f'{path}.tmp'
+    try:
+        with open(tmp, 'w') as f:
+            json.dump({'columns': list(HISTORY_COLUMNS),
+                       'snapshot_hz': SNAPSHOT_HZ,
+                       'history': list(history)}, f)
+        os.replace(tmp, path)
+        return True
+    except Exception as e:
+        if not _dump_failed:
+            _dump_failed = True
+            print(f'slam_lens: history dump failed ({e})', flush=True)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return False
 
 
 def yaw_of(q):
@@ -129,6 +180,7 @@ class LensNode:
         self.truth = None
         self.odom = None
         self.counts = {'scan': 0, 'map': 0, 'truth': 0, 'odom': 0, 'odom_raw': 0}
+        self.rate_win = RateWindow()
         self.t0 = time.time()
         self.stale = StalenessTracker()
         self.yaw_win = YawRatioWindow()
@@ -350,12 +402,14 @@ class LensNode:
         if pose is not None and truth_ghost is not None:
             div_pos, div_yaw = divergence(pose, truth_ghost)
 
-        dt = max(1e-6, now - self.t0)
+        # Rates over a trailing window, never since t0 -- see `RateWindow`.
+        self.rate_win.feed(now, counts)
+        rates = self.rate_win.rates()
         tf_ok = (sum(self.tf_results) / len(self.tf_results)) if self.tf_results else None
 
         state = {
             't': _r3(now - self.t0),
-            'rates': {k: _r3(v / dt) for k, v in counts.items()},
+            'rates': {k: _r3(rates.get(k)) for k in counts},
             'pose': None if pose is None else [_r3(v) for v in pose],
             'truth_ghost': None if truth_ghost is None else [_r3(v) for v in truth_ghost],
             'odom_ghost': None if odom_ghost is None else [_r3(v) for v in odom_ghost],
@@ -403,6 +457,7 @@ async def serve(node: LensNode, args):
         # left the first smoke-test's server running headless until SIGKILL.
         # rclpy.ok() going false is therefore the one reliable stop signal.
         period = 1.0 / SNAPSHOT_HZ
+        ticks = 0
         while True:
             if not node._rclpy.ok():
                 stop.set()
@@ -415,6 +470,9 @@ async def serve(node: LensNode, args):
                 [state['t'] if column == 't' else m[column]
                  for column in HISTORY_COLUMNS]
             )
+            ticks += 1
+            if ticks % DUMP_EVERY == 0:
+                write_history_dump(args.dump, history)
             await asyncio.sleep(period)
 
     async def handler(ws):
@@ -476,19 +534,12 @@ async def serve(node: LensNode, args):
         await stop.wait()
         print('slam_lens: ROS context shut down, exiting', flush=True)
 
-    # File the metric history with the session it watched (audit 2026-08-10:
-    # live metrics used to die with the process). Fail-open: a dump problem
-    # must never turn a clean shutdown into a traceback.
-    try:
-        dump = args.dump or None
-        if dump and history:
-            with open(dump, 'w') as f:
-                json.dump({'columns': list(HISTORY_COLUMNS),
-                           'snapshot_hz': SNAPSHOT_HZ,
-                           'history': list(history)}, f)
-            print(f'slam_lens: metric history -> {dump}', flush=True)
-    except Exception as e:
-        print(f'slam_lens: history dump failed ({e})', flush=True)
+    # One last write on the way out, so the final samples land. This is no
+    # longer the ONLY write -- the sampler has been dumping every DUMP_EVERY
+    # ticks throughout -- so a kill anywhere in the shutdown path costs at
+    # most the last few seconds instead of the whole run.
+    if write_history_dump(args.dump, history):
+        print(f'slam_lens: metric history -> {args.dump}', flush=True)
 
 
 def main():

@@ -9,6 +9,7 @@ wired to the detector the MISSION uses.
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 from pathlib import Path
@@ -204,3 +205,134 @@ def test_the_landmark_payload_survives_no_detector() -> None:
     source = LENS.read_text(encoding="utf-8")
 
     assert "'armed': self.detector is not None" in source
+
+
+# ------------------------------------------- the dump is written as it is made
+#
+# On 2026-08-14 three of five runs produced no `lens.json` at all. Each log ends
+# at `slam_lens: ROS context shut down, exiting` with no dump line: the process
+# was killed between the server context closing and the single end-of-run write.
+# The runs that lose their history that way are the runs that went wrong, which
+# are the ones worth reading -- so the write moved into the sampler.
+
+
+def _lens_module():
+    """Import the lens WITHOUT a ROS environment.
+
+    It imports rclpy only inside `LensNode.__init__` and `main()`, so the module
+    and `write_history_dump` are reachable from a bare pytest run. If that ever
+    stops being true this skips rather than failing for the wrong reason.
+    """
+
+    sys.path.insert(0, str(ROOT / "tools/lens"))
+    try:
+        import corridor_lens
+    except ImportError as exc:  # pragma: no cover - environment, not logic
+        import pytest
+
+        pytest.skip(f"the lens is not importable here: {exc}")
+    return corridor_lens
+
+
+def test_the_dump_round_trips_the_history(tmp_path) -> None:
+    lens = _lens_module()
+    target = tmp_path / "lens.json"
+    rows = [[0.2, 0.9, 0.01, None, 0], [0.4, 0.8, 0.02, 1.01, 1]]
+
+    assert lens.write_history_dump(str(target), rows) is True
+
+    written = json.loads(target.read_text(encoding="utf-8"))
+    assert written["columns"] == list(lens.HISTORY_COLUMNS)
+    assert written["snapshot_hz"] == lens.SNAPSHOT_HZ
+    assert written["history"] == rows
+
+
+def test_the_dump_is_atomic_and_leaves_no_temp_file(tmp_path) -> None:
+    """A reader must never catch a half-written file, and a kill mid-write must
+    leave the PREVIOUS complete dump rather than a truncated one."""
+
+    lens = _lens_module()
+    target = tmp_path / "lens.json"
+
+    lens.write_history_dump(str(target), [[0.2, 0.9, 0.01, None, 0]])
+    first = json.loads(target.read_text(encoding="utf-8"))
+    lens.write_history_dump(str(target), [[0.2, 0.9, 0.01, None, 0],
+                                          [0.4, 0.8, 0.02, None, 0]])
+    second = json.loads(target.read_text(encoding="utf-8"))
+
+    assert len(first["history"]) == 1 and len(second["history"]) == 2
+    assert list(tmp_path.iterdir()) == [target], "a .tmp file was left behind"
+
+
+def test_the_dump_fails_open(tmp_path) -> None:
+    """A dump problem must never turn a run into a traceback."""
+
+    lens = _lens_module()
+
+    assert lens.write_history_dump("", [[0.1]]) is False          # no path
+    assert lens.write_history_dump(str(tmp_path / "x.json"), []) is False  # no rows
+    # An unwritable directory is the realistic failure and must not raise.
+    assert lens.write_history_dump(str(tmp_path / "nope" / "x.json"),
+                                   [[0.1]]) is False
+
+
+def test_the_sampler_dumps_while_the_run_is_alive() -> None:
+    """**The regression that matters.** Structural, because the alternative is a
+    five-minute live run to observe a file appearing.
+
+    Pins that the write is called from inside `sampler`, not only after it.
+    """
+
+    tree = ast.parse(LENS.read_text(encoding="utf-8"))
+    sampler = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.AsyncFunctionDef) and n.name == "sampler"),
+        None,
+    )
+    assert sampler is not None, "the sampler is gone; this test needs rewriting"
+
+    called = {
+        n.func.id
+        for n in ast.walk(sampler)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    assert "write_history_dump" in called, (
+        "the sampler no longer dumps; the history is a farewell gift again"
+    )
+
+
+def test_the_dump_interval_covers_a_kill_cheaply() -> None:
+    """Every DUMP_EVERY samples: often enough that a kill costs seconds."""
+
+    lens = _lens_module()
+    seconds = lens.DUMP_EVERY / lens.SNAPSHOT_HZ
+    assert 2.0 <= seconds <= 30.0, f"a {seconds:.0f}s dump interval is not a checkpoint"
+
+
+def test_the_history_covers_a_whole_session() -> None:
+    """HISTORY_LEN was 5 min, which was longer than any run when the lens
+    started after Nav2 and shorter than one the moment it started before the
+    simulator. Read against the runner's own cap rather than a copied number.
+    """
+
+    lens = _lens_module()
+    runner = (ROOT / "tools/corridor_profile_run.sh").read_text(encoding="utf-8")
+    sim_max = int(re.search(r"^SIM_MAX_S=(\d+)", runner, re.M).group(1))
+
+    covered = lens.HISTORY_LEN / lens.SNAPSHOT_HZ
+    assert covered >= sim_max, (
+        f"the history covers {covered:.0f}s of a {sim_max}s cap: bring-up would "
+        f"roll out of the dump, which is what moving the lens earlier was for"
+    )
+
+
+def test_the_page_remembers_at_least_as_much() -> None:
+    """Otherwise the dump keeps the bring-up and the canvas forgets it."""
+
+    lens = _lens_module()
+    page = PAGE.read_text(encoding="utf-8")
+    cap = int(re.search(r"S\.hist\.length > (\d+)", page).group(1))
+
+    assert cap >= lens.HISTORY_LEN, (
+        f"the page caps history at {cap} against the server's {lens.HISTORY_LEN}"
+    )
