@@ -208,3 +208,30 @@ def test_building_with_no_config_writes_the_scenario_that_runs(tmp_path: Path) -
     assert manifest["actors"]["b_height_m"] == pytest.approx(1.7 * SCALE_FACTOR)
     assert "landmark_radius_m" not in manifest["actors"]
     assert "landmark_xyz_m" not in manifest["actors"]
+
+
+def test_b_is_solid_because_the_delivery_is_a_contact(tmp_path: Path) -> None:
+    """**B carried no collider at all until ADR 0033.**
+
+    Every wall has had one since the beginning. B never did, and it did not
+    matter while arrival was a distance: the RTX lidar traces render geometry,
+    so A could always SEE B, and Nav2 kept clear because the scan made B a
+    lethal costmap cell. B was visible, avoidable and intangible at the same
+    time -- A would have driven straight through it.
+
+    A bump needs something to bump. Static like the walls, so B does not topple
+    or slide when a 0.2 m robot leans on it: the collider is applied, and no
+    rigid body is.
+    """
+
+    from pxr import Usd, UsdPhysics
+
+    stage_path, _ = build_scene(None, tmp_path / "corridor.usda", 1.8, 0.9)
+    stage = Usd.Stage.Open(str(stage_path))
+    b = stage.GetPrimAtPath("/World/Actors/B")
+
+    assert b and b.IsValid(), "B must exist"
+    assert b.HasAPI(UsdPhysics.CollisionAPI), "B must be solid -- the delivery is a contact"
+    assert UsdPhysics.CollisionAPI(b).GetCollisionEnabledAttr().Get() is True
+    # Static, not dynamic. A rigid body would let A push B down the street.
+    assert not b.HasAPI(UsdPhysics.RigidBodyAPI), "B must not be pushable"

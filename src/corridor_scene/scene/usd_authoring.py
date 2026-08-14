@@ -80,6 +80,21 @@ def _cylinder(
     )
     UsdGeom.Xformable(cylinder).AddTranslateOp().Set(Gf.Vec3d(*center_xyz))
     UsdShade.MaterialBindingAPI(cylinder).Bind(material)
+    # SOLID, because the delivery is now a contact.
+    #
+    # Every wall in this scene has carried a collider since the beginning
+    # (`_cube(..., collision=True)`), and B never did. It did not matter while
+    # arrival was a distance: A's lidar sees B either way, because the RTX lidar
+    # traces RENDER geometry rather than physics, and Nav2 kept clear of B
+    # because the scan made it a lethal costmap cell. So B was visible,
+    # avoidable, and utterly intangible -- A would have driven straight through
+    # it, and nothing in the scenario would have noticed.
+    #
+    # ADR 0033 makes the bump the arrival, and a bump needs something to bump.
+    # Static, like the walls: no `RigidBodyAPI`, so B does not move, topple or
+    # get pushed down the street when a 0.2 m robot leans on it. A stalls
+    # against it, and the stall is what the encoders report.
+    UsdPhysics.CollisionAPI.Apply(cylinder.GetPrim()).CreateCollisionEnabledAttr(True)
     return cylinder
 
 
