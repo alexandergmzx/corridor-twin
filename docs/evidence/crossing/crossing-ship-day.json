@@ -1,0 +1,139 @@
+{
+  "label": "ship-day",
+  "seconds": 60.0,
+  "domains": {
+    "robot": 42,
+    "police": 43
+  },
+  "nominal_rate_hz": 15.0,
+  "frames": {
+    "nominal_expected": 900.0,
+    "published_on_robot_plane": 807,
+    "delivered_in_police_plane": 775,
+    "delivered_ratio_of_nominal": 0.8611,
+    "delivered_ratio_of_published": 0.9603,
+    "matched_on_both_planes": 728,
+    "camera_info_published_on_robot_plane": 881,
+    "camera_info_delivered": 880,
+    "camera_info_crossing_ratio": 0.9989
+  },
+  "stamp_monotonicity": {
+    "police_plane_non_monotonic": 0,
+    "robot_plane_non_monotonic": 0
+  },
+  "clock": {
+    "police_plane": {
+      "messages": 3158,
+      "advancing": true,
+      "span_s": 58.633,
+      "first_ns": 2000000104,
+      "last_ns": 60633336495
+    },
+    "robot_plane": {
+      "messages": 3163,
+      "advancing": true,
+      "span_s": 58.717,
+      "first_ns": 1916666766,
+      "last_ns": 60633336495
+    }
+  },
+  "added_latency_ms": {
+    "samples": 728,
+    "median": 1.353,
+    "p95": 2.497,
+    "max": 16.338,
+    "ceiling_ms": 66.667
+  },
+  "stream": {
+    "frame_ids": [
+      "p_cam_optical_frame"
+    ],
+    "sizes": [
+      "640x360"
+    ],
+    "encodings": [
+      "rgb8"
+    ]
+  },
+  "gpu": {
+    "name": "NVIDIA GeForce RTX 5070 Ti",
+    "vram_used_mib_at_start": 2850,
+    "vram_used_mib_peak_during_capture": 2850,
+    "vram_used_mib_samples": 12,
+    "vram_total_mib": 16303,
+    "method": "nvidia-smi --query-gpu=memory.used --id=0 (tools/isaac_gpu.py), sampled every 5 s DURING the capture"
+  },
+  "bridge": {
+    "running": true,
+    "pid": 3752419,
+    "cpu_percent_sample": 2.0,
+    "sample_window_s": 0.5,
+    "cpu_percent_samples": [
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      2.0,
+      4.0,
+      4.0,
+      2.0,
+      2.0
+    ],
+    "cpu_percent_max": 4.0
+  },
+  "source_liveness": {
+    "robot_plane_clock_span_s": 58.717,
+    "police_plane_clock_span_s": 58.633,
+    "image_arrival_rate_hz_robot_plane_sim_basis": 13.744,
+    "camera_info_arrival_rate_hz_robot_plane_sim_basis": 15.004
+  },
+  "producer": {
+    "definition": "frames the adapter rendered per simulation second, from its own schedule, vs the declared rate",
+    "updates_completed": 12589,
+    "update_divider": 4,
+    "frames_the_adapter_rendered": 3147,
+    "adapter_sim_span_s": 209.8,
+    "adapter_rate_hz_sim_basis": 15.0,
+    "path_speed_mps": 0.041,
+    "declared_hz": 15.0,
+    "ratio": 1.0,
+    "floor": 0.95,
+    "pass": true,
+    "evidence": "/home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/crossing/drive-schedule-ship-day.json"
+  },
+  "gates": {
+    "producer": {
+      "definition": "frames the adapter rendered per simulation second, from its own schedule, vs the declared rate",
+      "updates_completed": 12589,
+      "update_divider": 4,
+      "frames_the_adapter_rendered": 3147,
+      "adapter_sim_span_s": 209.8,
+      "adapter_rate_hz_sim_basis": 15.0,
+      "path_speed_mps": 0.041,
+      "declared_hz": 15.0,
+      "ratio": 1.0,
+      "floor": 0.95,
+      "pass": true,
+      "evidence": "/home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/crossing/drive-schedule-ship-day.json"
+    },
+    "crossing": {
+      "definition": "delivered in P's plane vs published on A's plane, same QoS both sides",
+      "image_ratio": 0.9603,
+      "camera_info_ratio": 0.9989,
+      "floor": 0.95,
+      "pass": true,
+      "attribution": "size-dependent transport loss: the small stream crossed at 0.999 while the large stream crossed at 0.960"
+    }
+  },
+  "checks": {
+    "crossing_gate": true,
+    "stamps_monotonic_in_police_plane": true,
+    "clock_advancing_in_police_plane": true,
+    "added_latency_under_one_camera_period": true,
+    "camera_info_accompanies_images": true,
+    "producer_gate": true
+  },
+  "pass": true
+}

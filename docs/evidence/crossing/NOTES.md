@@ -138,6 +138,35 @@ decides the v2 resolution, and if it wants 720p the transport question has to be
 answered first (larger DDS buffers, a compressed transport, or a reliability
 change — none of which is attempted here).
 
+## Re-run on delivery day, 2026-08-14 (`--label ship-day`)
+
+Everything above was measured on 2026-08-07. The session was repeated
+unchanged on delivery day so the certificate shipped with the build it
+describes rather than with a week-old one.
+
+```bash
+bash tools/crossing_session.sh --label ship-day
+```
+
+| | 2026-08-07 | **2026-08-14** |
+|---|---|---|
+| Certificate | GREEN | **GREEN**, allowlist matches exactly |
+| Mutation control | RED | **RED** — `unexpected=['/test/ground_truth/speed']` |
+| Positive control | pass | pass — the robot plane shows strictly more |
+| Image crossing ratio | 0.954 | **0.9603** |
+| CameraInfo crossing ratio | 0.998 | **0.9989** |
+| Producer gate | 0.9995 | **1.0000** — 15.0 Hz rendered against 15.0 declared |
+| Added latency | under one camera period | under one camera period |
+| VRAM during capture | — | 2850 MiB peak of 16303 |
+
+Artifacts: `certificate-ship-day.json`, `certificate-ship-day-mutated.json`,
+`crossing-ship-day.json`.
+
+The "what this does not show" list below is unchanged and still applies. In
+particular the certificate still ran with the adapter and one truth publisher
+live rather than against a full A-plane, so it remains a test of the
+*mechanism* rather than of a fully populated robot domain.
+
 ## What this does not show
 
 - Nothing about P's camera **placement**. The camera still sits on A's old mount
