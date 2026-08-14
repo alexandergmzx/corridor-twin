@@ -257,6 +257,29 @@ LIDAR_MIN_RANGE_M = 0.12
 #: agreeing with it, and a mismatch is a bug in one of the two.
 CREEP_SPEED_MPS = 0.05
 
+#: THE CREEP HAS TO STEER, and the first version did not.
+#:
+#: It commanded pure forward motion, on the unexamined assumption that A is
+#: pointing at B when the handoff happens. A is not: the yaw study measured
+#: arrival headings **51-79 degrees** off the delivery heading, because A comes
+#: round the corner mid-turn. Run 20260814-003034 is what that costs -- the
+#: creep ran its full 25 s without ever stalling, and B went from 0.6133 m at
+#: handoff to 0.6335 m by the timeout. A drove a metre and a quarter at a
+#: tangent and the range grew.
+#:
+#: Proportional yaw toward the confirmed bearing. The gain is deliberately soft:
+#: the governor caps yaw to `max_yaw_near` = 0.4 rad/s inside its stop distance
+#: anyway, so a stiffer gain would only be clipped, and a clipped controller is
+#: one whose behaviour is set somewhere else.
+CREEP_YAW_GAIN = 0.8
+
+#: Do not drive forward while badly misaligned -- turn first. Forward speed is
+#: scaled by the cosine of the bearing error and cut entirely past this, so A
+#: pivots onto B rather than spiralling around it. 30 degrees keeps the
+#: alignment well inside the governor's 15-degree mask cone by the time A is
+#: actually closing.
+CREEP_MAX_BEARING_RAD = 0.5236
+
 #: Below this, A is not moving. Measured EKF noise while genuinely stationary is
 #: 0.014 mm per sample, so this is three orders of magnitude above the floor and
 #: well under the 0.05 m/s being commanded.
@@ -703,8 +726,17 @@ class DockingMachine:
         # STALL. Commanded forward, not moving. The debounce is what separates
         # contact from a slow start, and `measured_vx` is A's own EKF -- the
         # encoders are the bumper, because this chassis has no bumper.
+        #
+        # **Only while actually asking for forward motion.** With steering
+        # added, A pivots in place when it is badly misaligned: vx is zero by
+        # design and the encoders report zero because nothing is translating.
+        # Counting that as a stall would confirm a contact that never happened,
+        # which is the one failure mode here that looks like success.
+        commanding_forward = (
+            abs(self._last_seen_bearing_rad) <= CREEP_MAX_BEARING_RAD
+        )
         moving = measured_vx is None or abs(measured_vx) > STALL_SPEED_MPS
-        if moving:
+        if moving or not commanding_forward:
             self._stall_since_s = None
         elif self._stall_since_s is None:
             self._stall_since_s = now_s
@@ -720,17 +752,30 @@ class DockingMachine:
             self.history.append({
                 "event": "creep_timeout", "elapsed_s": round(elapsed, 2),
                 "last_seen_range_m": self._last_seen_range_m,
+                "last_seen_bearing_deg": round(
+                    math.degrees(self._last_seen_bearing_rad), 1),
             })
-            return {"vx": 0.0, "approach": None, "reason": "creep timed out"}
+            return {"vx": 0.0, "wz": 0.0, "approach": None,
+                    "reason": "creep timed out"}
+
+        # STEER ONTO B. Pure forward motion was the first version's mistake:
+        # A arrives mid-turn, so "ahead" is not where B is.
+        bearing = self._last_seen_bearing_rad
+        aligned = abs(bearing) <= CREEP_MAX_BEARING_RAD
+        vx = CREEP_SPEED_MPS * math.cos(bearing) if aligned else 0.0
+        wz = CREEP_YAW_GAIN * bearing
 
         return {
-            "vx": CREEP_SPEED_MPS,
+            "vx": vx,
+            "wz": wz,
             "approach": {
-                "bearing_rad": self._last_seen_bearing_rad,
+                "bearing_rad": bearing,
                 "range_m": self._last_seen_range_m,
                 "margin_m": 0.10,
             } if self._last_seen_range_m is not None else None,
-            "reason": f"creeping, {elapsed:.1f}s",
+            "reason": (f"creeping, {elapsed:.1f}s, bearing "
+                       f"{math.degrees(bearing):+.0f} deg"
+                       + ("" if aligned else " -- turning first")),
         }
 
     def _finish_creep(self, now_s: float, elapsed: float) -> dict:
@@ -753,10 +798,12 @@ class DockingMachine:
             "elapsed_s": round(elapsed, 2),
             "last_seen_range_m": seen,
             "last_sighting_ceiling_m": round(self.last_sighting_ceiling_m, 4),
+            "last_seen_bearing_deg": round(
+                math.degrees(self._last_seen_bearing_rad), 1),
             "verdict": self.state,
         })
         return {
-            "vx": 0.0, "approach": None,
+            "vx": 0.0, "wz": 0.0, "approach": None,
             "reason": ("contact confirmed" if confirmed
                        else f"stalled but B last seen at {seen} m -- unproven"),
         }

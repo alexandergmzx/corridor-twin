@@ -717,3 +717,62 @@ def test_a_confirmed_delivery_is_terminal() -> None:
 
     assert machine.creep(verdict, measured_vx=0.0, now_s=2.0) is None
     assert machine.step((0.0, 0.0), 0.0, _verdict(0.26, 0.0)) is None
+
+
+def test_the_creep_steers_onto_b_instead_of_driving_a_tangent() -> None:
+    """**Run 20260814-003034.** The creep commanded pure forward motion.
+
+    A arrives mid-turn -- the yaw study measured 51-79 degrees off the delivery
+    heading -- so "ahead" is not where B is. That run crept its full 25 s
+    without ever stalling, and B went from 0.6133 m at handoff to 0.6335 m by
+    the timeout: a metre and a quarter driven at a tangent, with the range
+    growing the whole way.
+    """
+
+    machine = _docking()
+    off_to_the_left = _verdict(0.30, 0.0)
+    off_to_the_left["candidate"]["bearing_rad"] = 0.6      # ~34 deg
+
+    out = machine.creep(off_to_the_left, measured_vx=0.05, now_s=0.0)
+
+    assert out["wz"] > 0.0, "must turn toward B"
+    assert out["vx"] == 0.0, "must not drive forward while badly misaligned"
+    assert "turning first" in out["reason"]
+
+
+def test_forward_speed_is_scaled_by_alignment() -> None:
+    """Aligned drives at the creep speed; slightly off drives slower."""
+
+    from corridor_dock import CREEP_SPEED_MPS
+
+    aligned = _docking().creep(_verdict(0.30, 0.0), measured_vx=0.05, now_s=0.0)
+    assert aligned["vx"] == pytest.approx(CREEP_SPEED_MPS)
+    assert aligned["wz"] == pytest.approx(0.0)
+
+    slight = _verdict(0.30, 0.0)
+    slight["candidate"]["bearing_rad"] = 0.3               # ~17 deg
+    out = _docking().creep(slight, measured_vx=0.05, now_s=0.0)
+    assert 0.0 < out["vx"] < CREEP_SPEED_MPS
+    assert out["wz"] > 0.0
+
+
+def test_a_pivot_is_never_mistaken_for_contact() -> None:
+    """**The dangerous failure: a bump that never happened.**
+
+    While badly misaligned the creep pivots in place -- vx is zero by design,
+    so the encoders report zero translation. Counting that as a stall would
+    confirm a contact against thin air, and it is the one failure here that
+    looks exactly like success.
+    """
+
+    machine = _docking()
+    sideways = _verdict(0.30, 0.0)
+    sideways["candidate"]["bearing_rad"] = 0.9             # ~52 deg, pivoting
+
+    for t in (0.0, 1.0, 2.0, 3.0, 4.0):
+        out = machine.creep(sideways, measured_vx=0.0, now_s=t)
+        assert out["vx"] == 0.0
+
+    assert machine.state == DockingMachine.DOCKING, (
+        "a pivot is not an arrival, however long it lasts"
+    )

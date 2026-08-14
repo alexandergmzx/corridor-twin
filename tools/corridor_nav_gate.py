@@ -278,7 +278,7 @@ class NavGate(Node):
         # calls contact when it is commanding motion and this reports none.
         self.measured_vx = message.twist.twist.linear.x
 
-    def drive(self, vx: float, approach: dict | None) -> None:
+    def drive(self, vx: float, wz: float, approach: dict | None) -> None:
         """Command the creep, and tell the governor what it is for.
 
         Both halves go out together and neither is optional. The velocity goes
@@ -295,6 +295,11 @@ class NavGate(Node):
 
         command = Twist()
         command.linear.x = float(vx)
+        # AND THE YAW. The creep steers onto B: A arrives mid-turn, 51-79 deg
+        # off the delivery heading, so pure forward motion drives a tangent.
+        # Run 20260814-003034 did exactly that -- 25 s of creep during which B
+        # went from 0.6133 m to 0.6335 m away.
+        command.angular.z = float(wz)
         self.cmd_pub.publish(command)
 
         if approach is None:
@@ -551,9 +556,9 @@ def main() -> int:
                     gate.last_verdict, gate.measured_vx, time.monotonic()
                 )
                 if command is not None:
-                    gate.drive(command["vx"], command["approach"])
+                    gate.drive(command["vx"], command["wz"], command["approach"])
                 if machine.state in machine.TERMINAL:
-                    gate.drive(0.0, None)          # leave it stopped, always
+                    gate.drive(0.0, 0.0, None)     # leave it stopped, always
                     print(f"  dock: {machine.state} -- {command['reason']}")
                     break
                 continue
