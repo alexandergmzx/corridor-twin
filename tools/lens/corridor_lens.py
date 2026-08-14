@@ -146,6 +146,51 @@ def write_history_dump(path, history):
         return False
 
 
+def write_announcement(path, host, port, args):
+    """Say where this lens actually bound, so nobody has to guess. -> bool.
+
+    Written INSIDE the server context, after the bind has already succeeded, so
+    its existence is proof the port is being served rather than an intention to
+    serve it.
+
+    The runner used to print `http://127.0.0.1:8765/` unconditionally, from a
+    literal, after a health poll that broke on success OR on the lens dying --
+    and this process walks to 8766-8770 when 8765 is taken. So it announced a
+    URL that could be a dead lens, or somebody else's. On 2026-08-14 the
+    operator called those "faux launches", and they were.
+
+    A port scan would not fix it: `lens_stub.py` defaults to 8766 and also
+    serves /healthz, so a scan would cheerfully announce a stub as this run's
+    instrument. A health check is not an identity check. This file, written by
+    the lens into the run's own directory, is.
+
+    `pid` is not decoration -- it is how a caller that launched us through
+    `setsid` learns which process to reap later.
+    """
+
+    if not path:
+        return False
+    tmp = f'{path}.tmp'
+    try:
+        with open(tmp, 'w') as f:
+            json.dump({'url': f'http://{host}:{port}/',
+                       'host': host, 'port': port, 'pid': os.getpid(),
+                       'domain': os.environ.get('ROS_DOMAIN_ID'),
+                       'map_topic': args.map_topic,
+                       'scan_topic': args.scan_topic,
+                       'started_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ',
+                                                    time.gmtime())}, f)
+        os.replace(tmp, path)
+        return True
+    except Exception as e:
+        print(f'slam_lens: could not write the announcement ({e})', flush=True)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        return False
+
+
 def yaw_of(q):
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                       1.0 - 2.0 * (q.y * q.y + q.z * q.z))
@@ -525,6 +570,8 @@ async def serve(node: LensNode, args):
               flush=True)
         return
     async with server:
+        # After the bind, never before: the file's existence is the proof.
+        write_announcement(args.announce, args.host, port, args)
         if port != args.port:
             print(f'slam_lens: port {args.port} busy (another lens?), '
                   f'using {port}', flush=True)
@@ -555,6 +602,10 @@ def main():
     ap.add_argument('--truth-topic', default='/sim/ground_truth')
     ap.add_argument('--map-frame', default='map')
     ap.add_argument('--base-frame', default='base_footprint')
+    ap.add_argument('--announce', default='',
+                    help='write {url,host,port,pid,...} here once the port is '
+                         'bound, so a caller announces a verified URL instead '
+                         'of a literal (see write_announcement)')
     ap.add_argument('--sim-time', action='store_true',
                     help='use /clock (replays only, same rule as replay_slam_bag)')
     ap.add_argument('--manifest', default='',

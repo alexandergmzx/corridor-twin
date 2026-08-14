@@ -437,8 +437,11 @@ a decision after the fact.
 ### Watch the run, do not autopsy it
 
 **Always debug with the lens up, before reasoning about a run from its
-artifacts.** `tools/corridor_profile_run.sh` starts it automatically and prints
-`http://127.0.0.1:8765/`; `--no-lens` opts out and needs a reason.
+artifacts.** `tools/corridor_profile_run.sh` starts it **before the simulator**
+(ADR 0035) and prints the URL the lens itself reported binding — never a
+literal, because the lens walks to the next free port and the old unconditional
+banner announced dead ones. A lens that cannot serve **refuses the run**;
+`--no-lens` opts out and needs a reason.
 
 This is a rule because ignoring it cost most of a day. A phantom landmark
 detection at 0.910 m re-aimed an entire mission while B's real post stood five

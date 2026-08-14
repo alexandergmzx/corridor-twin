@@ -232,7 +232,8 @@ diagnosis_log() {
                    "$RUN_DIR/nav-launch-attempt1.log" \
                    "$RUN_DIR/slam-attempt2.log" \
                    "$RUN_DIR/slam-attempt1.log" \
-                   "$RUN_DIR/contract.txt"; do
+                   "$RUN_DIR/contract.txt" \
+                   "$RUN_DIR/lens.log"; do
     [ -s "$candidate" ] && { printf '%s' "$candidate"; return; }
   done
 }
@@ -367,6 +368,28 @@ residents() {
   pgrep -af '/opt/ros/[^ ]*/lib/(nav2_[a-z_]+|slam_toolbox)/|corridor_lens\.py' 2>/dev/null \
     | grep -v -- '__ns:=' || true
 }
+# One lens per run. Under ADR 0035 a lens from the previous run is EXPECTED to
+# still be serving -- that is the point -- so this run replaces it rather than
+# refusing next to it. An open browser tab survives the handover: the page
+# auto-reconnects and rebinds to the same port.
+#
+# The pattern is built from a variable so this command line cannot match
+# itself. pgrep matching its own invocation cost four false positives in one
+# session and the last one killed the shell doing the checking.
+reap_previous_lens() {
+  local pattern="tools/lens/corridor_""lens\.py" pids
+  pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+  [ -n "$pids" ] || return 0
+  echo "  replacing the previous run's lens (pid $(echo "$pids" | tr '\n' ' '))"
+  echo "$pids" | xargs -r kill -TERM 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+    [ -z "$pids" ] && return 0
+    sleep 0.5
+  done
+  echo "$pids" | xargs -r kill -KILL 2>/dev/null || true
+}
+
 if [ -n "$(residents)" ]; then
   echo "un-namespaced ROS nodes are already alive and would share domain $DOMAIN:" >&2
   residents >&2
@@ -567,6 +590,69 @@ SESSION_MARKER=$(mktemp)
 watchdog_pid=$!
 SESSION_START_S=$(date +%s)
 echo "  watchdog armed: ${SIM_MAX_S}s cap covers bring-up AND the transit"
+
+# THE LENS COMES UP FIRST. ADR 0035.
+#
+# It used to start after SLAM and Nav2 -- and TEN of the twelve rerun() exits
+# are before that point, so every bring-up death was invisible by construction.
+# Runs 20260814-022725, -023029 and -025555 wrote no lens.log at all. The lens
+# has no dependency on either stack: it is read-only, publishes nothing,
+# subscribes to /map latched so it picks the map up whenever SLAM gets there,
+# and every TF lookup is zero-timeout and None-tolerant. The old position
+# arrived in one commit with no rationale and no ADR.
+#
+# Before `simctl start`, not after it, for one reason: a lens that cannot serve
+# now REFUSES the run, and a refusal must not throw away 70 s of Isaac load.
+#
+# The known cost, stated rather than hidden: the landmark detector runs at 5 Hz
+# from the first scan and is NOT behind the tf_pose guard, so this adds a small
+# consumer to the window this file already blames for lifecycle contention
+# (see the settle comment below). Measured against contract.txt rates and the
+# simctl->nav interval over the first runs after the change; if it costs
+# anything the block moves below `simctl start` and nothing else changes.
+phase "lens"
+if [ "$LENS" = 1 ]; then
+  reap_previous_lens
+  LENS_ANNOUNCE="$RUN_DIR/lens.announce.json"
+  rm -f "$LENS_ANNOUNCE"
+  # setsid: a Ctrl-C in the operator's terminal must not take the instrument
+  # down at the moment they reached for it. simctl:117 does the same for every
+  # component it launches.
+  setsid python3 "$REPO/tools/lens/corridor_lens.py" --domain "$DOMAIN" \
+    --manifest "$MANIFEST" \
+    --dump "$RUN_DIR/lens.json" \
+    --announce "$LENS_ANNOUNCE" \
+    >"$RUN_DIR/lens.log" 2>&1 &
+  # 20 s, not 10: a cold rclpy + tf2 import is 2-4 s and there is nothing else
+  # loading yet. $! is the setsid wrapper, so liveness comes from the
+  # announcement and from the lens's own "all busy" line, never from kill -0.
+  for _ in $(seq 1 80); do
+    [ -s "$LENS_ANNOUNCE" ] && break
+    grep -q 'all busy; exiting' "$RUN_DIR/lens.log" 2>/dev/null && break
+    sleep 0.25
+  done
+  LENS_URL=""; LENS_PORT=""; LENS_PID=""
+  if [ -s "$LENS_ANNOUNCE" ]; then
+    read -r LENS_URL LENS_PORT LENS_PID <<<"$(python3 -c '
+import json, sys
+a = json.load(open(sys.argv[1]))
+print(a["url"], a["port"], a["pid"])' "$LENS_ANNOUNCE" 2>/dev/null)" || true
+  fi
+  # The banner is the port the lens SAID it bound, re-verified. There is no
+  # literal port number left in this file to print by mistake.
+  if [ -n "$LENS_URL" ] && [ -n "$LENS_PORT" ] \
+     && curl -sf --max-time 2 "http://127.0.0.1:$LENS_PORT/healthz" >/dev/null 2>&1; then
+    lens_pid="$LENS_PID"
+    echo "  lens: $LENS_URL  (map, scan, 3 pose ghosts, landmark)"
+    manifest --set "lens_url=$LENS_URL" --set "lens_pid=$LENS_PID"
+  else
+    tail -5 "$RUN_DIR/lens.log" 2>/dev/null | sed 's/^/    /' >&2
+    manifest_error "the lens never served; see lens.log"
+    rerun "the lens never served -- nothing is watching this run. Fix it, or pass --no-lens with a reason"
+  fi
+else
+  echo "  **--no-lens: this run is NOT watched (CLAUDE.md asks for a reason)**" >&2
+fi
 
 # THE SCAN FILTER NEEDS TO KNOW WHICH ROOM IT IS IN.
 #
@@ -952,21 +1038,6 @@ if [ "$NAV_TIMEOUT" -gt "$TRANSIT_WINDOW_S" ]; then
   NAV_TIMEOUT="$TRANSIT_WINDOW_S"
 fi
 : "${GATE_SECONDS:=$((NAV_TIMEOUT + 10))}"
-if [ "$LENS" = 1 ]; then
-  python3 "$REPO/tools/lens/corridor_lens.py" --domain "$DOMAIN" \
-    --manifest "$MANIFEST" \
-    --dump "$RUN_DIR/lens.json" \
-    >"$RUN_DIR/lens.log" 2>&1 &
-  lens_pid=$!
-  # Poll /healthz, which the lens serves for exactly this. A fixed sleep here
-  # was both too long on a warm box and too short on a cold one.
-  for _ in $(seq 1 40); do
-    curl -sf --max-time 1 "http://127.0.0.1:8765/healthz" >/dev/null 2>&1 && break
-    kill -0 "$lens_pid" 2>/dev/null || break
-    sleep 0.25
-  done
-  echo "=== lens: http://127.0.0.1:8765/  (map, scan, 3 pose ghosts, landmark) ==="
-fi
 
 # WHO COMMANDED THAT? Started BEFORE the goal, because the question is about
 # what happens before the goal. Nothing in either repository subscribed to
