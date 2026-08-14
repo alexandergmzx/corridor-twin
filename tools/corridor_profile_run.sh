@@ -447,7 +447,45 @@ teardown() {
   fi
   echo "  verified dead"
   teardown_verified=1
+  reap_stale_carb_semaphores
   isaac_lock_release
+}
+
+# Isaac leaks one POSIX semaphore per session and never reclaims it.
+#
+#     /dev/shm/sem.carb-RStringInternals-<pid>
+#
+# `carb` is Omniverse's Carbonite core. After 30 sessions on 2026-08-13 there
+# were 144, all owned by dead processes, and /dev/shm held 304 entries.
+#
+# WHY THIS IS SWEPT UP RATHER THAN LEFT AS UNTIDY. Immediately before the
+# sweep, four consecutive runs died in bring-up with
+# `controller_server/get_state service client: async_send_request failed` --
+# the lifecycle manager aborting the whole nav stack 2.2 s in. Immediately
+# after it, three consecutive runs came up clean with zero races. 4-of-4
+# against 0-of-3 is p ~= 0.03, which is suggestive and is NOT a demonstrated
+# cause: one thing was changed on a host that had been cycling Isaac all day,
+# and a transient that cleared on its own is not excluded. Recorded as a
+# correlation.
+#
+# The leak is worth reaping either way: an unattended session accumulates these
+# without bound, and nothing else ever removes them.
+#
+# ONLY dead owners. The pid is the filename's suffix, and a live one belongs to
+# somebody else's session -- possibly a concurrent Isaac this run must not
+# touch. Failure is silent by design: a tidy-up that can abort a teardown is
+# worse than the litter.
+reap_stale_carb_semaphores() {
+  local reaped=0 pid
+  for path in /dev/shm/sem.carb-RStringInternals-*; do
+    [ -e "$path" ] || continue
+    pid="${path##*-}"
+    case "$pid" in (*[!0-9]*|"") continue ;; esac
+    kill -0 "$pid" 2>/dev/null && continue
+    rm -f "$path" 2>/dev/null && reaped=$((reaped + 1))
+  done
+  [ "$reaped" -gt 0 ] && echo "  reaped $reaped stale Isaac semaphores from /dev/shm"
+  return 0
 }
 # THE DEFAULT VERDICT IS `crash`, and that is the point.
 #
