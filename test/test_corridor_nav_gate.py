@@ -344,3 +344,98 @@ def test_the_states_that_excuse_a_cancel_all_exist() -> None:
     assert not hasattr(DockingMachine, "DOCKED"), (
         "DOCKED was removed by ADR 0033; reaching the band is a handoff"
     )
+
+
+# ------------------------------------------------ the laser stationarity witness
+#
+# This is the witness that decides whether a bump happened. It has to survive the
+# scan matcher's re-registration jumps: bag 20260814-003844 puts the matcher's
+# stationary p95 at 374 mm against a median of 16.8 mm, so a statistic sensitive
+# to the tail reads a parked robot as moving and no contact is ever confirmed.
+
+EPS = nav_gate.LASER_STATIONARY_EPS_MPS
+WINDOW = nav_gate.LASER_WITNESS_WINDOW_S
+PAIRS = nav_gate.LASER_WITNESS_MIN_PAIRS
+
+
+def _track(speeds_mps, *, dt=0.1, t0=100.0):
+    """A synthetic /odom_laser track advancing at the given per-step speeds."""
+
+    samples, x, t = [(t0, 0.0, 0.0)], 0.0, t0
+    for speed in speeds_mps:
+        t += dt
+        x += speed * dt
+        samples.append((t, x, 0.0))
+    return samples, t
+
+
+def test_a_parked_robot_reads_stationary():
+    track, now = _track([0.0168] * 20)          # the bag's stationary median
+    assert nav_gate.laser_stationary_from_track(track, now) is True
+
+
+def test_a_creeping_robot_reads_moving():
+    track, now = _track([0.05] * 20)            # the creep clamp
+    assert nav_gate.laser_stationary_from_track(track, now) is False
+
+
+def test_re_registration_jumps_do_not_defeat_the_witness():
+    """**The reason this is a median.** One in five samples jumps 374 mm.
+
+    A mean over this track is ~0.76 m/s and a maximum is 3.74 m/s -- both call a
+    parked robot moving, and the delivery is never confirmed. The median is
+    unmoved.
+    """
+
+    speeds = [0.0168] * 20
+    for i in range(0, 20, 5):
+        speeds[i] = 3.74                        # 374 mm in a 0.1 s step
+    track, now = _track(speeds)
+
+    assert nav_gate.laser_stationary_from_track(track, now) is True
+
+
+def test_a_majority_of_jumps_is_not_explained_away():
+    """The median is robust, not blind. Past half, the robot really is moving."""
+
+    speeds = [0.0168] * 20
+    for i in range(0, 20, 2):
+        speeds[i] = 3.74
+    speeds[1] = 3.74
+    track, now = _track(speeds)
+
+    assert nav_gate.laser_stationary_from_track(track, now) is False
+
+
+def test_a_silent_matcher_abstains_rather_than_guessing():
+    """None, not False: the caller then falls back to the encoders.
+
+    Returning False ("moving") would be defensible but wrong -- it would mean a
+    dead matcher permanently blocks every arrival, and the operator would see a
+    robot touching B and reporting ARRIVED_UNPROVEN with nothing in the log.
+    """
+
+    assert nav_gate.laser_stationary_from_track([], 100.0) is None
+    thin, now = _track([0.0] * (PAIRS - 2))
+    assert nav_gate.laser_stationary_from_track(thin, now) is None
+
+
+def test_stale_samples_fall_out_of_the_window():
+    """A matcher that stopped publishing 10 s ago must not still be a witness."""
+
+    track, now = _track([0.0168] * 20)
+    assert nav_gate.laser_stationary_from_track(track, now + WINDOW + 5.0) is None
+
+
+def test_only_the_window_is_considered_not_the_whole_history():
+    """Parked for a while, then moving: the verdict follows the recent samples."""
+
+    parked, t = _track([0.0] * 30)
+    moving, now = _track([0.05] * 20, t0=t)
+    assert nav_gate.laser_stationary_from_track(parked + moving[1:], now) is False
+
+
+def test_the_threshold_sits_between_the_two_measured_regimes():
+    """A pinned number, printed and enforced from one place."""
+
+    assert 0.0168 < EPS < 0.05

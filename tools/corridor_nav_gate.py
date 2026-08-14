@@ -38,8 +38,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import statistics
 import sys
 import time
+from collections import deque
 from pathlib import Path
 
 import rclpy
@@ -90,6 +92,64 @@ GOVERNOR_CMD_TOPIC = "/cmd_vel_raw"
 #: `~/docking_approach` on the governor node, resolved. ADR 0033: the governor
 #: is informed of the terminal approach, never bypassed for it.
 GOVERNOR_DOCKING_TOPIC = "/cmd_vel_governor/docking_approach"
+#: `~/docking_disc` on the same node. A SEPARATE topic from the cone, because
+#: the third field changes meaning between them -- margin there, target radius
+#: here -- and a stale sender's margin must never be read as a radius.
+GOVERNOR_DISC_TOPIC = "/cmd_vel_governor/docking_disc"
+#: What the safety filter actually PERMITTED, read back. Subscribing to
+#: `/cmd_vel` is not a bypass: nothing is published here, and the creep still
+#: drives through `/cmd_vel_raw`. It is the only way to tell "the governor
+#: stopped me" from "I hit something", which are otherwise identical to a
+#: robot whose encoders read zero either way.
+GOVERNED_CMD_TOPIC = "/cmd_vel"
+
+#: How long a window of laser odometry the stationary witness looks at.
+LASER_WITNESS_WINDOW_S = 2.0
+#: Below this median speed the scan matcher says the ROBOT did not move.
+#:
+#: Provenance, and its weakness. Replay of session bag 20260814-003844 puts the
+#: matcher's stationary 1-second displacement at a median of 16.8 mm but a p95
+#: of 374 mm -- ICP re-registration jumps, which is why this is a MEDIAN over
+#: per-sample pairs and not a mean or a maximum. A creep exempt from the slow
+#: zone runs at the full 0.05 m/s clamp, so the separation is 16.8 mm/s
+#: stationary against 50 mm/s moving and this sits between them.
+#:
+#: It is not a wide margin and it has not been validated live. Failing the
+#: wrong way costs a delivery (ARRIVED_UNPROVEN), never a forged one, because
+#: this witness can only ever WITHHOLD a confirmation -- see `DockingMachine.creep`.
+LASER_STATIONARY_EPS_MPS = 0.030
+#: Fewer pairs than this in the window and the witness abstains rather than
+#: guessing from two samples.
+LASER_WITNESS_MIN_PAIRS = 6
+
+
+def laser_stationary_from_track(track, now_s: float) -> bool | None:
+    """Did the robot move, per the scan matcher? None means "cannot say".
+
+    A MEDIAN over consecutive-sample speeds, not a mean and not a maximum. The
+    matcher re-registers occasionally and jumps: replay of bag 20260814-003844
+    puts its stationary p95 at 374 mm against a median of 16.8 mm, so any
+    statistic sensitive to the tail calls a parked robot moving, and a contact
+    that really happened is never confirmed.
+
+    Abstains when the matcher is silent or the window is too thin to have a
+    median worth the name. Abstaining is not a safety hole: the caller falls
+    back to the encoders, and this witness can only ever WITHHOLD a
+    confirmation, never grant one.
+
+    Pure, so the tail behaviour can be tested against synthetic tracks rather
+    than hoped for on a robot.
+    """
+
+    window = [s for s in track if now_s - s[0] <= LASER_WITNESS_WINDOW_S]
+    speeds = []
+    for (t0, x0, y0), (t1, x1, y1) in zip(window, window[1:], strict=False):
+        dt = t1 - t0
+        if dt > 1e-6:
+            speeds.append(math.dist((x0, y0), (x1, y1)) / dt)
+    if len(speeds) < LASER_WITNESS_MIN_PAIRS:
+        return None
+    return statistics.median(speeds) < LASER_STATIONARY_EPS_MPS
 
 
 def route_to_delivery_m(manifest: dict, profile: str) -> float:
@@ -262,6 +322,25 @@ class NavGate(Node):
         self.approach_pub = self.create_publisher(
             Vector3Stamped, GOVERNOR_DOCKING_TOPIC, 10
         )
+        self.disc_pub = self.create_publisher(
+            Vector3Stamped, GOVERNOR_DISC_TOPIC, 10
+        )
+        # THE TWO WITNESSES. Neither is the wheels, and that is the point.
+        #
+        # `/cmd_vel` is read, never written: it says what the safety filter
+        # PERMITTED, which is the only thing that distinguishes "the governor
+        # stopped me" from "I hit something". Without it a governor stop forges
+        # a delivery, and the leak pinned A inside the sighting ceiling on every
+        # run last night, so the forgery was one second away each time.
+        self.governed_vx: float | None = None
+        self.create_subscription(Twist, GOVERNED_CMD_TOPIC, self._on_governed, 10)
+        # `/odom_laser` is the scan matcher. The twin authors rear friction at
+        # 0.1 and the EKF fuses wheel twist only, so at a real bump the wheels
+        # spin and the encoders never report the stop.
+        self._laser_track: deque = deque(maxlen=64)
+        self.create_subscription(
+            Odometry, f"{namespace}/odom_laser", self._on_odom_laser, 50
+        )
         if True:
             from rclpy.qos import QoSProfile, ReliabilityPolicy
             from sensor_msgs.msg import LaserScan
@@ -316,6 +395,36 @@ class NavGate(Node):
         declaration.vector.y = float(approach["range_m"])
         declaration.vector.z = float(approach["margin_m"])
         self.approach_pub.publish(declaration)
+
+        # AND THE DISC, which is the one the governor actually acts on. The cone
+        # above is still published so a governor predating the disc keeps its
+        # old behaviour rather than losing the mask entirely; a governor that
+        # understands both prefers this one. The third field is the target's
+        # AUTHORED radius here, not a margin -- the margin is the filter's own
+        # parameter, because slack on a safety mask is not the caller's to set.
+        if approach.get("target_radius_m") is not None:
+            disc = Vector3Stamped()
+            disc.header.stamp = declaration.header.stamp
+            disc.vector.x = float(approach["bearing_rad"])
+            disc.vector.y = float(approach["range_m"])
+            disc.vector.z = float(approach["target_radius_m"])
+            self.disc_pub.publish(disc)
+
+    def _on_governed(self, message: Twist) -> None:
+        """What the safety filter let through. Read-only; nothing publishes here."""
+
+        self.governed_vx = float(message.linear.x)
+
+    def _on_odom_laser(self, message: Odometry) -> None:
+        position = message.pose.pose.position
+        self._laser_track.append(
+            (time.monotonic(), float(position.x), float(position.y))
+        )
+
+    def laser_stationary(self) -> bool | None:
+        """Did the ROBOT move, according to the scan matcher? None = cannot say."""
+
+        return laser_stationary_from_track(self._laser_track, time.monotonic())
 
     def _on_scan(self, message) -> None:
         if self.detector is None:
@@ -545,7 +654,9 @@ def main() -> int:
             # that made it worth building.
             if gate.creeping:
                 command = machine.creep(
-                    gate.last_verdict, gate.measured_vx, time.monotonic()
+                    gate.last_verdict, gate.measured_vx, time.monotonic(),
+                    governed_vx=gate.governed_vx,
+                    laser_stationary=gate.laser_stationary(),
                 )
                 if command is not None:
                     gate.creep_ticks += 1
