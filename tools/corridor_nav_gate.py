@@ -43,7 +43,7 @@ import time
 from pathlib import Path
 
 import rclpy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist, Vector3Stamped
 from nav2_msgs.action import NavigateToPose
 from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
@@ -222,6 +222,17 @@ class NavGate(Node):
         #: /scan with sensor QoS and a RELIABLE subscription matches nothing.
         self.detector = None
         self.last_verdict = None
+        # TERMINAL CREEP (ADR 0033). `/cmd_vel_raw`, never `/cmd_vel`: the creep
+        # is governed like every other motion here, and publishing to /cmd_vel
+        # would bypass the safety filter -- the thing it warns about on startup.
+        self.measured_vx: float | None = None
+        self.creeping = False
+        self.cmd_pub = self.create_publisher(Twist, f"{namespace}/cmd_vel_raw", 10)
+        # The governor's own docking topic. `~/docking_approach` on the governor
+        # node resolves here to an absolute name, because this node is not it.
+        self.approach_pub = self.create_publisher(
+            Vector3Stamped, f"{namespace}/cmd_vel_governor/docking_approach", 10
+        )
         if True:
             from rclpy.qos import QoSProfile, ReliabilityPolicy
             from sensor_msgs.msg import LaserScan
@@ -240,6 +251,37 @@ class NavGate(Node):
         if self._last_odom_xy is not None:
             self.odom_travel_m += math.dist(self._last_odom_xy, here)
         self._last_odom_xy = here
+        # A's OWN measured forward speed. This is the bumper: the terminal creep
+        # calls contact when it is commanding motion and this reports none.
+        self.measured_vx = message.twist.twist.linear.x
+
+    def drive(self, vx: float, approach: dict | None) -> None:
+        """Command the creep, and tell the governor what it is for.
+
+        Both halves go out together and neither is optional. The velocity goes
+        to `/cmd_vel_raw`, so it passes through the safety filter exactly like
+        every other motion in this project -- publishing to `/cmd_vel` would
+        bypass the governor, which is what the governor warns about on startup.
+
+        The approach is what makes the mask legitimate. Without it the governor
+        brakes at 0.35 m and the contact never happens; with it, the governor
+        stops braking for ONE object in a 15 degree cone and keeps every other
+        protection live. Republished every tick, because the mask expires on
+        silence -- that is how a crashed docking controller releases it.
+        """
+
+        command = Twist()
+        command.linear.x = float(vx)
+        self.cmd_pub.publish(command)
+
+        if approach is None:
+            return
+        declaration = Vector3Stamped()
+        declaration.header.stamp = self.get_clock().now().to_msg()
+        declaration.vector.x = float(approach["bearing_rad"])
+        declaration.vector.y = float(approach["range_m"])
+        declaration.vector.z = float(approach["margin_m"])
+        self.approach_pub.publish(declaration)
 
     def _on_scan(self, message) -> None:
         if self.detector is None:
@@ -420,6 +462,7 @@ def main() -> int:
             standoff_m=standoff_m,
             route_length_m=route_m,
             expected_radius_m=float(actors["b_radius_m"]),
+            a_length_m=float(actors["a_size_xyz_m"][0]),
         )
         print(f"  dock: containment -- route {route_m:.3f} m, window "
               f"{machine.window_m:.3f} m, arm after {machine.min_travel_m:.3f} m "
@@ -429,6 +472,11 @@ def main() -> int:
               f"radius unambiguous against the runner-up. No map-frame test.")
         print(f"  dock: final approach {standoff_m:.3f} m from B's centre, "
               f"derived -- the governor's floor and geometric contact, larger wins")
+        print(f"  dock: handoff at {machine.docked_max_range_m:.3f} m, then CREEP to "
+              f"contact at {machine.contact_range_m:.3f} m. B goes invisible at "
+              f"{0.12 + float(actors['b_radius_m']):.3f} m, so the last "
+              f"{0.12 + float(actors['b_radius_m']) - machine.contact_range_m:.3f} m "
+              f"is blind and the encoders are the bumper.")
         deadline = time.monotonic() + arguments.timeout
         while time.monotonic() < deadline and not result_future.done():
             rclpy.spin_once(gate, timeout_sec=0.1)
@@ -444,18 +492,35 @@ def main() -> int:
                 travelled_m=gate.odom_travel_m,
             )
 
-            # ARRIVING MEANS STOPPING. Reaching DOCKED used to only stop the
-            # machine ISSUING goals, while Nav2 carried on executing the last
-            # one it had -- a map-frame goal that keeps drifting. Measured: A
-            # came within 0.0993 m of B, docked on a real detection at 0.522 m,
-            # and then walked 3.43 m away to chase the stale goal. Cancelling
-            # is the difference between arriving and passing through.
-            if machine.state == machine.DOCKED:
-                print(f"  dock: DOCKED at {gate.last_verdict['candidate']['range_m']:.3f} m "
-                      f"from the post -- cancelling the goal so A stays")
+            # THE HANDOFF. Nav2's part of the delivery ends here and the creep
+            # takes the robot (ADR 0033).
+            #
+            # Cancelling first is not tidiness -- it is the whole reason the
+            # handoff is a discrete event. Two controllers publishing motion at
+            # once is the failure that produced the 3.43 m walk-away: reaching
+            # the band used to stop the machine ISSUING goals while Nav2 carried
+            # on executing the last one it had, a map-frame goal that keeps
+            # drifting. The creep must own the robot outright before it commands
+            # a single centimetre.
+            if machine.state == machine.DOCKING and not gate.creeping:
+                seen = gate.last_verdict["candidate"]["range_m"]
+                print(f"  dock: HANDOFF at {seen:.3f} m -- cancelling the Nav2 goal, "
+                      f"creeping to contact at {machine.contact_range_m:.3f} m")
                 cancel = handle.cancel_goal_async()
                 rclpy.spin_until_future_complete(gate, cancel, timeout_sec=10.0)
-                break
+                gate.creeping = True
+
+            if gate.creeping:
+                command = machine.creep(
+                    gate.last_verdict, gate.measured_vx, time.monotonic()
+                )
+                if command is not None:
+                    gate.drive(command["vx"], command["approach"])
+                if machine.state in machine.TERMINAL:
+                    gate.drive(0.0, None)          # leave it stopped, always
+                    print(f"  dock: {machine.state} -- {command['reason']}")
+                    break
+                continue
 
             if refined is None:
                 continue
