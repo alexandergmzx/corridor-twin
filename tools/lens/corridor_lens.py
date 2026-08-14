@@ -62,7 +62,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _lens_core import (                                        # noqa: E402
     PoseAligner, RateWindow, StalenessTracker, TruthHistory, YawRatioWindow,
-    divergence, occupied_mask_dilated, rle_encode, scan_endpoints,
+    divergence, is_frozen, occupied_mask_dilated, rle_encode, scan_endpoints,
     scan_map_fit, transform_points)
 
 # The content-lag tile is DROPPED, not ported. It scores the scan against
@@ -226,6 +226,9 @@ class LensNode:
         self.odom = None
         self.counts = {'scan': 0, 'map': 0, 'truth': 0, 'odom': 0, 'odom_raw': 0}
         self.rate_win = RateWindow()
+        # Wall time of the newest message on ANY topic -- the freeze predicate
+        # (ADR 0035) reads it. None until the first one arrives.
+        self.last_msg_wall = None
         self.t0 = time.time()
         self.stale = StalenessTracker()
         self.yaw_win = YawRatioWindow()
@@ -265,6 +268,7 @@ class LensNode:
             self.map_msg = msg
             self.map_seq += 1
             self.counts['map'] += 1
+            self.last_msg_wall = time.time()
 
     def _on_scan(self, msg):
         digest = hashlib.blake2b(
@@ -274,6 +278,7 @@ class LensNode:
             self.scans.append((msg, now))
             self.tf_pending.append((msg.header.stamp, now))
             self.counts['scan'] += 1
+            self.last_msg_wall = time.time()
             self.stale.feed(digest)
 
     def _on_truth(self, msg):
@@ -282,6 +287,7 @@ class LensNode:
         with self.lock:
             self.truth = (p.position.x, p.position.y, yaw_of(p.orientation))
             self.counts['truth'] += 1
+            self.last_msg_wall = time.time()
             self.yaw_win.feed_truth_yaw(time.time(), self.truth[2])
             self.truth_hist.feed(stamp, self.truth)
 
@@ -290,10 +296,12 @@ class LensNode:
         with self.lock:
             self.odom = (p.position.x, p.position.y, yaw_of(p.orientation))
             self.counts['odom'] += 1
+            self.last_msg_wall = time.time()
 
     def _on_odom_raw(self, msg):
         with self.lock:
             self.counts['odom_raw'] += 1
+            self.last_msg_wall = time.time()
             self.yaw_win.feed_odom(time.time(), msg.twist.twist.angular.z)
 
     # ---- TF ----------------------------------------------------------------
@@ -343,6 +351,7 @@ class LensNode:
             truth = self.truth
             odom = self.odom
             counts = dict(self.counts)
+            last_msg = self.last_msg_wall
             stale_run = self.stale.current_run
             stale_max = self.stale.max_run
             stale_frac = self.stale.duplicate_fraction
@@ -454,6 +463,11 @@ class LensNode:
 
         state = {
             't': _r3(now - self.t0),
+            # ADR 0035: the lens outlives its run. `frozen` is how the page
+            # says "this is the last frame of a finished session", not "the
+            # instrument is broken", and it is what stops the sampler
+            # overwriting a good dump with hours of nothing.
+            'frozen': is_frozen(last_msg is not None, last_msg, now),
             'rates': {k: _r3(rates.get(k)) for k in counts},
             'pose': None if pose is None else [_r3(v) for v in pose],
             'truth_ghost': None if truth_ghost is None else [_r3(v) for v in truth_ghost],
@@ -510,14 +524,19 @@ async def serve(node: LensNode, args):
             state, map_payload = node.build_state()
             latest['state'] = state
             latest['map'] = map_payload
-            m = state['metrics']
-            history.append(
-                [state['t'] if column == 't' else m[column]
-                 for column in HISTORY_COLUMNS]
-            )
-            ticks += 1
-            if ticks % DUMP_EVERY == 0:
-                write_history_dump(args.dump, history)
+            # A frozen lens keeps SERVING -- the operator is looking at the
+            # last frame of a finished run -- but stops recording. Appending
+            # empty samples for hours would roll the run out of the history
+            # and overwrite its own dump with nothing.
+            if not state['frozen']:
+                m = state['metrics']
+                history.append(
+                    [state['t'] if column == 't' else m[column]
+                     for column in HISTORY_COLUMNS]
+                )
+                ticks += 1
+                if ticks % DUMP_EVERY == 0:
+                    write_history_dump(args.dump, history)
             await asyncio.sleep(period)
 
     async def handler(ws):

@@ -107,3 +107,41 @@ def test_the_window_is_bounded():
     _feed(window, start=0.0, seconds=600.0, hz=14.0)
 
     assert len(window._samples) < 100, "the window is accumulating without bound"
+
+
+# ------------------------------------------------------- the freeze predicate
+#
+# ADR 0035. The lens outlives its run so the operator can look afterwards -- but
+# one left serving until morning would append empty samples for hours, roll the
+# entire run out of the history buffer, and overwrite a good dump with nothing.
+# Freezing is what makes the linger safe rather than destructive.
+
+from _lens_core import FREEZE_IDLE_S, is_frozen  # noqa: E402
+
+
+def test_a_lens_that_has_never_seen_anything_is_waiting_not_frozen():
+    """**The bring-up case, and the one worth getting right.**
+
+    The lens now starts before the simulator, so "no messages yet" is the
+    normal state for the first ~70 s. Calling that frozen would put "run ended"
+    on the page during bring-up, which is the opposite of the truth.
+    """
+
+    assert is_frozen(False, None, now=1000.0) is False
+    assert is_frozen(False, None, now=1e6) is False
+
+
+def test_a_live_session_is_not_frozen():
+    assert is_frozen(True, 1000.0, now=1000.5) is False
+    assert is_frozen(True, 1000.0, now=1000.0 + FREEZE_IDLE_S - 1.0) is False
+
+
+def test_a_finished_session_freezes():
+    assert is_frozen(True, 1000.0, now=1000.0 + FREEZE_IDLE_S + 1.0) is True
+
+
+def test_the_idle_threshold_outlasts_an_ordinary_gap():
+    """/map at ~1 Hz and a busy teardown must not read as a finished run."""
+
+    assert FREEZE_IDLE_S >= 30.0, "too tight; a slow topic would freeze the page"
+    assert FREEZE_IDLE_S <= 300.0, "too loose; the dump keeps growing after the run"

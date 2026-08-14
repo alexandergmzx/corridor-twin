@@ -51,6 +51,7 @@ Three status strings differ between a file and this index, each deliberately:
 | [0031](0031-b-is-the-cylinder.md) | Accepted | **B is one cylinder at the delivery point**; radius is the sensor's and height is the person's; final approach derived from the governor's floor, never bypassed |
 | [0033](0033-arrival-is-contact.md) | Accepted | **Arrival is CONTACT** — A bumps B and the encoders witness it; map-frame gate retired to ungated report; transit is Nav2, terminal is a governed docking creep; the governor is informed by a 15&deg; mask, never bypassed; the stub is the standing negative control |
 | [0034](0034-the-mask-is-the-target.md) | Accepted | **The mask is the TARGET'S SHAPE, not a cone** — a fixed 15&deg; cone cannot admit a contact, since B subtends 33.5&deg; there; the clamped creep is exempt from the slow zone; the bump needs TWO witnesses (governor-permitted AND laser-stationary), never the wheels alone; testing is cheapest-first and no fixture may model the target as one beam |
+| [0035](0035-the-lens-is-the-first-instrument.md) | Accepted | **The lens starts BEFORE the simulator, and outlives the run** — ten of twelve rerun() exits preceded it, so bring-up was unwatchable by construction and three runs wrote no lens.log at all; it is not a `resident`; a lens that cannot serve refuses the run; it freezes 60 s after the data stops; and the banner is a port the lens reported and the runner verified, never a literal |
 
 0026 and 0027 have since landed with their evidence and are listed above; the
 line that reserved them is retired rather than left to read as pending.
@@ -135,7 +136,8 @@ flowchart LR
     A33 --> A34["0034<br/>the mask is the TARGET<br/>silhouette, not a cone<br/>two witnesses for the bump"]
     A33 -. "15&deg; cone and the<br/>encoder bumper<br/>superseded by" .-> A34
     A31 -. "authored radius<br/>sizes the mask" .-> A34
-    A34 --> Demo
+    A34 --> A35["0035<br/>the lens is the<br/>FIRST instrument<br/>and outlives the run"]
+    A35 --> Demo
     A19 --> A30
     A18 --> A30
     A23 --> A29

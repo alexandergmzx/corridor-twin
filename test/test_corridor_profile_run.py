@@ -386,3 +386,83 @@ def test_the_lifecycle_glob_is_checked_against_real_states() -> None:
     assert verdict["inactive [2]"] == "no", "this is the bug that cost four runs"
     assert verdict["unconfigured [1]"] == "no"
     assert verdict["activating [6]"] == "no"
+
+
+# ------------------------------------------------ the lens is not a "resident"
+#
+# ADR 0035. `residents()` exists to catch a node that "offers the same recovery
+# actions as this run's and can command the robot". The lens has zero
+# publishers, services and action clients, so it cannot. Listing it there meant
+# a lens left serving after a run REFUSED the next one -- which is why the lens
+# was killed at teardown, which is why every post-run look found a dead port.
+
+
+def test_a_lingering_lens_does_not_refuse_the_next_run() -> None:
+    """**The negative control this change is really about.**
+
+    Three decoys at once: the un-namespaced orphan is still caught, the
+    namespaced one is still ignored, and the lens is now ignored too.
+    """
+
+    if _a_corridor_run_is_in_flight():
+        pytest.skip("a corridor run is in flight; its nav2 nodes are not orphans")
+
+    orphan = (
+        "/opt/ros/jazzy/lib/nav2_behaviors/behavior_server "
+        "--ros-args -r __node:=behavior_server"
+    )
+    namespaced = f"{orphan} -r __ns:=/robot2"
+    lens = "python3 /home/x/tools/lens/corridor_lens.py --domain 67"
+    script = (
+        f"{_residents_function()}\n"
+        f'bash -c \'exec -a "{orphan}" sleep 8\' &\n'
+        "first=$!\n"
+        f'bash -c \'exec -a "{namespaced}" sleep 8\' &\n'
+        "second=$!\n"
+        f'bash -c \'exec -a "{lens}" sleep 8\' &\n'
+        "third=$!\n"
+        "sleep 1\n"
+        "residents\n"
+        "kill $first $second $third 2>/dev/null\n"
+        "wait 2>/dev/null\n"
+    )
+    found = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, timeout=60,
+    ).stdout.strip().splitlines()
+
+    assert len(found) == 1, f"expected only the un-namespaced orphan, got: {found}"
+    assert "behavior_server" in found[0]
+    assert not any("corridor_lens" in line for line in found), (
+        "a lingering lens refuses the next run again; ADR 0035 says it must not"
+    )
+
+
+def test_teardown_does_not_kill_the_lens() -> None:
+    """It must still be serving when the operator looks, which is after the run."""
+
+    source = RUNNER.read_text(encoding="utf-8")
+    start = source.index("teardown() {")
+    body = source[start:source.index("\n}\n", start)]
+
+    assert 'kill -TERM "$lens_pid"' not in body, (
+        "teardown kills the lens again; every post-run look finds a dead port"
+    )
+    # And the escalation cannot reach it either, because residents() no longer
+    # matches it -- pinned separately above.
+    assert "ADR 0035" in body, "the reason the lens survives teardown is unstated"
+
+
+def test_the_next_run_replaces_the_previous_lens() -> None:
+    """One lens per run, without refusing to start next to the old one."""
+
+    source = RUNNER.read_text(encoding="utf-8")
+
+    assert "reap_previous_lens() {" in source
+    assert source.index("reap_previous_lens\n") > source.index("reap_previous_lens() {")
+    # It must not be able to match its own command line -- that mistake cost
+    # four false positives in one session and killed a shell.
+    start = source.index("reap_previous_lens() {")
+    body = source[start:source.index("\n}\n", start)]
+    assert 'pgrep -f "$pattern"' in body, (
+        "the reaper interpolates its pattern literally and can match itself"
+    )

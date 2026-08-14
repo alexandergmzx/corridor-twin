@@ -201,6 +201,29 @@ class StalenessTracker:
         return self.duplicates / self.total if self.total else 0.0
 
 
+#: Seconds of total silence after which a lens is watching nothing.
+FREEZE_IDLE_S = 60.0
+
+
+def is_frozen(seen_any: bool, last_msg_wall, now: float,
+              idle_s: float = FREEZE_IDLE_S) -> bool:
+    """Has the session this lens was watching stopped? Pure, so it is testable.
+
+    Under ADR 0035 the lens outlives its run, which is the whole point -- the
+    operator can look at the page afterwards. But a lens left serving until
+    morning would keep appending empty samples, roll the entire run out of the
+    history buffer, and overwrite a good dump with hours of nothing. Freezing
+    is what makes the linger safe rather than destructive.
+
+    A lens that has never seen a message is NOT frozen: it is waiting, which is
+    the normal state during bring-up and looks completely different to a reader.
+    """
+
+    if not seen_any or last_msg_wall is None:
+        return False
+    return (now - last_msg_wall) > idle_s
+
+
 class RateWindow:
     """Message rates over a TRAILING WINDOW, not since the process started.
 

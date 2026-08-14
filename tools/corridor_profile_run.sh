@@ -364,8 +364,15 @@ fi
 # Un-namespaced only. A /robot2-namespaced stack is a different graph and is
 # somebody else's business; refusing on it would block the corridor on a fleet
 # session that cannot collide with it.
+# NOTE the lens is deliberately NOT in this pattern (ADR 0035). This function
+# exists to catch a node that "offers the same recovery actions as this run's
+# and can command the robot" -- a process with zero publishers, services and
+# action clients cannot. Under ADR 0035 a lens from the previous run is
+# EXPECTED to still be serving, and `reap_previous_lens` replaces it. The
+# fleet's own simctl:1043-1048 already calls the lens "left open across
+# sessions by design"; listing it here had regressed that.
 residents() {
-  pgrep -af '/opt/ros/[^ ]*/lib/(nav2_[a-z_]+|slam_toolbox)/|corridor_lens\.py' 2>/dev/null \
+  pgrep -af '/opt/ros/[^ ]*/lib/(nav2_[a-z_]+|slam_toolbox)/' 2>/dev/null \
     | grep -v -- '__ns:=' || true
 }
 # One lens per run. Under ADR 0035 a lens from the previous run is EXPECTED to
@@ -430,8 +437,11 @@ teardown() {
   [ -n "$recorder_pid" ] && kill -TERM "$recorder_pid" 2>/dev/null || true
   [ -n "$probe_pid" ] && kill -TERM "$probe_pid" 2>/dev/null || true
   [ -n "$slam_pid" ] && kill -TERM "$slam_pid" 2>/dev/null || true
-  # TERM, never -9: the lens writes its metric history on a clean stop.
-  [ -n "$lens_pid" ] && kill -TERM "$lens_pid" 2>/dev/null || true
+  # THE LENS IS NOT KILLED HERE. ADR 0035: it outlives the run so the operator
+  # can still look at the last frame, the final map and the full history after
+  # everything else is gone. It freezes itself ~60 s after the data stops, and
+  # the NEXT run reaps it (`reap_previous_lens`). Killing it here is what made
+  # every post-run look find a dead port.
   [ -n "$watchdog_pid" ] && kill -TERM "$watchdog_pid" 2>/dev/null || true
   "$SIMCTL" stop --domain "$DOMAIN" || true
   # POLL, do not sleep once and hope. A fixed 3 s answered "is it dead?" with
@@ -454,10 +464,13 @@ teardown() {
   #
   # ESCALATE. TERM is not enough and three consecutive runs proved it: the same
   # two survive every time. `ros2 launch` does not reliably pass TERM down to
-  # nav2_behaviors' behavior_server, and rclpy's own signal handlers shut the
-  # ROS context down WITHOUT exiting the process, which is why the lens outlives
-  # a clean stop. Politeness first -- the lens writes its metric history on a
-  # graceful stop -- then KILL what is left, then verify.
+  # nav2_behaviors' behavior_server. Politeness first, then KILL what is left,
+  # then verify.
+  #
+  # This used to reach the lens too, and the comment here used to cite the lens
+  # outliving a clean stop as the defect being escalated against. Since ADR 0035
+  # that is the CONTRACT, not a defect: the lens is out of `residents()`, so
+  # nothing below can touch it, and it is the next run's job to replace it.
   if [ -n "$(residents)" ]; then
     echo "  nodes still up after TERM; escalating to KILL" >&2
     residents | awk '{print $1}' | while read -r pid; do kill -KILL "$pid" 2>/dev/null || true; done

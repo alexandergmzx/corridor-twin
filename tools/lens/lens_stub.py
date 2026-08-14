@@ -113,6 +113,9 @@ def scene(tick: int) -> tuple[dict, dict]:
 
     state = {
         "t": round(seconds, 3),
+        # A live scene is never frozen; the key exists because the real lens
+        # emits it (ADR 0035) and the contract test is bidirectional.
+        "frozen": False,
         "rates": {"scan": 10.4, "map": 1.0, "truth": 11.0, "odom": 10.0,
                   "odom_raw": 11.0},
         "pose": [round(x, 3), round(y, 3), yaw],
