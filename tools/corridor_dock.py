@@ -248,6 +248,26 @@ def docked_max_range_m(standoff_m: float) -> float:
     return standoff_m + GOAL_TOLERANCE_M
 
 
+def handoff_ceiling_m(standoff_m: float) -> float:
+    """The furthest range at which Nav2 SUCCEEDING may stand in for a sighting.
+
+    ADR 0036. `docked_max_range_m` is `standoff + GOAL_TOLERANCE_M`, and Nav2's
+    SUCCEEDED envelope is `standoff + xy_goal_tolerance`. Both tolerances are
+    0.15, so the two move together and NO CHOICE OF STANDOFF creates margin
+    between them -- a goal Nav2 legitimately completes can land exactly on the
+    handoff radius, or outside it, with nothing left over.
+
+    Measured: run 20260814-031922 finished SUCCEEDED at 0.6621 m against a
+    0.620 m radius, and the terminal phase was skipped in silence.
+
+    So the second trigger gets its own ceiling, one more tolerance out. It is
+    not a loosened handoff radius: the range test above is unchanged, and this
+    applies only when Nav2 has finished the refined goal.
+    """
+
+    return docked_max_range_m(standoff_m) + GOAL_TOLERANCE_M
+
+
 #: The MS200's minimum range. Below this the lidar reports nothing, so B stops
 #: existing as far as A's own sensing is concerned.
 LIDAR_MIN_RANGE_M = 0.12
@@ -446,6 +466,7 @@ class DockingMachine:
         self.standoff_m = standoff_m
         #: One-sided. Derived from the standoff, so a rescale moves it too.
         self.docked_max_range_m = docked_max_range_m(standoff_m)
+        self.handoff_ceiling_m = handoff_ceiling_m(standoff_m)
         self.arm_radius_m = arm_radius_m
         self.max_refinements = max_refinements
         # Containment. `route_length_m` is the route TO THE DELIVERY, not the
@@ -631,7 +652,8 @@ class DockingMachine:
         return True
 
     def step(self, robot_xy: tuple[float, float], robot_yaw: float,
-             verdict: dict | None, travelled_m: float | None = None) -> dict | None:
+             verdict: dict | None, travelled_m: float | None = None,
+             nav_terminal: bool = False) -> dict | None:
         """One detector verdict in; a new goal to issue, or None to keep going."""
 
         if self.state in self.TERMINAL or self.state == self.DOCKING:
@@ -648,11 +670,34 @@ class DockingMachine:
         # the end of the delivery; since ADR 0033 it is where Nav2's part ends
         # and the creep begins, because the delivery is a contact and Nav2 will
         # not plan into an inflated lethal cell to make one.
-        if detected_range <= self.docked_max_range_m:
+        # SECOND TRIGGER: Nav2 finishing the refined goal is also a handoff.
+        # ADR 0036, and it exists because the radius has no margin -- see
+        # `handoff_ceiling_m`. Four independent conditions, none of them
+        # loosening the first trigger:
+        #
+        #   1. nav_terminal, which the caller sets ONLY on SUCCEEDED. Never on
+        #      ABORTED: an abort mid-corridor with the EastWallStub decoy
+        #      confirmed is the one failure mode that looks like success.
+        #   2. at least one refinement, so the goal Nav2 completed was derived
+        #      from the CONFIRMED landmark and not from the manifest.
+        #   3. inside the ceiling, so a detection a metre out cannot qualify.
+        #   4. everything `armed()` already demands -- travel, bearing cone,
+        #      k-of-n persistence, radius uniqueness -- which is upstream.
+        #
+        # Run 025049 is correctly excluded by 1 and 2 and by its travel;
+        # run 031922 passes all four.
+        by_range = detected_range <= self.docked_max_range_m
+        by_nav = (
+            nav_terminal
+            and self.refinements >= 1
+            and detected_range <= self.handoff_ceiling_m
+        )
+        if by_range or by_nav:
             self.state = self.DOCKING
             self.landmark_map = landmark
             self.history.append({
                 "event": "handoff_to_docking", "range_m": detected_range,
+                "trigger": "range" if by_range else "nav_succeeded",
                 "landmark_map": [round(v, 4) for v in landmark],
             })
             return None

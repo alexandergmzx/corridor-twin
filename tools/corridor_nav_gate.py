@@ -727,9 +727,19 @@ def main() -> int:
             # The pose is used to EXPRESS the goal, never to decide whether to
             # dock. Since 2026-08-13 `armed()` cannot read it even by accident:
             # it is not passed one.
+            # `nav_terminal` is TRUE ONLY ON SUCCEEDED (ADR 0036). Never on
+            # ABORTED: an abort mid-corridor with the EastWallStub decoy
+            # confirmed is the one failure mode that looks like success.
+            nav_done = result_future.done()
+            nav_succeeded = bool(
+                nav_done
+                and result_future.result() is not None
+                and result_future.result().status == STATUS_SUCCEEDED
+            )
             refined = machine.step(
                 (pose_x, pose_y), pose_yaw, gate.last_verdict,
                 travelled_m=gate.odom_travel_m,
+                nav_terminal=nav_succeeded,
             )
 
             # THE HANDOFF. Nav2's part of the delivery ends here and the creep

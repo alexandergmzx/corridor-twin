@@ -9,6 +9,7 @@ re-issue forever is a control loop wearing a state machine's clothes.
 from __future__ import annotations
 
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -17,6 +18,7 @@ import pytest
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
+import corridor_dock  # noqa: E402
 from corridor_dock import (  # noqa: E402
     DockingMachine,
     dock_goal,
@@ -775,4 +777,115 @@ def test_a_pivot_is_never_mistaken_for_contact() -> None:
 
     assert machine.state == DockingMachine.DOCKING, (
         "a pivot is not an arrival, however long it lasts"
+    )
+
+
+# ------------------------- Nav2 finishing the refined goal is also a handoff
+#
+# ADR 0036. Run 20260814-031922: Nav2 SUCCEEDED at 0.6621 m from B while the
+# handoff fires only inside 0.620 m, so the machine sat in REFINE with zero
+# creep ticks and the terminal phase was skipped in silence.
+#
+# The margin is not small, it is ZERO: docked_max_range_m is
+# standoff + GOAL_TOLERANCE_M, Nav2's SUCCEEDED envelope is
+# standoff + xy_goal_tolerance, and both tolerances are 0.15.
+
+
+def _refined_machine(**kwargs):
+    """A machine past `armed()` with one refinement behind it.
+
+    Built on the file's own `_docking`-style constructor so it cannot drift
+    from the real signature, then wound forward: REFINE with refinements=1 is
+    the state run 031922 was in when Nav2 reported SUCCEEDED.
+    """
+
+    machine = DockingMachine(
+        nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M,
+        expected_radius_m=B_RADIUS_M, a_length_m=A_LENGTH_M, **kwargs,
+    )
+    machine.state = DockingMachine.REFINE
+    machine.refinements = 1
+    return machine
+
+
+def test_the_handoff_radius_and_nav2s_envelope_are_the_same_number() -> None:
+    """**The reason the second trigger exists**, asserted as arithmetic rather
+    than described in a comment. A future Nav2 param change breaks HERE, in a
+    second, instead of in a run artifact three hours later.
+    """
+
+    params = (ROOT / "config/robot1/nav2_robot1_corridor.yaml").read_text(
+        encoding="utf-8")
+    tolerances = {float(m) for m in re.findall(
+        r"^\s*xy_goal_tolerance:\s*([0-9.]+)", params, re.M)}
+
+    assert tolerances, "xy_goal_tolerance is gone from the corridor Nav2 params"
+    assert tolerances == {corridor_dock.GOAL_TOLERANCE_M}, (
+        f"Nav2 tolerates {tolerances} and the dock uses "
+        f"{corridor_dock.GOAL_TOLERANCE_M}; the zero-margin argument for ADR "
+        f"0036 no longer holds and the trigger needs re-deriving"
+    )
+
+
+def test_moving_the_goal_inward_could_not_have_worked() -> None:
+    """The alternative, rejected on measurement: B's inflated footprint leaves
+    under 42 mm before NavFn refuses to plan, against a 42 mm measured miss."""
+
+    inflated = 0.12 + 0.128 + 0.18            # B + robot_radius + inflation
+    approach = corridor_dock.final_approach_m(b_radius_m=0.12, a_length_m=0.195)
+
+    assert approach == pytest.approx(0.470, abs=1e-3)
+    assert approach - inflated < 0.045, (
+        "the room to move the goal inward is smaller than the miss it must absorb"
+    )
+
+
+def test_nav2_succeeding_hands_off_where_range_alone_would_not() -> None:
+    """**Run 031922 replayed.** 0.6621 m: outside 0.620, inside the ceiling."""
+
+    machine = _refined_machine()
+    machine.step((0.0, 0.0), 0.0, _verdict(0.6621, 0.0), nav_terminal=True)
+
+    assert machine.state == machine.DOCKING
+    assert machine.history[-1]["trigger"] == "nav_succeeded"
+
+
+def test_without_nav2_finishing_the_old_behaviour_is_unchanged() -> None:
+    """The first trigger is not loosened. Same range, no nav_terminal, no dock."""
+
+    machine = _refined_machine()
+    machine.step((0.0, 0.0), 0.0, _verdict(0.6621, 0.0))
+
+    assert machine.state != machine.DOCKING
+
+
+def test_an_unrefined_goal_never_qualifies() -> None:
+    """Guard 2: the goal Nav2 finished must have come from the CONFIRMED
+    landmark, not from the manifest."""
+
+    machine = _refined_machine()
+    machine.refinements = 0
+    machine.step((0.0, 0.0), 0.0, _verdict(0.6621, 0.0), nav_terminal=True)
+
+    assert machine.state != machine.DOCKING
+
+
+def test_a_detection_beyond_the_ceiling_never_qualifies() -> None:
+    """Guard 3: one tolerance out, not unbounded."""
+
+    machine = _refined_machine()
+    machine.step((0.0, 0.0), 0.0, _verdict(0.90, 0.0), nav_terminal=True)
+
+    assert machine.state != machine.DOCKING
+    assert machine.handoff_ceiling_m == pytest.approx(0.770, abs=1e-6)
+
+
+def test_the_creep_can_still_reach_from_the_ceiling() -> None:
+    """A trigger that hands off outside the creep's budget is not a handoff."""
+
+    budget = ((corridor_dock.handoff_ceiling_m(corridor_dock.DELIVERY_STANDOFF_M)
+               - 0.2175) / corridor_dock.CREEP_SPEED_MPS)
+
+    assert budget < corridor_dock.CREEP_TIMEOUT_S, (
+        f"{budget:.1f}s of creep against a {corridor_dock.CREEP_TIMEOUT_S}s timeout"
     )
