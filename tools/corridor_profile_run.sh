@@ -764,12 +764,34 @@ fi
 # abort this bringup are a contention symptom -- the EKF logs "Failed to meet
 # update rate!" in the same window -- and everything was starting at once.
 #
-# Halved, not removed. The contention it guards against is real and it is what
-# the nav bringup aborts on, so this stays a deliberate pause rather than
-# becoming a poll for a condition nobody has identified. The bring-up loops
-# below now hold their own wall-clock deadlines, so a settle that turns out to
-# be too short costs a bounded retry rather than a hang.
-sleep 4
+# RESTORED to 8 s on 2026-08-13. `86e5a01 perf(run): stop paying for time the
+# run does not need` halved it to 4 to make runs shorter, and the comment
+# written at the time said the quiet part out loud: "the contention it guards
+# against is real and it is what the nav bringup aborts on". It is.
+#
+# Seven of 27 runs that day -- 26%, and 3 of the last 6 -- died in nav bring-up.
+# The chain, read out of the launch logs rather than guessed:
+#
+#   local_costmap is slow to configure, under exactly this contention
+#     -> controller_server comes up late
+#     -> bt_navigator activates and waits 1.00 s for its "follow_path" action
+#     -> the wait expires, the behaviour tree fails to load
+#     -> the lifecycle manager aborts the WHOLE stack
+#     -> the runner reports "bt_navigator never reached ACTIVE", three steps
+#        downstream of the fault
+#
+# Both timeouts in that chain are Nav2 parameters and are fenced this session,
+# so the settle is the lever available. This is NOT a controlled A/B -- every
+# run measured was already at 4 s, so there is no clean before -- and the
+# restoration is justified on the trade rather than on a proof: four seconds
+# saved per run, against a quarter of runs dying at about 250 s each. That is a
+# bad bargain at any plausible failure rate.
+#
+# Still a deliberate pause rather than a poll. The condition is now partly
+# identified (costmap configuration latency) but not measurable from here, and
+# the bring-up loops below hold their own wall-clock deadlines, so a settle that
+# is still too short costs a bounded retry rather than a hang.
+sleep 8
 
 phase "nav stack"
 if [ "$ROBOT" = robot1 ]; then
