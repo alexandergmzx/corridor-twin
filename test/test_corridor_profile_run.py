@@ -667,3 +667,56 @@ def test_the_map_score_gates_nothing() -> None:
     assert "status=1" not in code.split("map_fields=")[-1], (
         "the map score sets a red status of its own"
     )
+
+
+# ------------------------------------------------ the transport is UDP-only
+#
+# ADR 0040 / fleet OI-13. Corridor runs spent three sessions paying for
+# OI-13's un-baked export: default transport, SHM enabled, and a lens that
+# matched its publishers and heard nothing (the Fast DDS SHM-after-churn
+# family). The export lives in the runner so every child inherits it.
+
+
+def _runner_code() -> str:
+    source = RUNNER.read_text(encoding="utf-8")
+    return "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
+def test_the_transport_profile_is_exported_under_both_names() -> None:
+    """FASTRTPS_ for older readers of the env -- the XML's own header says so.
+    Exporting one name tests half the participants."""
+
+    code = _runner_code()
+    assert 'export FASTDDS_DEFAULT_PROFILES_FILE="$CORRIDOR_DDS_PROFILE"' in code
+    assert 'export FASTRTPS_DEFAULT_PROFILES_FILE="$CORRIDOR_DDS_PROFILE"' in code
+    # Before any participant exists: the export must precede simctl start.
+    assert code.index("FASTDDS_DEFAULT_PROFILES_FILE") < code.index('"$SIMCTL" start')
+
+
+def test_the_profile_is_oi13s_file_and_empty_disables() -> None:
+    """The profile is referenced from the fleet (OI-13 owns it), never copied;
+    and `CORRIDOR_DDS_PROFILE=` (empty) must run the default transport -- the
+    A/B control arm. That requires the `-` default form: `:-` would silently
+    re-enable the profile on the control arm."""
+
+    code = _runner_code()
+    assert 'CORRIDOR_DDS_PROFILE="${CORRIDOR_DDS_PROFILE-' in code, (
+        "the -default form is load-bearing; :- breaks the control arm"
+    )
+    assert "ground_station/fastdds_udp_only.xml" in code
+    # A missing profile is a refusal, not a silent fallback to SHM.
+    assert "DDS profile missing" in RUNNER.read_text(encoding="utf-8")
+    # And the run records which transport it measured.
+    assert 'dds_profile=${CORRIDOR_DDS_PROFILE:-}' in code
+
+
+def test_rviz_is_opt_in_now() -> None:
+    """The lens is the watching instrument (ADR 0035/0037); RViz costs its
+    load plus simctl's fixed 8 s post-RViz sleep on a domain nobody need be
+    watching. --rviz remains for attended debugging."""
+
+    code = _runner_code()
+    assert 'RVIZ_FLAG="--no-rviz"' in code, "the default regressed to RViz-on"
+    assert '--rviz) RVIZ_FLAG=""' in code, "--rviz can no longer opt back in"

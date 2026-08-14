@@ -68,10 +68,14 @@ DOCK="--dock"
 # the fact repeatedly cost runs: a phantom detection that re-aimed a whole
 # mission was invisible in the metrics and obvious on the canvas.
 LENS=1
-# RViz ON by default: these runs are watched, and the viewport is how a
-# divergence gets noticed at all -- the ghosting that started this whole
-# sequence was seen there first. --no-rviz for a genuinely unattended run.
-RVIZ_FLAG=""
+# RViz OFF by default since the 2026-08-14 rework: the lens is the run's
+# watching instrument (ADR 0035/0037) -- it is gated on actually SEEING and
+# its history is evidence, neither of which RViz is. What RViz cost was real:
+# its launch plus a fixed 8 s sleep inside `simctl start` (simctl:448), on a
+# scratch domain nobody was necessarily watching. The ghosting-era rationale
+# ("the viewport is how a divergence gets noticed") predates the lens carrying
+# the same view. --rviz opts back in for attended debugging.
+RVIZ_FLAG="--no-rviz"
 # HARD wall-clock cap on the whole session, enforced by a watchdog below.
 #
 # Not a timeout on any one step -- a ceiling on the run existing at all. Runs
@@ -310,6 +314,31 @@ export ROS_DOMAIN_ID="$DOMAIN"
 export RASPTANK_ARENA_USD="$ARENA"
 export PYTHONNOUSERSITE=1
 
+# THE TRANSPORT IS UDP-ONLY, SESSION-WIDE. Fleet OI-13 decided this for the
+# whole dev machine on 2026-08-08 -- rates identical to <1%, worst-case
+# inter-arrival gaps BETTER -- after 35 accumulated /dev/shm/fastrtps*
+# segments made new participants completely blind. Its REMAINING item was to
+# bake the export, and corridor runs kept paying for that gap: deaf lenses on
+# 2 of 4 runs across three sessions, each one Fast DDS's documented
+# SHM-after-churn failure (matched-but-silent; ADR 0040, and the no-Isaac
+# repro in tools/diagnostics/dds_churn_repro.py).
+#
+# Exported HERE, before any participant exists, so every child inherits it:
+# simctl's stack, sim_runner under Isaac's python, SLAM, Nav2, the lens, the
+# recorder and every probe. Both names -- FASTRTPS_ for older readers of the
+# env (the XML's own header says so). CORRIDOR_DDS_PROFILE overrides the
+# profile; setting it EMPTY runs the default transport (the A/B control arm,
+# and nothing else).
+CORRIDOR_DDS_PROFILE="${CORRIDOR_DDS_PROFILE-$FLEET/ground_station/fastdds_udp_only.xml}"
+if [ -n "$CORRIDOR_DDS_PROFILE" ]; then
+  [ -f "$CORRIDOR_DDS_PROFILE" ] || {
+    echo "DDS profile missing: $CORRIDOR_DDS_PROFILE (fleet layout? OI-13 owns it)" >&2
+    exit 2
+  }
+  export FASTDDS_DEFAULT_PROFILES_FILE="$CORRIDOR_DDS_PROFILE"
+  export FASTRTPS_DEFAULT_PROFILES_FILE="$CORRIDOR_DDS_PROFILE"
+fi
+
 # THE RUNNER'S OWN LOG, kept. Everything this script prints -- which SLAM
 # attempt, whether bt_navigator was seen ACTIVE and when, what the watchdog did
 # -- existed only in whatever terminal ran it. The 16:23 run could not be
@@ -359,6 +388,7 @@ manifest \
   --set "manifest_sha256=$(digest "$MANIFEST")" \
   --set "slam_params=${SLAM_PARAMS:-}" \
   --set "slam_params_sha256=$(digest "${SLAM_PARAMS:-/nonexistent}")" \
+  --set "dds_profile=${CORRIDOR_DDS_PROFILE:-}" \
   --set "flags={\"gated\":$([ -n "$GATED" ] && echo true || echo false),\"dock\":$([ -n "$DOCK" ] && echo true || echo false),\"lens\":$([ "$LENS" = 1 ] && echo true || echo false),\"rviz\":$([ "$RVIZ_FLAG" = "--no-rviz" ] && echo false || echo true),\"allow_contract_fail\":$([ "$ALLOW_CONTRACT_FAIL" = 1 ] && echo true || echo false)}" \
   --set "sim_max_s=$SIM_MAX_S"
 python3 - "$RUN_JSON" "$REPO" <<'PY' || true
@@ -771,12 +801,12 @@ manifest --set "shm_fastrtps_pre=$(shm_fastrtps_count)"
 # patrol commanded the same topic simultaneously -- the "square patrol" the
 # robot was observed doing. The mission's motion policy is one source: Nav2.
 #
-# RViz was briefly removed to test a starvation hypothesis. That hypothesis is
-# WITHDRAWN: the EKF gaps it rested on were an artifact of this repo's own
-# recorder timing itself on the wall clock while blocking on a growing /map
-# (2727c0c). Measured from the bag, the EKF's worst gap was 0.398 s with none
-# over threshold. RViz is back on by default -- the viewport is how the
-# ghosting was noticed in the first place.
+# RViz is off by default (see RVIZ_FLAG above): the lens carries the watching
+# duty, and skipping RViz skips both its load and simctl's fixed 8 s
+# post-RViz sleep. (A 2026-08-13 starvation hypothesis about RViz remains
+# WITHDRAWN -- the EKF gaps it rested on were this repo's own recorder timing
+# itself on the wall clock while blocking on a growing /map, 2727c0c. The
+# default is about cost, not about that.)
 # --no-slam when we supply our own params: simctl's SLAM step hardcodes its
 # launch string and takes no config hook, but slam_launch.py itself declares
 # `params_file` (replay_slam_bag.py is the standing precedent for using it). So
