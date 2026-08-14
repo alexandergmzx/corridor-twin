@@ -88,6 +88,96 @@ and is untested.
 Scored honestly: **two of four runs reached the docking phase.** The terminal
 creep works every time it is reached.
 
+### 03:13:48 -- A TOUCHES B, measured
+
+Run `20260814-031348` is the first in which simulator truth puts A **inside**
+the contact range rather than short of it.
+
+| | value |
+|---|---|
+| Last sighting of B | 0.2207 m |
+| **A-to-B, TRUTH** | **0.2146 m** |
+| Modelled contact range | 0.2175 m |
+| **Overlap** | **2.9 mm PAST contact** |
+| Creep ticks / disc publishes | 3416 / 3415 |
+| Reported state | `ARRIVED_UNPROVEN` |
+
+B is a static collider (ADR 0033 §6), so A cannot pass through it. A centre
+distance 2.9 mm inside the modelled contact distance means the bumper is
+against B, the few millimetres being solver tolerance and slop in a contact
+range that was derived, not measured. **The bump happens.** The witness still
+does not see it, exactly as the 023306 analysis predicted.
+
+This answers the question ADR 0034 left open under "What is NOT established".
+That record is Accepted and therefore immutable: the resolution is recorded
+*here*, and formally closing the clause needs a superseding ADR, not an edit.
+
+Artifact: [`nav-20260814-031348-contact.json`](nav-20260814-031348-contact.json).
+
+### 03:19:22 -- a THIRD way to never reach the creep: the handoff gap
+
+Run `20260814-031922` is not a docking failure. It is a docking phase that
+**never started**, and the mechanism is systematic rather than unlucky.
+
+| | value |
+|---|---|
+| Nav2 action status | **SUCCEEDED** |
+| A-to-B, TRUTH, at success | **0.6621 m** |
+| Handoff threshold | **0.620 m** |
+| Docking state at exit | `REFINE`, **0 creep ticks** |
+| Refinements achieved | 2 (sightings at 0.988 m, 0.904 m) |
+| Error against its own refined goal | 0.1983 m |
+
+Handoff triggers **only** on a confirmed sighting at or inside 0.620 m. Nav2
+stopped 0.198 m off its own refined goal, declared success at 0.662 m from B,
+and the gate loop ended -- so the creep, the disc, and the whole terminal phase
+were skipped in silence. Nothing logged an error; the run simply reported a
+map-frame goal-error failure and stopped.
+
+**This is a real gap and it is not fixed.** If Nav2's stopping point lands
+outside the handoff radius, the docking never runs at all. Two candidate
+remedies, neither implemented nor measured: place the refined goal closer than
+the handoff radius by at least Nav2's own goal tolerance, or trigger handoff on
+Nav2 SUCCESS as well as on range. Recorded as a finding.
+
+Artifact:
+[`nav-20260814-031922-handoff-missed.json`](nav-20260814-031922-handoff-missed.json).
+
+### The runs were real: independently sampled lens uptime
+
+Announcing a live lens URL for a run that has already died is a failure this
+project has committed before, and "trust me, I checked" is not evidence. A
+separate process sampled `http://127.0.0.1:8765/healthz` every 2 s during both
+runs and wrote timestamped lines without consulting the agent:
+
+| run | first `lens=ok` | last `lens=ok` | verified uptime |
+|---|---|---|---|
+| 031348 | 03:15:43 | 03:17:50 | **127 s** (64 of 152 samples) |
+| 031922 | 03:21:29 | 03:23:24 | **116 s** (58 samples) |
+
+Raw records: [`lens-liveness-20260814-031348.txt`](lens-liveness-20260814-031348.txt),
+[`lens-liveness-20260814-031922.txt`](lens-liveness-20260814-031922.txt).
+
+**The structural problem remains and no diligence fixes it**: bring-up costs
+~2 minutes, A drives for ~50 s, then everything is torn down. An observer who
+looks a minute late finds a dead port, which is indistinguishable from a
+fabricated launch. The `--spawn` micro-arena -- no Nav2, no lifecycle manager,
+~3 minutes -- is the remedy, and these runs are the argument for building it.
+
+### Scorecard, five attempts on 2026-08-14
+
+| run | reached the creep? | outcome |
+|---|---|---|
+| 025049 | no | Nav2 aborted; SLAM double-walled the corridor |
+| 025555 | no | `slam_toolbox` never reached ACTIVE in two attempts |
+| 030242 | **yes** | 0.2258 m -- 8.3 mm short |
+| **031348** | **yes** | **0.2146 m -- CONTACT** |
+| 031922 | no | Nav2 SUCCEEDED at 0.662 m; handoff never triggered |
+
+**Two of five reached the creep, and both drove A to contact.** The terminal
+docking is no longer the limiting factor; three distinct transit and handoff
+faults are.
+
 ### What is proved
 
 **The governor never braked the creep.** Over the 23.8 s creep window,

@@ -224,6 +224,24 @@ Fleet work is under the per-session grant amending R1's docking mode, on
 colcon **142 tests, 0 failures**. Fleet `yahboomcar_safety`: **102 passed**
 (`test_governor.py` 49 → 54 → 62).
 
+### Late runs: contact achieved, and a third transit fault found
+
+After the handback was first written, five more runs. **Run `031348` put A
+2.9 mm PAST the modelled contact range by simulator truth (0.2146 m against
+0.2175 m) -- the bump physically happens.** Run `031922` exposed a new and
+systematic fault: Nav2 reported SUCCEEDED at 0.662 m from B, outside the
+0.620 m handoff radius, so the docking stayed in `REFINE` with zero creep
+ticks and the terminal phase was skipped in silence.
+
+Handoff triggers only on a confirmed sighting inside 0.620 m. When Nav2 stops
+short of that -- here 0.198 m off its own refined goal -- nothing hands over
+and nothing complains. **Unfixed.** Remedies to weigh: place the refined goal
+inside the handoff radius by at least Nav2's goal tolerance, or trigger on
+Nav2 SUCCESS as well as range.
+
+Scoreboard for the night: **2 of 5 runs reached the creep; both reached
+contact.** The docking is no longer the limiting factor.
+
 ### The three things that would move this forward, in order
 
 1. **Replace the laser stationarity signal.** Measured this run: the matcher's
