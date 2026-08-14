@@ -1,0 +1,13 @@
+[INFO] [launch]: All log files can be found below /home/alexmint/.ros/log/2026-08-13-00-24-03-208794-asustek-2749024
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [async_slam_toolbox_node-1]: process started with pid [2749033]
+[INFO] [lifecycle_manager-2]: process started with pid [2749034]
+[lifecycle_manager-2] [INFO] [1786602243.353965164] [lifecycle_manager_slam]: Creating
+[lifecycle_manager-2] [INFO] [1786602243.357728418] [lifecycle_manager_slam]: [34m[1mCreating and initializing lifecycle service clients[0m[0m
+[lifecycle_manager-2] [INFO] [1786602243.359636575] [lifecycle_manager_slam]: [34m[1mStarting managed nodes bringup...[0m[0m
+[lifecycle_manager-2] [INFO] [1786602243.359683033] [lifecycle_manager_slam]: [34m[1mConfiguring slam_toolbox[0m[0m
+[async_slam_toolbox_node-1] [INFO] [1786602243.360393132] [slam_toolbox]: Node using stack size 40000000
+[async_slam_toolbox_node-1] [INFO] [1786602244.128696615] [slam_toolbox]: Configuring
+[async_slam_toolbox_node-1] [INFO] [1786602244.150280396] [slam_toolbox]: Using solver plugin solver_plugins::CeresSolver
+[async_slam_toolbox_node-1] [INFO] [1786602244.152131907] [slam_toolbox]: CeresSolver: Using HuberLoss loss function.
+[async_slam_toolbox_node-1] [WARN] [1786602244.294732514] [slam_toolbox.rclcpp]: failed to send response to /slam_toolbox/change_state (timeout): client will not receive response, at ./src/rmw_response.cpp:153, at ./src/rcl/service.c:400

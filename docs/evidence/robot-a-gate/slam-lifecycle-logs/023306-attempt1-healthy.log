@@ -1,0 +1,70 @@
+[INFO] [launch]: All log files can be found below /home/alexmint/.ros/log/2026-08-14-02-34-24-567009-asustek-1202190
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [async_slam_toolbox_node-1]: process started with pid [1202237]
+[INFO] [lifecycle_manager-2]: process started with pid [1202238]
+[lifecycle_manager-2] [INFO] [1786696464.738788642] [lifecycle_manager_slam]: Creating
+[lifecycle_manager-2] [INFO] [1786696464.744108524] [lifecycle_manager_slam]: [34m[1mCreating and initializing lifecycle service clients[0m[0m
+[async_slam_toolbox_node-1] [INFO] [1786696464.748719378] [slam_toolbox]: Node using stack size 40000000
+[lifecycle_manager-2] [INFO] [1786696465.177452603] [lifecycle_manager_slam]: [34m[1mStarting managed nodes bringup...[0m[0m
+[lifecycle_manager-2] [INFO] [1786696465.177523396] [lifecycle_manager_slam]: [34m[1mConfiguring slam_toolbox[0m[0m
+[async_slam_toolbox_node-1] [INFO] [1786696465.472853274] [slam_toolbox]: Configuring
+[async_slam_toolbox_node-1] [INFO] [1786696465.497869958] [slam_toolbox]: Using solver plugin solver_plugins::CeresSolver
+[async_slam_toolbox_node-1] [INFO] [1786696465.498248792] [slam_toolbox]: CeresSolver: Using HuberLoss loss function.
+[lifecycle_manager-2] [INFO] [1786696465.528772460] [lifecycle_manager_slam]: [34m[1mActivating slam_toolbox[0m[0m
+[async_slam_toolbox_node-1] [INFO] [1786696465.528912995] [slam_toolbox]: Activating
+[lifecycle_manager-2] [INFO] [1786696465.539400952] [lifecycle_manager_slam]: [34m[1mManaged nodes are active[0m[0m
+[async_slam_toolbox_node-1] Info: clipped range threshold to be within minimum and maximum range!
+[async_slam_toolbox_node-1] Registering sensor: [Custom Described Lidar]
+[async_slam_toolbox_node-1] [INFO] [1786696466.934163480] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696466.854 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696469.648555854] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696469.550 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696472.347542992] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696472.261 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696475.237397830] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696475.168 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696477.834170029] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696477.730 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696480.428463148] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696480.361 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696483.199620511] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696483.100 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696485.742507180] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696485.644 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696488.247794591] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696488.168 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696490.943146789] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696490.845 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696493.738569494] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696493.660 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696496.752469725] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696496.669 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696499.350635100] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696499.253 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696502.047505886] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696501.940 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696504.654306351] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696504.530 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696507.239181283] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696507.156 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696509.802547700] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696509.705 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696512.330229089] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696512.266 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696514.928505853] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696514.824 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696517.434992972] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696517.351 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696520.633223479] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696520.551 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696523.351714062] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696523.278 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696525.899080346] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696525.819 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696528.451246054] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696528.363 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696531.126079612] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696531.035 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696533.633961329] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696533.533 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696536.344863988] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696536.243 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696539.039258532] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696538.951 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696541.643062390] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696541.556 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696544.643344297] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696544.525 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696547.344364665] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696547.257 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696549.848617727] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696549.770 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696552.352864260] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696552.262 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696554.854841115] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696554.777 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696557.419084792] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696557.346 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696560.050971497] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696559.938 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696563.052720034] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696562.963 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696565.645933278] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696565.564 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696568.346743243] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696568.258 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696570.892771746] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696570.817 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696573.553690192] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696573.457 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696576.335690399] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696576.229 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696579.048159793] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696578.957 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696581.747227808] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696581.662 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696584.345925865] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696584.260 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696586.946979557] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696586.852 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696589.449269289] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696589.360 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696592.815972772] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696592.713 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696595.955389126] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696595.851 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696600.441504743] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696600.312 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696602.951891804] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696602.854 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696606.025951400] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696605.941 for reason 'discarding message because the queue is full'
+[async_slam_toolbox_node-1] [INFO] [1786696608.739697176] [slam_toolbox]: Message Filter dropping message: frame 'laser_frame' at time 1786696608.629 for reason 'discarding message because the queue is full'

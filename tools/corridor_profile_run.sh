@@ -887,16 +887,39 @@ if [ -n "$SLAM_PARAMS" ]; then
     # this stage had no phase() of its own and inherited the previous one. The
     # watchdog and the completion check both stamp ${PHASE} into the verdict.
     phase "slam bring-up attempt $slam_attempt (params: $(basename "$SLAM_PARAMS"))"
+    slam_log="$RUN_DIR/slam-attempt$slam_attempt.log"
     setsid ros2 launch yahboomcar_config slam_launch.py "params_file:=$SLAM_PARAMS" \
-      >"$RUN_DIR/slam-attempt$slam_attempt.log" 2>&1 &
+      >"$slam_log" 2>&1 &
     slam_pid=$!
     slam_deadline=$(( $(date +%s) + LIFECYCLE_DEADLINE_S ))
     while [ "$(date +%s)" -lt "$slam_deadline" ]; do
       # The LOG first, because it is the output that matters and it does not
       # depend on the ros2 daemon. See LIFECYCLE_DEADLINE_S for what the daemon
       # did to this loop's sibling below.
-      if grep -q 'Aborting bringup' "$RUN_DIR/slam-attempt$slam_attempt.log" 2>/dev/null; then
+      if grep -q 'Aborting bringup' "$slam_log" 2>/dev/null; then
         echo "  slam bringup aborted in its own log; not waiting out the deadline"
+        break
+      fi
+      # THE LOG IS THE ORACLE, and it is exact. Replayed over the 85 archived
+      # slam-attempt logs in out/evidence/robot-a-gate/: "Managed nodes are
+      # active" appears in 81 and every one of them activated; the change_state
+      # WARN appears in 3 and every one of them failed; no log carries both.
+      # The single log carrying neither is 20260814-025555 attempt 2 -- the
+      # orphan hang, which the group reap above now prevents.
+      #
+      # Healthy activation is 1.26 s (measured, run 20260814-031922) against a
+      # 110 s deadline, so reading the log turns a lost attempt from 110 s into
+      # about two. The daemon poll stays as corroboration, following the
+      # bt_navigator loop's own idiom -- `ros2 lifecycle get` needs the ros2
+      # daemon, and simctl stops it at the end of every run.
+      if grep -q 'Managed nodes are active' "$slam_log" 2>/dev/null; then
+        slam_ready=1
+        echo "  slam_toolbox active (attempt $slam_attempt, from its own log)"
+        break
+      fi
+      if grep -q 'failed to send response to /slam_toolbox/change_state' \
+              "$slam_log" 2>/dev/null; then
+        echo "  slam_toolbox lost its own lifecycle response; not waiting out the deadline"
         break
       fi
       sstate=$(timeout "$ROS_CLI_TIMEOUT_S" ros2 lifecycle get /slam_toolbox 2>/dev/null | head -1) || true
