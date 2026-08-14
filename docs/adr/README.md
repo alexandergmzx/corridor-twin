@@ -51,8 +51,9 @@ Three status strings differ between a file and this index, each deliberately:
 | [0031](0031-b-is-the-cylinder.md) | Accepted | **B is one cylinder at the delivery point**; radius is the sensor's and height is the person's; final approach derived from the governor's floor, never bypassed |
 | [0033](0033-arrival-is-contact.md) | Accepted | **Arrival is CONTACT** — A bumps B and the encoders witness it; map-frame gate retired to ungated report; transit is Nav2, terminal is a governed docking creep; the governor is informed by a 15&deg; mask, never bypassed; the stub is the standing negative control |
 | [0034](0034-the-mask-is-the-target.md) | Accepted | **The mask is the TARGET'S SHAPE, not a cone** — a fixed 15&deg; cone cannot admit a contact, since B subtends 33.5&deg; there; the clamped creep is exempt from the slow zone; the bump needs TWO witnesses (governor-permitted AND laser-stationary), never the wheels alone; testing is cheapest-first and no fixture may model the target as one beam |
-| [0035](0035-the-lens-is-the-first-instrument.md) | Accepted | **The lens starts BEFORE the simulator, and outlives the run** — ten of twelve rerun() exits preceded it, so bring-up was unwatchable by construction and three runs wrote no lens.log at all; it is not a `resident`; a lens that cannot serve refuses the run; it freezes 60 s after the data stops; and the banner is a port the lens reported and the runner verified, never a literal |
+| [0035](0035-the-lens-is-the-first-instrument.md) | Accepted; **decision 1 superseded by [0037](0037-the-banner-means-seeing.md)** | **The lens starts before the run, and outlives it** — ten of twelve rerun() exits preceded it, so bring-up was unwatchable by construction and three runs wrote no lens.log at all; it is not a `resident`; a lens that cannot serve refuses the run; it freezes 60 s after the data stops; and the banner is a port the lens reported and the runner verified, never a literal. **Its own rollback clause fired:** 0037 moves the block below `simctl start` on the measured cost 0035 left open. Decisions 2–5 stand |
 | [0036](0036-the-handoff-has-two-triggers.md) | Accepted | **Nav2 finishing the refined goal is also a handoff** — `GOAL_TOLERANCE_M` and Nav2's `xy_goal_tolerance` are both 0.15, so the SUCCEEDED envelope and the handoff radius are the same number and no standoff creates margin; run 031922 succeeded at 0.6621 m and the terminal phase was skipped in silence. Four guards, SUCCEEDED only, never ABORTED. **Recovers a measurement, not a delivery** |
+| [0037](0037-the-banner-means-seeing.md) | Accepted | **The banner means the lens is SEEING, not that it is serving** — 2 of 6 runs were watched by a lens that answered `/healthz` all run and resolved nothing (500 rows, 100.4 s, every metric null), so "zero faux launches" measured the wrong thing. `/healthz` now reports per-topic rates; the banner is gated on a non-zero scan rate; a deaf lens is restarted once and then refuses the run. The gate is only askable after `/scan` exists, so the block moves below `simctl start` — 0035 decision 1 rolled back by its own clause, the rest untouched |
 
 0026 and 0027 have since landed with their evidence and are listed above; the
 line that reserved them is retired rather than left to read as pending.
@@ -140,7 +141,9 @@ flowchart LR
     A34 --> A35["0035<br/>the lens is the<br/>FIRST instrument<br/>and outlives the run"]
     A35 --> A36["0036<br/>the handoff has<br/>TWO triggers<br/>the radius has no margin"]
     A33 -. "handoff radius<br/>extended by" .-> A36
-    A36 --> Demo
+    A36 --> A37["0037<br/>the banner means<br/>SEEING, not serving<br/>2 of 6 lenses were blind"]
+    A35 -. "placement<br/>rolled back by<br/>its own clause" .-> A37
+    A37 --> Demo
     A19 --> A30
     A18 --> A30
     A23 --> A29

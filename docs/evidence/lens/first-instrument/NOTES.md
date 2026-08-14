@@ -141,6 +141,20 @@ Sequential and lock-serialised, as that script requires. Table:
 
 ## Faux launches: none
 
+> **WITHDRAWN 2026-08-14, later the same day. This section measured serving,
+> and the question was seeing.** Read back from the dumps, **2 of the 6 lenses
+> in this series resolved nothing for the entire run** — `20260814-085821` and
+> `-090613`, each exactly 500 samples over 100.4 s with every metric column
+> null, both answering `/healthz` throughout and both announced with a green
+> banner. The uptime figures below are correct and remain quotable *as uptime*;
+> the heading's claim is not. The runs themselves were unaffected — both handed
+> off and delivered at 0.2263 m and 0.2262 m — so what was lost was the ability
+> to watch them, which is the entire purpose of the instrument.
+>
+> [ADR 0037](../../../adr/0037-the-banner-means-seeing.md) is the fix:
+> `/healthz` now reports per-topic rates, the banner is gated on a non-zero
+> scan rate, and a lens that hears nothing twice refuses the run.
+
 **Four announcements, four served, zero refusals.** Lens uptime over the whole
 batch: **285 / 293 samples = 97.3%**, measured by a process that never consults
 the agent. Every one of the 8 `DOWN` samples falls in a reap/replace handover —
@@ -255,7 +269,9 @@ how to answer it.
 
 ## What survived all six runs
 
-- **Faux launches: none.** 6 announced, 6 served, 0 refusals.
+- ~~**Faux launches: none.** 6 announced, 6 served, 0 refusals.~~ **Withdrawn**
+  — 6 served, but **2 of the 6 saw nothing**. See the withdrawal notice above
+  and ADR 0037. Serving is not seeing.
 - **6 of 6 reached the creep and handed off**, against 2 of 5 before this
   session's changes. All six on the `range` trigger; ADR 0036's second trigger
   has still never fired.
