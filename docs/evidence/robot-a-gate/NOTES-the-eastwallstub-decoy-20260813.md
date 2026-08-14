@@ -305,6 +305,48 @@ band closes the seventh, its marginal contribution rests on one bag, and at
 0.40 it buys nothing. Both figures are in the constant's own comment so the
 next reader does not have to take the 7/7 at face value.
 
+### Live confirmation: nine runs, three profiles, zero decoy docks
+
+`tools/diagnostics/run_batch.sh 3 nominal_m6_n3 wide_corner_m6_n4_5
+uniform_m6_n6`, sequential, all `--allow-contract-fail`.
+
+| | before convexity | after |
+|---|---|---|
+| docked on B | 5 | **4** |
+| docked on the decoy | **5 of 10 (50%)** | **0** |
+
+Deliveries, closest approach to the standoff: **0.0675, 0.0909, 0.1457, 0.150,
+0.1703 m**, every one of them staying put. Four docks is a small sample and is
+not on its own a rate; it agrees with the 7-of-7 replay, which is why it is
+being read as confirmation rather than as proof.
+
+Of the nine attempts, four are excluded and none of the exclusions is about
+docking: two `bt_navigator never reached ACTIVE`, one lost goal-acceptance where
+the transit ran but the dock loop never did, and one where the EVALUATOR's
+ground-truth stream died.
+
+### The run that was scored as the worst of the day and was one of the best
+
+`20260813-174631` was recorded as `closest_approach_m 5.0072`, docked on an
+unattributable object. Truth says otherwise:
+
+    start (0.016, 0.000)   end (4.456, -2.251)
+    path 5.653 m   displacement 4.978 m   -> 0.150 m from the standoff
+    docked range 0.616 m   true distance to B 0.601 m   -> a 15 mm match, on B
+
+The evaluator's own ground-truth subscription died after 0.81 s, so
+`world_frame_delivery` scored the run against A's SPAWN.
+`ground_truth_distance_m` reads 0.000 where every other run in the population
+reads 5.4-10.7 m.
+
+It cost two wrong diagnoses before the bag was opened -- first that A never
+moved, then that the EKF was integrating position noise into phantom travel.
+Measured, odometry noise while genuinely stationary is **0.014 mm per sample**
+and sums to 0.017 m across a whole run; it cannot accumulate metres, and the
+4.925 m of recorded travel was real motion throughout. `batch_summary.py` now
+refuses to score a run whose evaluation plane went dark, because a sensor that
+failed on the EVALUATION side is not evidence about the robot.
+
 ## What this means
 
 - **Docking cannot be closed by tightening the detector's thresholds.** Every
