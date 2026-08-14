@@ -76,13 +76,33 @@ def classify(run: Path) -> dict | None:
     #
     # Every other run in the population reports 5.4-10.7 m here, so near-zero
     # is unambiguous rather than a judgement call.
+    # ...but near-zero truth is AMBIGUOUS, and the first version of this guard
+    # got it exactly backwards on the second case it met. It means either
+    #
+    #   (a) the evaluator died  -- run 174631: odom travelled 4.925 m while
+    #       truth recorded 0.000, and the bag shows A drove the full route and
+    #       delivered to 0.150 m. Not evidence about the robot; exclude.
+    #   (b) the robot did not MOVE -- run 195321: odom travelled 0.000 and
+    #       truth recorded 0.008, and the bag holds 2386 truth samples over a
+    #       0.128 m path. The evaluator was fine. That is a real failure and
+    #       excluding it HIDES the thing worth seeing.
+    #
+    # A guard built after being fooled one way must not fool the reader the
+    # other way. The gate's own odometry separates them: truth silent while
+    # odometry reports metres can only be the evaluator.
     truth_distance = gate.get("ground_truth_distance_m")
-    if truth_distance is not None and truth_distance < 0.5:
+    odom_travelled = nav.get("travelled_m")
+    evaluator_died = (
+        truth_distance is not None and truth_distance < 0.5
+        and odom_travelled is not None and odom_travelled > 1.0
+    )
+    if evaluator_died:
         return {
             "run": run.name, "profile": nav.get("profile", "?"),
             "kind": "truth-dead", "state": "-", "refinements": None,
             "closest_m": None, "walked_m": None, "docked_on": "-",
-            "note": f"evaluator truth stream died ({truth_distance} m recorded)",
+            "note": (f"evaluator truth stream died: odom drove {odom_travelled} m, "
+                     f"truth recorded {truth_distance} m"),
         }
 
     delivery = gate.get("world_frame_delivery") or {}

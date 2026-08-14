@@ -339,6 +339,15 @@ The evaluator's own ground-truth subscription died after 0.81 s, so
 `ground_truth_distance_m` reads 0.000 where every other run in the population
 reads 5.4-10.7 m.
 
+> **The guard written from this run was wrong, and a later run proved it.**
+> Excluding on near-zero truth alone also excludes a robot that genuinely did
+> not MOVE, which is a real failure and the one most worth seeing. Run 195321
+> is exactly that: truth 0.008 m, odometry 0.000 m, and a bag holding 2386
+> truth samples over a 0.128 m path -- the evaluator was fine, the robot was
+> not. The two cases separate on the gate's OWN odometry: truth silent while
+> odometry reports metres can only be the evaluator. A guard built after being
+> fooled one way must not fool the reader the other way.
+
 It cost two wrong diagnoses before the bag was opened -- first that A never
 moved, then that the EKF was integrating position noise into phantom travel.
 Measured, odometry noise while genuinely stationary is **0.014 mm per sample**
