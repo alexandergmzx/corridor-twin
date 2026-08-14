@@ -997,31 +997,19 @@ else
   CONTRACT_ARGS=(--imu-hz 60 --json)
   CONTRACT_OUT="$RUN_DIR/contract.json"
 fi
-phase "precondition: $ROBOT contract (${CONTRACT_ARGS[*]})"
-# stdout only into the JSON: the checker appends a human summary and its
+phase "precondition: $ROBOT contract (${CONTRACT_ARGS[*]}; sampling in parallel)"
+# THE SAMPLE RUNS IN PARALLEL WITH SLAM BRING-UP (U8 of the 2026-08-14
+# rework). The check is observe-only in this configuration (--speed 0.0
+# --turn 0.0 commands zeros; the robot is stationary either way) and its
+# verdict is evaluated at the join below, BEFORE the nav stack -- same
+# refusal, same artifact, same caveat, ~13 s less serial time. It must be
+# joined before Nav2 exists: the checker owns /cmd_vel while it samples.
+# stdout only into the artifact: the checker appends a human summary and its
 # FAIL lines after the document, which made every artifact unparseable exactly
 # when it mattered most -- on the failures.
-if ! python3 "$CONTRACT" "${CONTRACT_ARGS[@]}" >"$CONTRACT_OUT" \
-     2>"$RUN_DIR/contract.err"; then
-  echo "**contract check failed for $ROBOT/$PROFILE; twin not fit to gate**" >&2
-  sed 's/^/    /' "$CONTRACT_OUT" 2>/dev/null | tail -12 >&2
-  if [ "$ALLOW_CONTRACT_FAIL" = 1 ]; then
-    # Deliberate, visible override -- NOT a lowered threshold. The check still
-    # ran, still failed, and its artifact is kept unchanged; what this does is
-    # let the run proceed so navigation evidence exists at all, with the defect
-    # stamped into every artifact it produces. Used when the precondition fails
-    # for a reason outside the run under test: robot1's twin publishes /scan at
-    # ~14.3 Hz against a declared 12.0 in the STOCK yahboom arena too, so
-    # blocking on it would forfeit the night to a pre-existing twin defect.
-    CONTRACT_CAVEAT="PRECONDITION FAILED (recorded, overridden): see $(basename "$CONTRACT_OUT")"
-    echo "  **proceeding under --allow-contract-fail; every artifact carries the caveat**" >&2
-  else
-    rerun "contract precondition failed for $ROBOT/$PROFILE; twin not fit to gate"
-  fi
-else
-  CONTRACT_CAVEAT=""
-fi
-[ -z "${CONTRACT_CAVEAT:-}" ] && echo "  contract PASS -> $CONTRACT_OUT"
+python3 "$CONTRACT" "${CONTRACT_ARGS[@]}" >"$CONTRACT_OUT" \
+  2>"$RUN_DIR/contract.err" &
+CONTRACT_CHECK_PID=$!
 
 status=0
 
@@ -1124,6 +1112,31 @@ if ! python3 "$REPO/tools/wait_for_tf.py" --target map --source base_footprint -
   rerun "map->base_footprint never appeared; twin TF is not up"
 fi
 
+# THE CONTRACT JOIN. The sample launched back at the precondition phase; its
+# verdict lands here, before Nav2 exists (the checker owns /cmd_vel while it
+# samples). Refusal, artifact and caveat are exactly the old serial form's.
+phase "contract verdict (joined)"
+if ! wait "$CONTRACT_CHECK_PID"; then
+  echo "**contract check failed for $ROBOT/$PROFILE; twin not fit to gate**" >&2
+  sed 's/^/    /' "$CONTRACT_OUT" 2>/dev/null | tail -12 >&2
+  if [ "$ALLOW_CONTRACT_FAIL" = 1 ]; then
+    # Deliberate, visible override -- NOT a lowered threshold. The check still
+    # ran, still failed, and its artifact is kept unchanged; what this does is
+    # let the run proceed so navigation evidence exists at all, with the defect
+    # stamped into every artifact it produces. Used when the precondition fails
+    # for a reason outside the run under test: robot1's twin publishes /scan at
+    # ~14.3 Hz against a declared 12.0 in the STOCK yahboom arena too, so
+    # blocking on it would forfeit the night to a pre-existing twin defect.
+    CONTRACT_CAVEAT="PRECONDITION FAILED (recorded, overridden): see $(basename "$CONTRACT_OUT")"
+    echo "  **proceeding under --allow-contract-fail; every artifact carries the caveat**" >&2
+  else
+    rerun "contract precondition failed for $ROBOT/$PROFILE; twin not fit to gate"
+  fi
+else
+  CONTRACT_CAVEAT=""
+fi
+[ -z "${CONTRACT_CAVEAT:-}" ] && echo "  contract PASS -> $CONTRACT_OUT"
+
 # Let the box settle between SLAM and Nav2. The lifecycle service timeouts that
 # abort this bringup are a contention symptom -- the EKF logs "Failed to meet
 # update rate!" in the same window -- and everything was starting at once.
@@ -1151,11 +1164,34 @@ fi
 # saved per run, against a quarter of runs dying at about 250 s each. That is a
 # bad bargain at any plausible failure rate.
 #
-# Still a deliberate pause rather than a poll. The condition is now partly
-# identified (costmap configuration latency) but not measurable from here, and
-# the bring-up loops below hold their own wall-clock deadlines, so a settle that
-# is still too short costs a bounded retry rather than a hang.
-sleep 8
+# NO LONGER A PAUSE: THE EVENT IT STOOD FOR, WITH THE OLD PAUSE AS CEILING
+# (U8, 2026-08-14). The comment above once ended "a deliberate pause rather
+# than a poll... not measurable from here." It is measurable now: the lens's
+# /healthz carries monotonic counts (ADR 0041), and counts.map >= 1 means
+# SLAM's startup burst has produced its first map -- the window the measured
+# contention lived in. The nav-side half of the pause's job (the get_state
+# discovery race) has its own event as of this change: nav_ready_waiter in
+# robot1_nav_corridor_launch.py. A lens-less run (--no-lens) keeps the full
+# fixed pause. A/B guard: if the confirm batch's nav-abort rate regresses,
+# the pause returns, as a committed finding.
+settle_start=$(date +%s)
+if [ "$LENS" = 1 ] && [ -n "${LENS_PORT:-}" ]; then
+  settled=""
+  while [ $(( $(date +%s) - settle_start )) -lt 8 ]; do
+    if curl -sf --max-time 1 "http://127.0.0.1:$LENS_PORT/healthz" 2>/dev/null \
+       | python3 -c '
+import sys, json
+counts = (json.load(sys.stdin).get("counts") or {})
+sys.exit(0 if (counts.get("map") or 0) >= 1 else 1)' 2>/dev/null; then
+      settled="first map seen at +$(( $(date +%s) - settle_start ))s"
+      break
+    fi
+    sleep 0.5
+  done
+  echo "  settle: ${settled:-no map inside the 8 s ceiling; proceeding anyway}"
+else
+  sleep 8
+fi
 
 phase "nav stack"
 if [ "$ROBOT" = robot1 ]; then

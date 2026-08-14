@@ -712,6 +712,46 @@ def test_the_profile_is_oi13s_file_and_empty_disables() -> None:
     assert 'dds_profile=${CORRIDOR_DDS_PROFILE:-}' in code
 
 
+def test_the_contract_samples_in_parallel_and_joins_before_nav() -> None:
+    """U8: the contract's 8 s observe-only sample overlaps SLAM bring-up and
+    the TF wait (~13 s serial saved), but its verdict MUST land before the
+    nav stack -- the checker owns /cmd_vel while it samples, and Nav2 must
+    never share that topic with a health check."""
+
+    code = _runner_code()
+    launch_at = code.index("CONTRACT_CHECK_PID=$!")
+    join_at = code.index('wait "$CONTRACT_CHECK_PID"')
+    slam_at = code.index('phase "slam bring-up attempt')
+    nav_at = code.index('phase "nav stack"')
+
+    assert launch_at < slam_at, "the sample no longer overlaps SLAM bring-up"
+    assert slam_at < join_at < nav_at, (
+        "the contract verdict must land after the overlap window and before "
+        "Nav2 exists"
+    )
+    # The refusal and the override survive at the join, unweakened.
+    join_block = code[join_at:nav_at]
+    assert "rerun \"contract precondition failed" in join_block
+    assert "ALLOW_CONTRACT_FAIL" in join_block
+
+
+def test_the_settle_is_an_event_with_the_old_pause_as_ceiling() -> None:
+    """U8: the 8 s settle was chosen, never measured (618d55e), and its own
+    comment called it a stand-in for an unmeasurable condition. The condition
+    is measurable now -- the lens's monotonic counts.map -- so the settle
+    polls it, keeps the old 8 s as the ceiling, and a lens-less run keeps the
+    full fixed pause (no lens, no event to read)."""
+
+    code = _runner_code()
+    settle_at = code.index("settle_start=$(date +%s)")
+    nav_at = code.index('phase "nav stack"')
+    block = code[settle_at:nav_at]
+
+    assert 'counts.get("map")' in block, "the settle no longer reads the map count"
+    assert "-lt 8" in block, "the 8 s ceiling is gone"
+    assert "sleep 8" in block, "the --no-lens fallback pause is gone"
+
+
 def test_rviz_is_opt_in_now() -> None:
     """The lens is the watching instrument (ADR 0035/0037); RViz costs its
     load plus simctl's fixed 8 s post-RViz sleep on a domain nobody need be

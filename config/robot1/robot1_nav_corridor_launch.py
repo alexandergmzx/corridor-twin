@@ -45,7 +45,8 @@ yahboomcar_safety FIRST.
 import os
 
 from launch import LaunchDescription
-from launch.actions import TimerAction
+from launch.actions import ExecuteProcess, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 
 #: Absolute, because this file is launched by path rather than from a package
@@ -135,18 +136,24 @@ def generate_launch_description() -> LaunchDescription:
     # on 2026-08-14. The evidence for it being a discovery race rather than a
     # slow node is that the victim MOVES -- controller_server on some runs,
     # planner_server on others -- and that the reported `last state` is
-    # sometimes `unknown`, i.e. the query itself never landed. A node that was
-    # merely slow would fail in the same place every time.
+    # sometimes `unknown`, i.e. the query itself never landed.
     #
-    # Five seconds against a bring-up that already takes ~110 s, to remove a
-    # failure that costs a whole ~250 s run one time in four. It cannot slow a
-    # healthy run by more than those five seconds, and the runner's own
-    # lifecycle deadline absorbs it with 100 s to spare.
-    #
-    # This is a LAUNCH-COMPOSITION fix, not a Nav2 parameter change: nothing
-    # about how Nav2 plans or drives is touched.
-    LIFECYCLE_MANAGER_DELAY_S = 5.0
+    # A fixed 5 s TimerAction guarded this from 2026-08-13 to 2026-08-14. Since
+    # the U8 rework the guard is THE CONDITION ITSELF: nav_ready_waiter exits
+    # when all four get_state services are discoverable (typically ~1-2 s), and
+    # the manager starts on that exit. The waiter exits 0 on its own 30 s
+    # timeout too -- a veto would be a second, worse deadline; the runner's
+    # lifecycle deadline and retry own that failure. Still a LAUNCH-COMPOSITION
+    # fix: nothing about how Nav2 plans or drives is touched.
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    waiter = ExecuteProcess(
+        cmd=["python3", os.path.join(repo_root, "tools", "nav_ready_waiter.py"),
+             "--nodes", *LIFECYCLE_NODES, "--timeout", "30"],
+        name="nav_ready_waiter",
+        output="screen",
+    )
     return LaunchDescription([
-        controller, planner, behaviors, bt_navigator,
-        TimerAction(period=LIFECYCLE_MANAGER_DELAY_S, actions=[lifecycle]),
+        controller, planner, behaviors, bt_navigator, waiter,
+        RegisterEventHandler(OnProcessExit(target_action=waiter,
+                                           on_exit=[lifecycle])),
     ])

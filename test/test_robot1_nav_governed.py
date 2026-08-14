@@ -223,3 +223,30 @@ def test_loop_closing_is_on_in_the_params_the_runner_actually_launches() -> None
     # reading only the filename.
     record = ROOT / "config/robot1/slam_robot1_corridor.yaml"
     assert "NOT IN USE" in record.read_text(encoding="utf-8")
+
+
+def test_the_manager_starts_on_the_waiters_exit_not_a_timer() -> None:
+    """U8: the 5 s TimerAction stood for 'the get_state services are
+    discoverable'; nav_ready_waiter IS that condition, and the manager starts
+    on its exit. A timer would quietly return as dead time; an event that the
+    waiter could veto would be a second, worse deadline -- so the waiter must
+    always exit 0 and the manager must be wired to OnProcessExit."""
+
+    source = LAUNCH.read_text(encoding="utf-8")
+    # Checked as USE, not as mention: the comment explaining the history may
+    # name the TimerAction it replaced.
+    code = "\n".join(
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "TimerAction(" not in code, "the fixed delay is back"
+    assert "nav_ready_waiter" in code
+    assert "OnProcessExit" in code
+
+    waiter = (ROOT / "tools/nav_ready_waiter.py").read_text(encoding="utf-8")
+    assert "starting the manager anyway" in waiter, (
+        "the waiter's timeout no longer starts the manager; it grew a veto"
+    )
+    assert "sys.exit(1)" not in waiter
+    # The waiter waits on the same four nodes the manager manages -- read from
+    # the one constant, not a second list that can drift.
+    assert '"--nodes", *LIFECYCLE_NODES' in source
