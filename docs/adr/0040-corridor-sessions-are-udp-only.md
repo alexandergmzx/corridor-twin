@@ -1,6 +1,7 @@
 # ADR 0040: Corridor sessions run DDS over UDP only
 
-- **Status:** Proposed (accepts on the T1 batch: 8/8 lens-healthy runs)
+- **Status:** Accepted (2026-08-14, on the T1 batch: 10/10 lens-healthy —
+  criterion was 8/8; see Validation)
 - **Date:** 2026-08-14
 - **Relates to:** [ADR 0035](0035-the-lens-is-the-first-instrument.md),
   [ADR 0037](0037-the-banner-means-seeing.md),
@@ -102,10 +103,21 @@ unusual amount of independent support:
   UDP-only their churn is harmless to corridor participants. Fixing the
   exit path is a fleet backlog item, not a corridor gate.
 
-## Validation (filled at acceptance)
+## Validation (filled at acceptance, 2026-08-14)
 
-- The churn repro's two verdict files (SHM arm, UDP-only arm).
-- The T1 batch: ≥8 consecutive runs with zero deaf lenses (no
-  restart-once firings, no lens refusals, `lens_resolved_frac > 0`),
-  with per-run `shm_fastrtps_*` censuses and robot1 contract rates
-  against their pinned values.
+- **T1 batch: 10 consecutive runs, 0 deaf lenses** (criterion was ≥8).
+  No restart-once firing, no refusal, `lens_resolved_frac` 0.843–0.887
+  on every run, matched-event logs live in each. Baseline: 2 deaf of 4
+  recent runs. Full table with commands:
+  [`docs/evidence/bringup-rework/NOTES.md`](../evidence/bringup-rework/NOTES.md).
+- **Rate cost: none.** odom_laser 13.51–13.95 Hz under UDP-only vs
+  10.57/10.61 baseline (faster); EKF 9.98–10.0 vs 9.95/9.99 (unchanged);
+  scan basis 12.0 both arms. `/dev/shm` census 0/0/0 on 9 of 10 runs
+  (run 1 swept two pre-existing entries at teardown).
+- **The synthetic churn repro did not reproduce the failure** (three
+  clean arms; `docs/evidence/lens-deafness/NOTES.md`) — the mechanism is
+  bounded, not named; this record's decision stands on the batch and on
+  OI-13's precedent.
+- Gate-green runs 4 of 10 vs 0 of 5 baseline; the remaining reds are the
+  pre-existing EKF-gap (ADR 0029 territory) and unproven-contact
+  (ADR 0033) families. No new failure family under UDP-only.

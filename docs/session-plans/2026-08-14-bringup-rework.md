@@ -50,10 +50,10 @@ else OI notes to the fleet backlog.
 | U1 | This plan on disk | 10 m | DONE |
 | U2 | Lens instrumentation: matched-event logging, executor-liveness timer, healthz counts/matched/exec fields (observation-only; NO new publisher — the zero-publisher invariant of ADR 0035 §2 stands, so H3's discriminator is a node timer, not a self-ping) + tests | 45 m | DONE — commit `c838e9c`; live-smoked on domain 69 (exec_tick_age_s 0.236) |
 | U3 | run.json covariates: per-phase durations from phases.log, /dev/shm fastrtps census ×3, schema 1.1.0 + tests | 45 m | DONE (this commit) |
-| U4 | DDS churn repro, no Isaac, domain 69, SHM vs UDP-only A/B; two realism escalations max, then batch decides | 60 m | pending |
-| U5 | Rung (a): UDP-only export (both env names, D5 resolution) + `--no-rviz` default + ADR draft + tests | 30 m | pending |
-| U6 | T1 batch: 4 runs → if 4/4 extend to 8; rate-cost table vs robot1 contract numbers; evidence commit | 120 m | pending |
-| U7 | Progress-based seeing gate (count-delta across two polls) + second-checkpoint same + tests | 30 m | pending |
+| U4 | DDS churn repro, no Isaac, domain 69, SHM vs UDP-only A/B; two realism escalations max, then batch decides | 60 m | DONE — **negative result, filed in bold**: three arms (plain os._exit churn ×448; + victim kill-and-replace ×19 generations; + SIGKILL-mid-traffic, peak 68 segments) all CLEAN. H1's synthetic form bounded, not confirmed; ADR 0040 context corrected; batch is the decider. Commits `7c80e10` + evidence commit. Tool itself landed early inside `02451c9` (over-broad add, recorded in 7c80e10's message) |
+| U5 | Rung (a): UDP-only export (both env names, D5 resolution) + `--no-rviz` default + ADR draft + tests | 30 m | DONE — `68bce8a` |
+| U6 | T1 batch: 4 runs → extend to 10 (operator raised the floor to ≥10 before leaving); rate-cost table vs robot1 contract numbers; evidence commit | 150 m | DONE — **T1 MET: 10/10 lens-healthy** (frac 0.843–0.887, 0 restarts, 0 refusals, shm 0/0/0, odom_laser FASTER under UDP-only: 13.5–13.9 vs 10.6 Hz baseline, EKF unchanged). ADR 0040 → Accepted. Gate-green 4/10 vs 0/5 baseline; remaining reds are pre-existing ADR-0029/0033 families. Median command→motion already ≈109 s pre-U8. **Conditional fleet grant FIRES.** Evidence: docs/evidence/bringup-rework/NOTES.md |
+| U7 | Progress-based seeing gate (count-delta across two polls) + second-checkpoint same + tests | 30 m | DONE — `02451c9` + ADR 0041 |
 | U8 | P2 corridor-side: lens ∥ simctl, contract ∥ SLAM, settle→event, TimerAction→get_state-event; update phase_typical_s/header/tests; measured against the U6 batch | 90 m | pending |
 | U9 | Fleet edits ONLY if the conditional grant fires (T1 = 8/8): dwell skip, wait_for check-before-sleep, safety sleep→event; one commit each in robot-fleet + robot2 smoke | 60 m | pending (conditional) |
 | U10 | Handoff doc + morning decisions | 30 m | pending |
