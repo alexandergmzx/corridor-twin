@@ -239,6 +239,12 @@ class NavGate(Node):
         # would bypass the safety filter -- the thing it warns about on startup.
         self.measured_vx: float | None = None
         self.creeping = False
+        # Counted, because "the mask never applied" and "the creep never
+        # ticked" look identical from the outside and cost two runs to tell
+        # apart. A creep whose ticks and publishes disagree with its elapsed
+        # time says so in the artifact now.
+        self.creep_ticks = 0
+        self.approach_publishes = 0
         # BOTH TOPICS ARE ABSOLUTE, and deliberately not built from `namespace`.
         #
         # The governor is not namespaced. `safety_launch.py` declares the node
@@ -521,6 +527,37 @@ def main() -> int:
             result_future.done() and not gate.creeping
         ):
             rclpy.spin_once(gate, timeout_sec=0.1)
+
+            # THE CREEP RUNS BEFORE THE TF LOOKUP, AND WITHOUT IT.
+            #
+            # This block used to sit below `map_pose_yaw()`, whose `except:
+            # continue` skips the rest of the iteration on any TF gap. So every
+            # gap silently cost a creep tick -- no velocity, and no approach
+            # republished, which lets the governor's mask EXPIRE and puts the
+            # proximity floor straight back. Run 20260814-003844 crept from
+            # 0.614 m to 0.346 m and then asymptoted against a floor that
+            # should not have been there, with the governor logging "obstacle
+            # at 0.24 m" throughout.
+            #
+            # It is also wrong in principle. The terminal phase is map-free by
+            # design -- range and bearing in the laser frame, nothing else --
+            # so gating it on a map-frame transform gives away the property
+            # that made it worth building.
+            if gate.creeping:
+                command = machine.creep(
+                    gate.last_verdict, gate.measured_vx, time.monotonic()
+                )
+                if command is not None:
+                    gate.creep_ticks += 1
+                    if command["approach"] is not None:
+                        gate.approach_publishes += 1
+                    gate.drive(command["vx"], command["wz"], command["approach"])
+                if machine.state in machine.TERMINAL:
+                    gate.drive(0.0, 0.0, None)     # leave it stopped, always
+                    print(f"  dock: {machine.state} -- {command['reason']}")
+                    break
+                continue
+
             try:
                 pose_x, pose_y, pose_yaw = gate.map_pose_yaw()
             except Exception:  # noqa: BLE001 - TF gaps are normal mid-transit
@@ -551,18 +588,6 @@ def main() -> int:
                 rclpy.spin_until_future_complete(gate, cancel, timeout_sec=10.0)
                 gate.creeping = True
 
-            if gate.creeping:
-                command = machine.creep(
-                    gate.last_verdict, gate.measured_vx, time.monotonic()
-                )
-                if command is not None:
-                    gate.drive(command["vx"], command["wz"], command["approach"])
-                if machine.state in machine.TERMINAL:
-                    gate.drive(0.0, 0.0, None)     # leave it stopped, always
-                    print(f"  dock: {machine.state} -- {command['reason']}")
-                    break
-                continue
-
             if refined is None:
                 continue
             print(f"  dock: refine {machine.refinements} -> "
@@ -587,7 +612,12 @@ def main() -> int:
                 handle = new_handle
                 result_future = handle.get_result_async()
                 goal_x, goal_y = refined
-        dock_report = {"enabled": True, **machine.report()}
+        dock_report = {
+            "enabled": True,
+            "creep_ticks": gate.creep_ticks,
+            "approach_publishes": gate.approach_publishes,
+            **machine.report(),
+        }
     report["docking"] = dock_report
 
     rclpy.spin_until_future_complete(gate, result_future, timeout_sec=arguments.timeout)
