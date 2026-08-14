@@ -41,6 +41,7 @@ infrastructure (exit 2).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import subprocess
@@ -246,15 +247,19 @@ def orchestrate(args) -> int:
     shm_before = len(dds.all_segments())
     publisher = child("publisher")
     victim = child("victim")
-    churn: list[subprocess.Popen] = []
+    churn: list[tuple[subprocess.Popen, float]] = []
     churn_spawned = 0
     timeline: list[dict] = []
+    replacements: list[dict] = []
+    generation = 0
     verdict_path = os.path.join(args.out, "repro.json")
     t0 = time.time()
     verdict = {
         "arm": arm, "domain": args.domain,
         "profile": env.get("FASTDDS_DEFAULT_PROFILES_FILE"),
         "churn_every_s": args.churn_every, "child_life_s": args.child_life,
+        "churn_kill9": bool(args.churn_kill9),
+        "victim_replace_every_s": args.victim_replace_every or None,
         "silence_deaf_s": SILENCE_DEAF_S, "min_pub_delta": MIN_PUB_DELTA,
         "shm_segments_before": shm_before,
     }
@@ -276,14 +281,36 @@ def orchestrate(args) -> int:
                   f"no experiment ran", flush=True)
             return 2
 
-        last_churn, shm_peak = 0.0, shm_before
+        last_churn, last_replace, shm_peak = 0.0, time.time(), shm_before
         while time.time() - t0 < args.duration:
             now = time.time()
             if now - last_churn >= args.churn_every:
-                churn.append(child("churn-child"))
+                churn.append((child("churn-child"), now))
                 churn_spawned += 1
-                churn = [c for c in churn if c.poll() is None]
+                churn = [(c, born) for c, born in churn if c.poll() is None]
                 last_churn = now
+            if args.churn_kill9:
+                # Escalation 1: die MID-TRAFFIC by SIGKILL, not at a chosen
+                # quiet point. Children get a long --child-life in this mode
+                # so the kill always lands first.
+                for proc, born in churn:
+                    if now - born >= 1.0 and proc.poll() is None:
+                        proc.kill()
+            if args.victim_replace_every and now - last_replace >= args.victim_replace_every:
+                # Escalation 2: the run-to-run lens shape. reap_previous_lens
+                # KILLs the old lens right before the new one starts, with no
+                # sweep in between (corridor_profile_run.sh); Fast-DDS #5053's
+                # deaf party is exactly the RESTARTED subscriber. The fresh
+                # victim gets a fresh timeline; deafness is judged on it alone.
+                victim.kill()
+                with contextlib.suppress(OSError):
+                    os.unlink(os.path.join(args.out, "victim.json"))
+                victim = child("victim")
+                generation += 1
+                replacements.append({"t": round(now - t0, 1),
+                                     "generation": generation})
+                timeline = []
+                last_replace = now
             p = read_json(os.path.join(args.out, "pub.json"))
             v = read_json(os.path.join(args.out, "victim.json"))
             if p and v:
@@ -298,6 +325,7 @@ def orchestrate(args) -> int:
                 if row is not None:
                     verdict.update(
                         outcome="deaf", t_deaf_s=row["t"],
+                        generation=generation,
                         matched_at_deaf={"current": row["matched_current"],
                                          "total": row["matched_total"]},
                         deaf_kind=("matched-but-silent"
@@ -310,15 +338,25 @@ def orchestrate(args) -> int:
                             and b["pub"] == a["pub"]):
                         verdict.update(outcome="infra_publisher_stalled")
                         break
+            elif (p and v is None and args.victim_replace_every
+                    and now - last_replace >= 30.0):
+                # A replaced victim that never even wrote a status while the
+                # publisher lived is the never-heard shape at its worst.
+                verdict.update(outcome="deaf",
+                               t_deaf_s=round(now - t0, 1),
+                               generation=generation,
+                               deaf_kind="no-status-after-replace")
+                break
             time.sleep(1.0)
         else:
             verdict.update(outcome="clean")
     finally:
-        for proc in (*churn, victim, publisher):
+        procs = [c for c, _born in churn] + [victim, publisher]
+        for proc in procs:
             if proc.poll() is None:
                 proc.terminate()
         time.sleep(1.0)
-        for proc in (*churn, victim, publisher):
+        for proc in procs:
             if proc.poll() is None:
                 proc.kill()
         # Sweep ONLY what no live process maps -- the fleet's earned "stale".
@@ -335,6 +373,7 @@ def orchestrate(args) -> int:
             shm_segments_peak=shm_peak if timeline else shm_before,
             shm_stale_removed=removed,
             shm_segments_after=len(dds.all_segments()),
+            victim_replacements=replacements,
             timeline=timeline,
         )
         write_json(verdict_path, verdict)
@@ -364,7 +403,18 @@ def main() -> int:
     ap.add_argument("--duration", type=float, default=900.0)
     ap.add_argument("--churn-every", type=float, default=2.0)
     ap.add_argument("--child-life", type=float, default=2.0)
+    ap.add_argument("--churn-kill9", action="store_true",
+                    help="escalation 1: SIGKILL churn children mid-traffic at "
+                         "~1 s age instead of letting them os._exit at rest")
+    ap.add_argument("--victim-replace-every", type=float, default=0.0,
+                    help="escalation 2: every N s, SIGKILL the victim and "
+                         "start a fresh one -- the reap_previous_lens shape; "
+                         "deafness is judged per victim generation")
     args = ap.parse_args()
+
+    if args.churn_kill9:
+        # The kill must land first, or the child os._exits at rest anyway.
+        args.child_life = max(args.child_life, 30.0)
 
     if args.role == "publisher":
         return run_publisher(args)

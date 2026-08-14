@@ -40,8 +40,11 @@ for profile in "${PROFILES[@]}"; do
 
     log="$LOGDIR/$profile-$i.log"
     echo "=== [$(date +%H:%M:%S)] $profile run $i/$COUNT -> $log"
+    # BATCH_RUN_FLAGS: extra runner flags for every run in the batch, so a
+    # batch can carry the same configuration as the single runs it is compared
+    # against (the 2026-08-14 baseline used --corridor-slam).
     bash "$REPO/tools/corridor_profile_run.sh" --profile "$profile" --robot robot1 \
-      --domain 67 --allow-contract-fail >"$log" 2>&1
+      --domain 67 --allow-contract-fail ${BATCH_RUN_FLAGS:-} >"$log" 2>&1
     echo "    exit $?  $(grep -oE '=== [a-z0-9_]+: \*\*(PASS|FAIL)\*\*' "$log" | tail -1)"
   done
 done
