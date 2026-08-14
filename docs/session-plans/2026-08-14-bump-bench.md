@@ -126,8 +126,8 @@ cannot reproduce the observed failures is decoration.
 | # | unit | box | status |
 |---|---|---|---|
 | V0 | Plan + branch | 15 m | **DONE** |
-| V1 | T0 bench + the four reproductions | 90 m | |
-| V2 | A1 + A2 (fleet) and A3 (repo), each proven on the bench; extended-arc fixtures | 90 m | |
+| V1 | T0 bench + the four reproductions | 90 m | **DONE** — `c52b505` |
+| V2 | A1 + A2 (fleet) and A3 (repo), each proven on the bench; extended-arc fixtures | 90 m | **DONE** — fleet `c9c773b` |
 | V3 | T1 ROS bench | 30 m | |
 | V4 | T2 lens tile | 45 m | |
 | V5 | T3 micro-arena — the bump on screen | 45 m | 2 attempts max |
@@ -141,6 +141,8 @@ cannot reproduce the observed failures is decoration.
 | unit | outcome |
 |---|---|
 | V0 | branch `bump-bench-2026-08-14`, this document |
+| V1 | `tools/creep_bench.py`. Reproduces the cone leak, the slow-zone false stall, the slip case and the forgery. **The bag-reproduction bar is MISSED**: pin at declared 0.4029 m against the bag's 0.3455 m, 0.057 m out against a ±0.03 m bar. Mechanism matches, radius does not — recorded, not resolved, because the real robot got *closer* than the bench and still never contacted |
+| V2 | A1 disc + A2 exemption in the fleet (`c9c773b`, under grant); A3 dual witness in `corridor_dock.py`. Bench: `disc`/`slip`/`misaligned` reach contact within 0.6–1.4 mm; the three cone scenarios stay red as negative controls. **The single-beam fixture blindness is dead** — `_disc_scan()` ray-traces a real cylinder and the cone's failure is now asserted. Fleet suite 97, of which `test_governor.py` 49 → 54 |
 
 ## Handback
 

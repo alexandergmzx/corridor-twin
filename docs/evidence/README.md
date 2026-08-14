@@ -38,6 +38,7 @@ location; it must not silently replace the reviewed artifact.
 | Lens render loop (debugging instrument) | **Had never rendered live**; one undefined identifier killed the loop after a single frame. Fixed, with a headless stub + probe so a regression is catchable in seconds | [Notes, before/after screenshots, probe verdicts](lens/NOTES.md) |
 | Learned enforcement detector (Phase 3, ADR 0024) | **Correction 3 has a first result**: 3000 paired Replicator frames from P's mast, RT-DETR at **99.3%** detection on held-out synthetic. Resolution deliberately **not pinned** — detection rate cannot discriminate 640×360 from 1280×720 | [Notes, dataset summary, training curves, label overlays](detector/NOTES.md) |
 | robot1 in the corridor + scale finding (2026-08-11) | **Scaling the corridor to the robot removes the degeneracy; Nav2 still aborts; twin misses its own scan contract in the stock arena too** | [Notes, gate JSON, stock-arena control](robot1-corridor/NOTES.md) |
+| Creep bench — why A could not touch B (2026-08-14) | Offline closed loop, 13 s against a 25-minute Isaac cycle. Disc mask + slow-zone exemption reach contact within 0.6 mm; the ±15° cone stays RED as a permanent negative control. **The bag reproduction misses its own ±0.03 m bar by 0.057 m** | [Notes, scenario matrix](creep-bench/NOTES.md) |
 
 The static topic's pixel, calibration, rate, and station-error results remain
 valid historical evidence, but its renderer mode was requested rather than
