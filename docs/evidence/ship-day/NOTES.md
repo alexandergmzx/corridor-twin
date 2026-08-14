@@ -174,6 +174,57 @@ output gap of 0.566 s (ADR 0029's unexplained fusion anomaly). **The delivery
 worked on both**: handoff fired, and A finished 0.2285 m and 0.2257 m from B,
 inside the band of every other run this month.
 
+### Runs 3 and 4: the acknowledgement, and the refusal firing for real
+
+Runs 1 and 2 both finished *before* the wait-acknowledgement commit landed, so
+two more were needed to exercise it. They exercised more than that.
+
+**Run 3 `133559` — ADR 0039's second checkpoint fired for the first time.**
+
+```
+=== [13:36:00 +0s] simctl start ===  (~62s when healthy)
+=== [13:37:21 +82s] lens ===  (~7s when healthy)
+  lens: http://127.0.0.1:8765/  (map, scan, 3 pose ghosts, landmark)
+...
+**INFRASTRUCTURE: the lens went deaf during bring-up -- it passed its gate and
+  stopped hearing, so the mission would be unwatched.**
+```
+
+The lens bound, heard scans, passed the gate, printed its banner — and was deaf
+by the time the robot was due to move. The run refused instead of producing an
+unwatchable success, which is exactly what that record was written for. Its
+dump is the now-familiar signature: 300 rows, 60.2 s, **zero** resolved fits.
+
+**Run 4 `133922` — clean launch, and Nav2 aborted.** Lens seen on the first
+attempt, second checkpoint passed, coverage 0.818. Then `ABORTED` at 3.055 m
+from B with yaw scale 1.1353 and midpoint drift 0.355 — a navigation failure in
+ADR 0029's territory, with nothing to do with the launch.
+
+### The launch is trustworthy; it is not yet reliable
+
+Four runs under the current code:
+
+| run | lens | outcome |
+|---|---|---|
+| `131949` | attempt 1 deaf → **restart worked** | watched **0.861**, delivered 0.2285 m |
+| `132443` | clean | watched **0.886**, delivered 0.2257 m |
+| `133559` | passed gate, deaf before the mission | **REFUSED** by the second checkpoint |
+| `133922` | clean | watched **0.818**, Nav2 aborted at 3.055 m |
+
+**Zero unwatchable successes, on the seeing definition** — which is the property
+that was missing this morning, when the same definition would have failed 2 of
+6. Every run either produced a watched mission or refused and said why.
+
+**But deafness hit 2 of these 4 runs**, and it is now the dominant infrastructure
+cost: each refusal spends an Isaac load. The signature is identical every time
+— the lens hears its first messages, clears the gate, then receives nothing and
+freezes at the 60 s idle rule with no resolved fit. `/dev/shm` sits at 372 MiB
+of 24 GiB during a run, so it is not segment exhaustion by volume.
+
+The mechanism is still unidentified and this is the third session it has
+survived. It is the top open item on the instrument, and it is a DDS discovery
+question rather than a corridor one.
+
 ### What the bring-up measurement said
 
 Phase medians over the seven runs of the day, which is where the
