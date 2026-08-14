@@ -721,6 +721,34 @@ SLAM_FLAG=""
   --no-patrol $RVIZ_FLAG $SLAM_FLAG || {
   rerun "simctl start failed for $PROFILE"; }
 
+# Is the lens on this port hearing scans right now? -> 0 if yes.
+#
+# One definition, called TWICE: once when the lens starts, and once again just
+# before the mission. The single check was not enough. Run 20260814-125254
+# passed it and went deaf seconds later -- 300 samples, 60.2 s, every metric
+# column null, on a lens created 71 s AFTER `simctl start`, which is the
+# placement ADR 0037 adopted precisely because no lens created there had ever
+# gone blind. The correlation the record leans on has a counterexample now.
+#
+# The second call is where the cheap win is. Bring-up is ~130 s, so a lens that
+# dies during it is dead for the whole mission, and asking again at the last
+# moment before the robot moves turns that from a post-run covariate into a
+# refusal that costs nothing but the bring-up already spent.
+lens_is_seeing() {
+  local port="$1" tries="${2:-40}"
+  for _ in $(seq 1 "$tries"); do
+    if curl -sf --max-time 2 "http://127.0.0.1:$port/healthz" 2>/dev/null \
+       | python3 -c '
+import sys, json
+rates = (json.load(sys.stdin).get("rates") or {})
+sys.exit(0 if (rates.get("scan") or 0.0) > 0 else 1)' 2>/dev/null; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
 # THE LENS COMES UP, AND THE BANNER MEANS IT IS SEEING. ADR 0037.
 #
 # ADR 0035 put this block ahead of `simctl start` so that a refusal cost
@@ -778,16 +806,7 @@ print(a["url"], a["port"], a["pid"])' "$LENS_ANNOUNCE" 2>/dev/null)" || true
     # THE SEEING GATE. 20 s is ~240 scans at the measured 12-15 Hz, so a lens
     # that is merely slow to subscribe clears it inside the first second and
     # only a deaf one runs the deadline out.
-    for _ in $(seq 1 40); do
-      if curl -sf --max-time 2 "http://127.0.0.1:$LENS_PORT/healthz" 2>/dev/null \
-         | python3 -c '
-import sys, json
-rates = (json.load(sys.stdin).get("rates") or {})
-sys.exit(0 if (rates.get("scan") or 0.0) > 0 else 1)' 2>/dev/null; then
-        LENS_SEEN=1; break
-      fi
-      sleep 0.5
-    done
+    lens_is_seeing "$LENS_PORT" 40 && LENS_SEEN=1
     [ "$LENS_SEEN" = 1 ] && break
     if [ "$attempt" = 1 ]; then
       echo "  the lens bound port $LENS_PORT but heard no scans in 20 s;" \
@@ -1206,6 +1225,23 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 [ -f "$PROBE_READY" ] || manifest_error "the startup probe never signalled ready"
+
+# THE LENS IS ASKED AGAIN, BEFORE THE ROBOT MOVES. ADR 0037's second call.
+#
+# Everything above is bring-up; everything below is the mission. A lens that
+# passed its gate and then died has been dead for ~130 s by now and will be
+# dead for all of the run worth watching. 6 tries, not 40: this is a liveness
+# question about an instrument that has already proved it can hear, not a
+# startup race, so a 3 s answer is generous.
+if [ "$LENS" = 1 ] && [ -n "${LENS_PORT:-}" ]; then
+  if lens_is_seeing "$LENS_PORT" 6; then
+    echo "  lens still seeing at the mission start"
+  else
+    tail -5 "$RUN_DIR/lens.log" 2>/dev/null | sed 's/^/    /' >&2
+    manifest_error "the lens went deaf during bring-up (ADR 0037)"
+    rerun "the lens went deaf during bring-up -- it passed its gate and stopped hearing, so the mission would be unwatched. Fix it, or pass --no-lens with a reason"
+  fi
+fi
 
 phase "T3.3a transit recorder (observe-only, ${GATE_SECONDS}s)"
 python3 "$REPO/tools/corridor_sim_gate.py" --seconds "$GATE_SECONDS" \

@@ -265,3 +265,50 @@ def test_the_announcement_carries_the_pid_for_a_setsid_launch() -> None:
     assert 'lens_pid="$LENS_PID"' in code, (
         "lens_pid is being taken from $! again, which is the wrapper"
     )
+
+
+def test_the_lens_is_asked_again_before_the_robot_moves() -> None:
+    """**One check was not enough, and a run proved it.**
+
+    `20260814-125254` passed the seeing gate, printed its banner, and went deaf
+    seconds later: 300 samples over 60.2 s with every metric column null. It
+    was created 71 s AFTER `simctl start`, which is the placement ADR 0037
+    adopted precisely because no lens created there had been observed to go
+    blind -- so the correlation that record leans on now has a counterexample.
+
+    The gate is a moment; bring-up is ~130 s. Asking once more immediately
+    before the mission converts that failure from a post-run covariate into a
+    refusal, and costs only the bring-up already spent.
+    """
+
+    code = _runner()
+    assert code.count("lens_is_seeing()") == 1, (
+        "the seeing check is defined more than once; the two call sites would "
+        "drift and one of them would judge a different thing"
+    )
+    calls = [at for at in range(len(code))
+             if code.startswith("lens_is_seeing \"$LENS_PORT\"", at)]
+    assert len(calls) == 2, f"expected two call sites, found {len(calls)}"
+
+    lens_at = _index(code, 'phase "lens"')
+    mission_at = _index(code, 'phase "T3.3a transit recorder')
+    assert lens_at < calls[0] < mission_at, "the first check is not at the lens"
+    assert calls[1] < mission_at, (
+        "the second check runs after the robot has already moved, which is "
+        "an autopsy rather than a gate"
+    )
+    refusal = code.find("the lens went deaf during bring-up", calls[1])
+    assert 0 < refusal < mission_at, "a lens that went deaf no longer refuses"
+    assert "--no-lens" in code[calls[1]:refusal + 400]
+
+
+def test_the_second_check_is_short_because_it_is_not_a_startup_race() -> None:
+    """A 20 s poll before every mission would add 20 s to every healthy run.
+    The instrument has already proved it can hear by this point."""
+
+    code = _runner()
+    mission_at = _index(code, 'phase "T3.3a transit recorder')
+    before = code[:mission_at]
+    assert 'lens_is_seeing "$LENS_PORT" 6' in before, (
+        "the pre-mission check no longer uses the short deadline"
+    )
