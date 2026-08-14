@@ -28,9 +28,9 @@ invisible:
   the docking is not, and scoring it as a docking failure understates every
   docking change measured against it.
 
-## One cause, three presentations
+## One cause, four presentations
 
-The failures first looked like two modes. They are not.
+The failures first looked like two modes, then three. They are one.
 
     [lifecycle_manager_nav] Configuring controller_server
     [lifecycle_manager_nav] ERROR: Failed to change state for node:
@@ -46,6 +46,7 @@ every failure passes through. What varies is only how it fails:
 | fast abort | `get_state` fails 2.2 s in, manager aborts the whole stack | ~3 s, detected immediately |
 | slow configure | completes, but late | 85–89 s |
 | hang | configures and never returns | the full deadline |
+| `inactive [2]` | configures, but `follow_path` is not serving when bt_navigator activates | the full deadline |
 
 `bt_navigator` is later in the activation order, so an abort at
 `controller_server` leaves it `unconfigured` — which is what the runner then
