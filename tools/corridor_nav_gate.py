@@ -501,7 +501,20 @@ def main() -> int:
               f"{0.12 + float(actors['b_radius_m']) - machine.contact_range_m:.3f} m "
               f"is blind and the encoders are the bumper.")
         deadline = time.monotonic() + arguments.timeout
-        while time.monotonic() < deadline and not result_future.done():
+        # THE LOOP MUST OUTLIVE THE NAV2 GOAL.
+        #
+        # `result_future.done()` was the only exit besides the deadline, and the
+        # handoff CANCELS the goal -- which completes that future. So the first
+        # run with a creep in it logged `creep_begin` and then fell straight out
+        # of the loop on the next iteration, leaving the machine stuck in
+        # DOCKING with the robot untouched. The cancel is not the end of the
+        # delivery any more; it is the middle of it.
+        #
+        # Once creeping, the docking controller owns the exit: it ends on stall,
+        # on its own timeout, or on this deadline.
+        while time.monotonic() < deadline and not (
+            result_future.done() and not gate.creeping
+        ):
             rclpy.spin_once(gate, timeout_sec=0.1)
             try:
                 pose_x, pose_y, pose_yaw = gate.map_pose_yaw()
@@ -580,10 +593,16 @@ def main() -> int:
 
     status = result_future.result().status
     report["action_status"] = STATUS_NAMES.get(status, status)
-    # A goal this gate cancelled ITSELF, because docking said A had arrived, is
-    # not a navigation failure. Recording it as one would report a successful
-    # delivery as ABORTED.
-    if dock_report.get("state") == "DOCKED":
+    # A goal this gate cancelled ITSELF is not a navigation failure. Recording
+    # it as one would report a successful delivery as ABORTED.
+    #
+    # Since ADR 0033 the cancel happens at the HANDOFF rather than at arrival,
+    # so it precedes the creep instead of ending the run. Every state reachable
+    # only by way of that handoff has to be listed here, and `DOCKED` -- the
+    # state this used to test for -- no longer exists.
+    if dock_report.get("state") in (
+        "DOCKING", "DELIVERED_CONFIRMED", "ARRIVED_UNPROVEN",
+    ):
         report["docked_and_cancelled"] = True
     report["travelled_m"] = round(gate.travelled_m(), 3)
 

@@ -316,3 +316,31 @@ def test_the_governor_topics_are_absolute_and_match_the_governor() -> None:
     assert nav_gate.GOVERNOR_CMD_TOPIC != "/cmd_vel", (
         "publishing to /cmd_vel bypasses the governor -- the one thing it warns about"
     )
+
+
+def test_the_states_that_excuse_a_cancel_all_exist() -> None:
+    """**The cancel is the handoff now, not the arrival.**
+
+    The gate excuses a CANCELED action status when it cancelled the goal
+    itself. That check used to test for `DOCKED` -- a state ADR 0033 removed --
+    so after the rename it would have matched nothing and reported every
+    delivery as a navigation failure.
+
+    Pinned against the machine's real state names so a future rename breaks
+    here rather than in a run artifact.
+    """
+
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
+    from corridor_dock import DockingMachine
+
+    excused = {"DOCKING", "DELIVERED_CONFIRMED", "ARRIVED_UNPROVEN"}
+    real = {DockingMachine.DOCKING, DockingMachine.DELIVERED_CONFIRMED,
+            DockingMachine.ARRIVED_UNPROVEN}
+
+    assert excused == real, "the excused set must name states that exist"
+    assert not hasattr(DockingMachine, "DOCKED"), (
+        "DOCKED was removed by ADR 0033; reaching the band is a handoff"
+    )
