@@ -44,6 +44,50 @@ The state is unchanged and the run is a FAIL. What changed is *why*: A now
 drives all the way in and is not confirmed, where before it could not move at
 all.
 
+### Reproduced, 03:02:42 -- and two runs that did not get there
+
+Run `20260814-030242` repeats it on a different live map and approach path:
+
+| | run 023306 | run 030242 |
+|---|---|---|
+| Last sighting of B | 0.2333 m | 0.2271 m |
+| A-to-B distance, TRUTH | **0.2252 m** | **0.2258 m** |
+| Short of the 0.2175 m contact | 7.7 mm | **8.3 mm** |
+| Final bearing to B | 0.6 deg | 0.1 deg |
+| Disc declarations published | 3431 | 3495 |
+| State | `ARRIVED_UNPROVEN` | `ARRIVED_UNPROVEN` |
+
+The 6 mm spread is beam discretisation, not drift. **The terminal docking is
+reproducible; the witness fails identically both times.** Artifacts:
+[`nav-20260814-023306.json`](nav-20260814-023306.json),
+[`nav-20260814-030242.json`](nav-20260814-030242.json).
+
+### Getting to the terminal phase is now the bottleneck
+
+Two further attempts between these runs never reached the creep at all, and
+neither failure touches the docking code:
+
+- **`20260814-025049`** -- SLAM double-walled the corridor (duplicate wall
+  extent **0.920 m** against a 0.20 m bound), the NavFn planner then failed
+  with *"Failed to create a plan from potential when a legal potential was
+  found. This shouldn't happen."*, and the action ABORTED at 4.792 m of
+  travel -- **57 mm short of the 4.849 m at which docking arms.** State
+  `TRANSIT`, zero creep ticks. This is the ADR 0029 map-divergence mode.
+- **`20260814-025555`** -- `slam_toolbox` never reached ACTIVE in either of
+  the runner's two attempts; classified INFRASTRUCTURE and torn down. That
+  run's scan came up at **8.6 Hz**, against 13.4-15.1 Hz on every other run
+  measured.
+
+**The scan rate is UNSTABLE, not merely biased high.** Across fourteen runs it
+spans **8.6-15.1 Hz** against a calibrated target of ~12.0. The low end starves
+SLAM; the high end is what the contract override has been waving through all
+along. Desktop load competes with the sim on this host (browser, editor and
+media players were live during these runs), which is a plausible contributor
+and is untested.
+
+Scored honestly: **two of four runs reached the docking phase.** The terminal
+creep works every time it is reached.
+
 ### What is proved
 
 **The governor never braked the creep.** Over the 23.8 s creep window,
