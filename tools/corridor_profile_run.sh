@@ -831,14 +831,29 @@ manifest --set "shm_fastrtps_post_simctl=$(shm_fastrtps_count)"
 # dies during it is dead for the whole mission, and asking again at the last
 # moment before the robot moves turns that from a post-run covariate into a
 # refusal that costs nothing but the bring-up already spent.
+#
+# SEEING MEANS PROGRESS, NOT A RATE (ADR 0041). The old form passed on
+# `rates.scan > 0`, and `rates` is a 10 s trailing window: run 20260814-133559
+# heard its last message at t=0.25 s and still cleared the gate at t=6 s,
+# because the window was echoing a burst from a lens already deaf. Two reads
+# of the MONOTONIC scan count 0.6 s apart cannot be fooled that way -- at the
+# contract's 12 Hz the count moves ~7 between them or the lens is not hearing.
+# A frozen or not-yet-sampled lens has no moving count and fails naturally.
 lens_is_seeing() {
-  local port="$1" tries="${2:-40}"
+  local port="$1" tries="${2:-18}" before after
   for _ in $(seq 1 "$tries"); do
-    if curl -sf --max-time 2 "http://127.0.0.1:$port/healthz" 2>/dev/null \
-       | python3 -c '
+    before=$(curl -sf --max-time 2 "http://127.0.0.1:$port/healthz" 2>/dev/null) \
+      || { sleep 0.5; continue; }
+    sleep 0.6
+    after=$(curl -sf --max-time 2 "http://127.0.0.1:$port/healthz" 2>/dev/null) \
+      || { sleep 0.5; continue; }
+    if printf '%s\n%s\n' "$before" "$after" | python3 -c '
 import sys, json
-rates = (json.load(sys.stdin).get("rates") or {})
-sys.exit(0 if (rates.get("scan") or 0.0) > 0 else 1)' 2>/dev/null; then
+lines = sys.stdin.read().splitlines()
+a, b = json.loads(lines[0]), json.loads(lines[1])
+def scan_count(payload):
+    return ((payload.get("counts") or {}).get("scan") or 0)
+sys.exit(0 if scan_count(b) > scan_count(a) else 1)' 2>/dev/null; then
       return 0
     fi
     sleep 0.5
@@ -864,7 +879,7 @@ sys.exit(0 if (rates.get("scan") or 0.0) > 0 else 1)' 2>/dev/null; then
 # poisons the run with a page that looks alive.
 #
 # WHAT THE MOVE DOES NOT FIX, so the gate below does: serving is not
-# seeing. The banner is gated on /healthz reporting a NON-ZERO SCAN RATE.
+# seeing. The banner is gated on /healthz showing SCAN-COUNT PROGRESS.
 # Demanding that is legitimate here and only here -- `simctl start` has
 # already waited for /scan to publish before returning, so a lens that
 # hears nothing on it is deaf, not early.
@@ -909,7 +924,7 @@ print(a["url"], a["port"], a["pid"])' "$LENS_ANNOUNCE" 2>/dev/null)" || true
     # THE SEEING GATE. 20 s is ~240 scans at the measured 12-15 Hz, so a lens
     # that is merely slow to subscribe clears it inside the first second and
     # only a deaf one runs the deadline out.
-    lens_is_seeing "$LENS_PORT" 40 && LENS_SEEN=1
+    lens_is_seeing "$LENS_PORT" 18 && LENS_SEEN=1
     [ "$LENS_SEEN" = 1 ] && break
     if [ "$attempt" = 1 ]; then
       echo "  the lens bound port $LENS_PORT but heard no scans in 20 s;" \
@@ -1337,7 +1352,7 @@ done
 # question about an instrument that has already proved it can hear, not a
 # startup race, so a 3 s answer is generous.
 if [ "$LENS" = 1 ] && [ -n "${LENS_PORT:-}" ]; then
-  if lens_is_seeing "$LENS_PORT" 6; then
+  if lens_is_seeing "$LENS_PORT" 3; then
     echo "  lens still seeing at the mission start"
   else
     tail -5 "$RUN_DIR/lens.log" 2>/dev/null | sed 's/^/    /' >&2

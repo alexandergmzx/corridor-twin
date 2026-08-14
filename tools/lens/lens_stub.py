@@ -118,6 +118,15 @@ def scene(tick: int) -> tuple[dict, dict]:
         "frozen": False,
         "rates": {"scan": 10.4, "map": 1.0, "truth": 11.0, "odom": 10.0,
                   "odom_raw": 11.0},
+        # Monotonic and moving, like a hearing lens's: the seeing gate reads
+        # counts progress (ADR 0041), and a stub with static counts would
+        # demonstrate the deaf shape by accident.
+        "counts": {"scan": int(seconds * 10.4), "map": int(seconds),
+                   "truth": int(seconds * 11.0), "odom": int(seconds * 10.0),
+                   "odom_raw": int(seconds * 11.0)},
+        "matched": {"scan": {"current": 1, "total": 1},
+                    "map": {"current": 1, "total": 1}},
+        "exec_tick_age_s": 0.2,
         "pose": [round(x, 3), round(y, 3), yaw],
         "truth_ghost": [round(x + 0.05, 3), round(y - 0.03, 3), yaw + 0.01],
         "odom_ghost": [round(x - 0.09, 3), round(y + 0.06, 3), yaw - 0.02],

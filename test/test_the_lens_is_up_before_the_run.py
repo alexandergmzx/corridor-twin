@@ -227,8 +227,14 @@ def test_the_runner_and_the_lens_agree_on_what_seeing_means() -> None:
     seeing. They are a shell/Python pair again, and getting them out of step
     means either refusing every healthy run or accepting every deaf one.
 
-    So: run the lens's own `healthz_payload` over the three shapes it can
-    produce, and judge each with the runner's own extracted snippet.
+    Since ADR 0041, seeing means PROGRESS: the runner reads the monotonic
+    scan count twice and demands it moved. Run 20260814-133559 heard its
+    last message at t=0.25 s and still cleared the old rate gate at t=6 s,
+    because a 10 s trailing window echoes a burst from a lens already deaf.
+    A count cannot echo.
+
+    So: run the lens's own `healthz_payload` over before/after state pairs,
+    and judge each pair with the runner's own extracted snippet.
     """
 
     sys.path.insert(0, str(ROOT / "tools/lens"))
@@ -239,22 +245,37 @@ def test_the_runner_and_the_lens_agree_on_what_seeing_means() -> None:
 
     code = _runner()
     start = code.index("python3 -c '\nimport sys, json")
-    end = code.index("'", code.index("rates.get(\"scan\")", start))
+    end = code.index("'", code.index("scan_count(b) > scan_count(a)", start))
     snippet = code[start + len("python3 -c '"):end]
 
-    def verdict(state) -> int:
-        payload = json.dumps(corridor_lens.healthz_payload(state))
-        return subprocess.run([sys.executable, "-c", snippet], input=payload,
+    def verdict(before_state, after_state) -> int:
+        pair = (json.dumps(corridor_lens.healthz_payload(before_state)) + "\n"
+                + json.dumps(corridor_lens.healthz_payload(after_state)) + "\n")
+        return subprocess.run([sys.executable, "-c", snippet], input=pair,
                               capture_output=True, text=True).returncode
 
-    seeing = {"t": 12.0, "frozen": False, "rates": {"scan": 14.3, "map": 0.4}}
-    deaf = {"t": 12.0, "frozen": False, "rates": {"scan": 0.0, "map": 0.0}}
-    frozen = {"t": 300.0, "frozen": True, "rates": {"scan": 0.0}}
+    def state(scan_count, frozen=False, t=12.0):
+        return {"t": t, "frozen": frozen,
+                "rates": {"scan": 12.0}, "counts": {"scan": scan_count}}
 
-    assert verdict(seeing) == 0, "the runner would refuse a healthy lens"
-    assert verdict(deaf) == 1, "the runner would accept a deaf lens -- the bug"
-    assert verdict(frozen) == 1, "a lens whose data stopped is not seeing either"
-    assert verdict(None) == 1, "a lens with no sample yet has not seen anything"
+    # Hearing: the count moved between the two reads.
+    assert verdict(state(140), state(147)) == 0, (
+        "the runner would refuse a healthy lens"
+    )
+    # Deaf-after-burst: a non-zero count that is NOT moving. The old rate
+    # gate accepted exactly this shape (133559).
+    assert verdict(state(3), state(3)) == 1, (
+        "the runner would accept a burst-then-dead lens -- the 133559 bug"
+    )
+    # Frozen post-run lens: count static for 60 s by definition.
+    assert verdict(state(500, frozen=True, t=300.0),
+                   state(500, frozen=True, t=300.6)) == 1, (
+        "a lens whose data stopped is not seeing either"
+    )
+    # Young lens, no sample yet: counts absent must read as no progress.
+    assert verdict(None, None) == 1, (
+        "a lens with no sample yet has not seen anything"
+    )
 
 
 def test_the_announcement_carries_the_pid_for_a_setsid_launch() -> None:
@@ -304,11 +325,30 @@ def test_the_lens_is_asked_again_before_the_robot_moves() -> None:
 
 def test_the_second_check_is_short_because_it_is_not_a_startup_race() -> None:
     """A 20 s poll before every mission would add 20 s to every healthy run.
-    The instrument has already proved it can hear by this point."""
+    The instrument has already proved it can hear by this point. (3 tries of
+    the progress form is ~3.5 s -- the same wall budget the old 6-try rate
+    form spent.)"""
 
     code = _runner()
     mission_at = _index(code, 'phase "T3.3a transit recorder')
     before = code[:mission_at]
-    assert 'lens_is_seeing "$LENS_PORT" 6' in before, (
+    assert 'lens_is_seeing "$LENS_PORT" 3' in before, (
         "the pre-mission check no longer uses the short deadline"
+    )
+
+
+def test_seeing_means_progress_not_a_window_rate() -> None:
+    """ADR 0041, structurally: the gate must read the monotonic counts, and
+    the windowed rate must no longer be what it judges by."""
+
+    code = _runner()
+    gate = code[_index(code, "lens_is_seeing() {"):]
+    gate = gate[:gate.index("\n}")]
+
+    assert '"counts"' in gate, "the gate no longer reads the monotonic counts"
+    assert "scan_count(b) > scan_count(a)" in gate, (
+        "the gate no longer demands progress between two reads"
+    )
+    assert '"rates"' not in gate, (
+        "the gate is back on the windowed rate a burst can echo through"
     )
