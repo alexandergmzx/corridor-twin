@@ -82,7 +82,9 @@ def test_the_operator_is_told_before_the_waiting_starts() -> None:
     first_phase_after = code.index('phase "precondition: the arena', header)
     preamble = code[header:first_phase_after]
 
-    assert "bring-up is ~120 s" in preamble, "the total wait is not announced"
+    # ~100 s since U8 (measured: goal at 85/99/100/101 s over the confirm
+    # batch, docs/evidence/bringup-rework/NOTES.md); was ~120 s before it.
+    assert "bring-up is ~100 s" in preamble, "the total wait is not announced"
     assert "this is not a hang" in preamble, (
         "the quiet step is not named as expected behaviour"
     )

@@ -80,3 +80,38 @@ ADR 0040 accepts on this batch (its stated criterion was 8/8; measured
 fires. The churn repro's negative result stands recorded in
 `docs/evidence/lens-deafness/NOTES.md` — the mechanism is bounded, the fix
 is empirical.
+
+## U8 confirm batch: the waits became their events (T2, corridor side)
+
+Same command, 4 runs, 16:05–16:20 CST, after commit `892f8b7` (contract
+sampled in parallel and joined before Nav2; the 8 s settle polls the lens's
+`counts.map` with the old pause as ceiling; the nav lifecycle manager gated
+on `nav_ready_waiter` instead of a 5 s timer).
+
+| run | lens frac | nav attempts | simctl (s) | goal at (s) | first motion after goal (s) |
+|---|---|---|---|---|---|
+| 160531 | 0.960 | 1 | 53 | 85 | 1.49 |
+| 160905 | 0.981 | 1 | 63 | 99 | 1.51 |
+| 161254 | 0.955 | 1 | 63 | 100 | 1.50 |
+| 161643 | 0.983 | 1 | 64 | 101 | 1.51 |
+
+- **T2 (corridor-side): median command → first motion ≈ 101 s** — target
+  ≤105 met — vs ≈109 s over the ten-run batch pre-U8 and ≈131 s at the
+  2026-08-14 baseline. Post-`simctl` serial time fell from ~54 s to
+  ~32–37 s.
+- **The A/B guard held**: 4/4 single-attempt nav bring-ups, zero aborts
+  (the settle's replacement risk), `nav_ready_waiter` saw all four
+  `get_state` services in **0.1 s** on every run (the timer it replaced
+  was 5 s), and the settle's event fired instantly ("first map seen at
+  +0s" ×4 — SLAM starting ~27 s earlier means the map exists before the
+  settle is reached).
+- **Deafness spot-check under the new phase shape: 0 of 4** (14 of 14
+  today), with the four highest lens coverages ever recorded
+  (0.955–0.983) — the earlier SLAM start gives the lens more to resolve.
+- The remaining fixed cost is inside `simctl start` (median 63 s: ~14 s
+  discovery dwell, 8 s post-safety sleep, ~10 s poll floor around the
+  genuine ~30 s Isaac readiness). Those are the fleet-side edits under
+  the fired conditional grant; measured justification for the dwell
+  number: `discovery-convergence.json` in `out/evidence/bringup-rework/`
+  (fresh participant sees an existing publisher in ≤0.05 s, n=20, under
+  Isaac load, UDP-only).

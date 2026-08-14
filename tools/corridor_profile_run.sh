@@ -231,12 +231,12 @@ PHASE="startup"
 # and a second timeout here would just be a worse one.
 phase_typical_s() {
   case "$1" in
-    "simctl start")                       echo 62 ;;   # Isaac/Kit cold start
-    "lens")                               echo 7  ;;
-    "precondition: "*contract*)           echo 17 ;;
-    "slam bring-up"*)                     echo 3  ;;
-    "waiting for the TF chain")           echo 11 ;;
-    "nav stack")                          echo 16 ;;
+    "simctl start")                       echo 63 ;;   # Isaac/Kit cold start
+    "lens")                               echo 8  ;;
+    "contract verdict (joined)")          echo 9  ;;   # residue of the 8 s sample
+    "slam bring-up"*)                     echo 4  ;;
+    "waiting for the TF chain")           echo 4  ;;
+    "nav stack")                          echo 7  ;;
     *)                                    echo "" ;;
   esac
 }
@@ -359,15 +359,15 @@ echo "  run    : $RUN_DIR"
 # question during any long wait is "is this normal", which only a number
 # answers. Measured medians over the seven runs of 2026-08-14 on this host.
 echo ""
-echo "  bring-up is ~120 s before the robot moves, and it is dominated by one step:"
-echo "    simctl start   ~62 s   Isaac/Kit cold start -- over half of it, and the"
-echo "                           quiet one. Kit is loading extensions, the RTX"
-echo "                           renderer and the stage; this is not a hang."
-echo "    contract       ~17 s   robot1 rate report (verdict overridden here)"
-echo "    nav stack      ~16 s   Nav2 lifecycle activation"
-echo "    TF chain       ~11 s   waiting for map->odom->base_link"
-echo "    lens           ~7 s    cold rclpy + tf2 import, then the seeing gate"
-echo "    slam           ~3 s    activation, read from its own log"
+echo "  bring-up is ~100 s before the robot moves, and it is dominated by one step:"
+echo "    simctl start   ~63 s   Isaac/Kit cold start -- nearly two thirds of it,"
+echo "                           and the quiet one. Kit is loading extensions, the"
+echo "                           RTX renderer and the stage; this is not a hang."
+echo "    contract join  ~9 s    residue of the parallel 8 s rate sample (U8)"
+echo "    lens           ~8 s    cold rclpy + tf2 import, then the seeing gate"
+echo "    nav stack      ~7 s    Nav2 activation, manager gated on the waiter"
+echo "    slam           ~4 s    activation, read from its own log"
+echo "    TF chain       ~4 s    map->odom->base_link (SLAM starts earlier now)"
 echo "  every phase banner below repeats its typical duration, so a long one is"
 echo "  visible as it happens rather than afterwards."
 
