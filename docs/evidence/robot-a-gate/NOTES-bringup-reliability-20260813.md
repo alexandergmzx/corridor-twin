@@ -58,8 +58,57 @@ across 17 bring-ups:
     slow : 85 86 87 88 88 89 s                 ( 6 of 17)
 
 A spread would indicate load. Two clusters and an empty middle indicate a
-discrete stall — a timeout-and-retry inside the lifecycle sequence. **That
-mechanism is not identified**, and finding it is the real fix.
+discrete stall — a timeout-and-retry inside the lifecycle sequence.
+
+### The chain, later read out of the launch logs
+
+A `wide_corner` run at 19:12 printed the whole thing:
+
+    attempt 1: Configuring controller_server
+               local_costmap.local_costmap: Configuring        <- and hangs
+    attempt 2: Activating bt_navigator
+               ERROR "follow_path" action server not available
+                     after waiting for 1.00s
+               ERROR Exception when loading BT:
+                     Action server follow_path not available
+               ERROR Failed to change state for node: bt_navigator
+               ERROR Failed to bring up all requested nodes. Aborting bringup.
+
+`follow_path` **is** `controller_server`'s action server. So:
+
+    local_costmap is slow to configure
+      -> controller_server comes up late
+      -> bt_navigator activates and waits 1.00 s for follow_path
+      -> the wait expires and the behaviour tree fails to load
+      -> the lifecycle manager aborts the WHOLE stack
+      -> the runner reports "bt_navigator never reached ACTIVE",
+         three steps downstream of the fault
+
+That is the single race behind all four presentations — abort at 2.2 s, slow
+configure at 85-89 s, hang, and `inactive [2]`. What differs is only where the
+clock runs out.
+
+**Both timeouts in the chain are Nav2 parameters** — the costmap's
+configuration work and bt_navigator's 1 s service wait — and Nav2 parameters
+are fenced for this session, so neither was touched.
+
+### The contention was self-inflicted
+
+`corridor_profile_run.sh` pauses between SLAM and Nav2 precisely for this. The
+pause was **8 s**, and `86e5a01 perf(run): stop paying for time the run does not
+need` halved it to 4 s to make runs shorter. The comment written with that
+change named the risk exactly:
+
+> *"Halved, not removed. The contention it guards against is real and it is
+> what the nav bringup aborts on."*
+
+It is. Restored to 8 s in `b9a844a`.
+
+**This is not a controlled A/B and must not be read as one.** Every run
+measured here was already at 4 s, so there is no clean before, and the reaper
+above landed in the same window. The restoration stands on the trade rather
+than on a proof: four seconds saved per run against a quarter of runs dying at
+about 250 s each, which is a bad bargain at any plausible failure rate.
 
 ### What was done about it
 
@@ -115,14 +164,19 @@ a teardown is worse than the litter.
 
 ## Open questions, in the order worth answering
 
-1. What stalls inside `controller_server`'s configure? It brings up
-   `local_costmap`, which waits on transforms and sensor data; the runner
-   already waits for the TF chain before launching nav, so if a transform is
-   still missing at that point, which one?
-2. Is the bimodality a fixed timeout? 85–89 s is suspiciously tight for a
-   phenomenon that would otherwise vary with load.
-3. Does the `/dev/shm` correlation survive a deliberate replication — let the
+1. **Does the restored 8 s settle actually reduce the rate?** Measured after
+   the fact, in a batch of the same shape as the one before it. Six runs is a
+   weak instrument for a 26% rate — 0 or 1 failures would be consistent with no
+   effect at all — so read the count, not a verdict.
+2. **Why is `local_costmap` slow to configure?** It waits on transforms and
+   sensor data; the runner already waits for the `map -> base_footprint` chain
+   before launching nav, so if something is still missing at that moment, what?
+3. **Is bt_navigator's 1.00 s `follow_path` wait the right number?** It is the
+   proximate trigger and it is a Nav2 parameter.
+4. Is the bimodality a fixed timeout? 85–89 s is suspiciously tight for
+   something that would otherwise vary with load.
+5. Does the `/dev/shm` correlation survive deliberate replication — let the
    semaphores accumulate again and see whether the failures return?
 
-**None of these was attempted.** Nav2 parameters are fenced for this session,
-and (1) and (2) likely live there.
+**Only (1) was attempted.** (2), (3) and (4) live behind the Nav2 parameter
+fence this session set, and (5) costs a day of runs to answer honestly.
