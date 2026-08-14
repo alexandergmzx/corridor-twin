@@ -49,8 +49,8 @@ silently substituted.
 | **W0** | This plan | **DONE** |
 | **W1** | Goal yaw from the manifest + regression test + **NOTES correction** | **DONE** — `896d304` |
 | **W2** | Docking preemption: D1 arming, map-frame proximity deleted | **DONE, RED** — `a29dc19` |
-| **W3** | ADR 0033, arrival semantics (must resolve the ADR 0029:129 conflict) | **BLOCKED on the decoy decision** |
-| **W4** | Acceptance runs, three profiles, dock ON | **BLOCKED on W3** |
+| **W3** | ADR 0033, arrival semantics (must resolve the ADR 0029:129 conflict) | **UNBLOCKED, not started** — the decoy is closed |
+| **W4** | Acceptance runs, three profiles, dock ON | not started; the delivery now works, so this is writable |
 | **W5** | Matcher A/B — **only if W4 is banked**, 90 min hard cap | pending |
 | **W6** | One dedicated camera session (concurrent is impossible — see below) | pending |
 | **W7** | Speed estimator v0, if time | pending |
@@ -360,4 +360,75 @@ W4 follows W3.
 
 ## Handback
 
-*(written at session end, or on early failure — whichever comes first)*
+### The delivery closed
+
+A now drives the corridor, identifies B, stops beside it, and stays. Nine
+deliveries after the fixes, across all three profiles: **0.0254, 0.0592,
+0.0675, 0.0909, 0.1332, 0.1457, 0.150, 0.1703, 0.1761 m** from the delivery
+standoff, every one with `walked_away < 0.08 m`.
+
+Before today, every run reached B to within 0.029–0.135 m and then **drove
+3.3–3.5 m away** to the street's far wall. A was never failing to reach B; it
+was failing to stop. That is what the morning's "it ignores B and runs out of
+the corridor" actually was.
+
+### What was wrong, in the order it was found
+
+| # | defect | commit |
+|---|---|---|
+| 1 | Goal orientation was the quaternion's zero value, not a chosen heading | `896d304` |
+| 2 | Arming gated a map-free measurement on the map pose — 2812 refusals | `a29dc19` |
+| 3 | Arrival was symmetric: 53% slack, pre-empting the refinement that closes it | `862e655` |
+| 4 | A wall's end is not convex — the decoy that took 5 of 10 deliveries | `2a4e706` |
+| 5 | The lifecycle deadline sat in the empty gap of a bimodal distribution | `1097d8f` |
+| 6 | Isaac leaks one semaphore per session; 144 had accumulated | `f568a90` |
+| 7 | Refined goals inherited an orientation derived for a different position | `e351c0c` |
+
+Every one was found by a run or a replay. None was found by reading the code.
+
+### Six corrections the extra runs forced
+
+Worth more than the fixes, because the pattern is the transferable part:
+
+| I claimed | measured |
+|---|---|
+| the decoy is ~1 in 4, possibly not the blocker | **50%**, all three profiles |
+| the arming window is 1.12x the decoy separation | **3.1x** — my arithmetic on a codebase bug |
+| convexity removes only 22% of decoy frames, so it will not be enough | it breaks the persistence chain: **7/7** |
+| a run drove 5 m off target | it delivered to **0.150 m**; the EVALUATOR died |
+| two distinct infrastructure modes | **one** cause, three presentations |
+| the arrival band edge explains the ~0.17 m misses | same dock range spans 0.025–0.176 m: **unsupported** |
+
+Three of these reversed a fix I was about to ship. Two hypotheses I had already
+written down were falsified by the next measurement, and one number was
+published wrong before being corrected. **The measurement stopped the mistake
+every time; the reasoning never did.**
+
+### Open, and what each needs
+
+| item | state |
+|---|---|
+| `controller_server/get_state` bring-up race | Mitigation is CORRELATIONAL (4-of-4 failures before a /dev/shm sweep, 0-of-3 after, p ~= 0.03). Not a diagnosis. Roughly a quarter of the day's runs never reached the robot — the biggest risk to a live demo |
+| `route_to_delivery_m` omits `departure_length_m` | Docstring is false; the route ENDS at B. Corrected alone, `min_travel` becomes 6.480 m and refuses bag 113859's good arming at 5.699 m, because Nav2 does not drive the authored route. Needs the window re-based on MEASURED travel, one commit |
+| Radius-uniqueness too strict on `uniform` | 34 rejections blocked a DOCK on a run that physically delivered to 0.0909 m |
+| No cancel path when DOCK is refused | `corridor_nav_gate.py:445` keys on `DOCKED`; an `ARRIVED_UNPROVEN` state would stop A without claiming success |
+| ~1/3 of deliveries sit just over 0.15 m | Cause NOT established — the band-edge hypothesis is measured and unsupported. Needs its own experiment |
+| W3 ADR 0033, W4 acceptance, W5 matcher, W6 camera, W7 estimator | Not started |
+
+### Standing caveat on every number here
+
+Every run today used `--allow-contract-fail` — the runner's intended corridor
+invocation, since `/scan` runs 14-16 Hz against a declared 12 in the stock
+yahboom arena too. So each artifact carries the caveat and **none of it is gate
+evidence**. ADR 0033 is unwritten, so the 0.15 m criterion these runs are
+measured against is proposed, not pinned.
+
+### Morning decisions
+
+1. **The decoy is closed** — the scene-vs-method question is withdrawn.
+   `EastWallStub` stays exactly as the drawing has it; convexity separates B
+   from it without touching the topology.
+2. **The bring-up race needs a decision**: chase the root cause (Nav2 costmap
+   configuration, outside this session's parameter fence) or accept the
+   correlational mitigation and a rerun policy for the demo.
+3. **W6's footage is still not of a delivery** (deviation 3, unchanged).
