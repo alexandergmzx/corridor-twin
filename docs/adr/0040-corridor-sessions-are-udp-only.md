@@ -46,13 +46,22 @@ unusual amount of independent support:
    corridor run to date ran default transport with SHM enabled (verified:
    no executable export of `FASTDDS_DEFAULT_PROFILES_FILE` existed
    anywhere in the run path).
-4. **The no-Isaac repro reproduces it.**
-   `tools/diagnostics/dds_churn_repro.py`: one 12 Hz `/scan` publisher,
-   one victim subscriber carrying the lens's matched-event
-   instrumentation, one churn loop of subscribe-then-`os._exit(0)`
-   children on scratch domain 69. *(Verdict artifacts under
-   `out/evidence/lens-deafness/`; the numbers are recorded in the
-   evidence NOTES and quoted here at acceptance.)*
+4. **The no-Isaac repro did NOT reproduce it — recorded against the
+   hypothesis, not hidden.** `tools/diagnostics/dds_churn_repro.py` ran
+   three arms on scratch domain 69 (2026-08-14): plain
+   subscribe-then-`os._exit(0)` churn (448 children, 15 min); the same
+   churn plus kill-and-replace of the victim subscriber every 45 s — the
+   exact `reap_previous_lens` shape, 19 generations; and
+   SIGKILL-mid-traffic churn plus replacement (peak 68 segments). **All
+   three ran clean**: every victim generation heard promptly. The
+   synthetic form — kilobyte payloads, one topic, fresh small segments —
+   does not reach the failure; the missing ingredient may be Isaac's own
+   participant (megabyte-class image/scan segments, the #2790 exhaustion
+   shape), simctl's exact timing, or something not yet named. The
+   mechanism claim therefore rests on the fleet's measured precedent
+   (OI-13) and the upstream record; the *decider* is the T1 batch below,
+   and the matched-event logs plus the shm census now ride in every run
+   to classify any deafness that survives the transport change.
 
 ## Decision
 
@@ -77,9 +86,11 @@ unusual amount of independent support:
 
 ## Consequences
 
-- The deafness mechanism stops being folklore: matched-event logs
-  (in the lens since this rework) plus the repro's A/B give it a
-  reproduction, a discriminator, and a kill.
+- The deafness mechanism stops being folklore: matched-event logs (in
+  the lens since this rework) plus the shm census give every future
+  deafness a classification, and the repro records what the synthetic
+  churn does *not* do — a reproduction was attempted and is filed as
+  not reached, which bounds the mechanism instead of asserting it.
 - Corridor runs no longer share a failure domain with every other DDS
   process on this host through `/dev/shm` — the repro deliberately
   manufactures the poison and cleans up only what no live process maps.
