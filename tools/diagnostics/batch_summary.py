@@ -43,13 +43,20 @@ def classify(run: Path) -> dict | None:
         json.loads(record_path.read_text(encoding="utf-8"))
         if record_path.exists() else {}
     )
-    if record.get("classification") == "infrastructure":
+    # The runner's own vocabulary, checked rather than guessed: it writes
+    # "result", "rerun" or "crash". An earlier version of this filter tested
+    # for "infrastructure", which the runner never writes, so it excluded
+    # nothing and the runs it was meant to set aside simply vanished from the
+    # table instead -- worse than counting them, because nothing showed they
+    # were missing.
+    classification = record.get("classification")
+    if classification and classification != "result":
         # A session that never got far enough to answer the question. Gate
         # discipline: a rerun, never a result, and it must not silently join
         # the tallies as a bad outcome.
         return {
             "run": run.name, "profile": record.get("profile", "?"),
-            "kind": "infra", "state": "-", "refinements": None,
+            "kind": classification, "state": "-", "refinements": None,
             "closest_m": None, "walked_m": None, "docked_on": "-",
             "note": record.get("classification_cause", "infrastructure"),
         }
@@ -57,6 +64,26 @@ def classify(run: Path) -> dict | None:
         return None
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
     nav = json.loads(nav_path.read_text(encoding="utf-8"))
+
+    # EVIDENCE INTEGRITY. `world_frame_delivery` is scored against the
+    # evaluator's own ground-truth subscription, and on 2026-08-13 17:46 that
+    # stream died after 0.81 s. The evaluator then scored the run against A's
+    # SPAWN and reported a 5.0072 m delivery error -- for a run that actually
+    # drove to (4.456, -2.251), 0.150 m from the standoff, and docked on the
+    # real B at 0.616 m against a true 0.601 m. A dead sensor on the
+    # EVALUATION plane is not a robot failure, and scoring it as one is how a
+    # good run gets recorded as the worst of the day.
+    #
+    # Every other run in the population reports 5.4-10.7 m here, so near-zero
+    # is unambiguous rather than a judgement call.
+    truth_distance = gate.get("ground_truth_distance_m")
+    if truth_distance is not None and truth_distance < 0.5:
+        return {
+            "run": run.name, "profile": nav.get("profile", "?"),
+            "kind": "truth-dead", "state": "-", "refinements": None,
+            "closest_m": None, "walked_m": None, "docked_on": "-",
+            "note": f"evaluator truth stream died ({truth_distance} m recorded)",
+        }
 
     delivery = gate.get("world_frame_delivery") or {}
     dock = nav.get("docking") or {}
@@ -130,8 +157,9 @@ def main() -> int:
         print(f"{row['run']:<44} {row['state']:<9} {str(row['refinements']):>3} "
               f"{closest:>8} {walked:>7} {row['docked_on']:>10}")
 
-    infra = [r for r in rows if r["kind"] == "infra"]
+    infra = [r for r in rows if r["kind"] in ("rerun", "crash")]
     no_dock = [r for r in rows if r["kind"] == "dock-n/a"]
+    truth_dead = [r for r in rows if r["kind"] == "truth-dead"]
     rows = [r for r in rows if r["kind"] == "result"]
     if not rows:
         print("\n  no scoreable runs")
@@ -144,8 +172,9 @@ def main() -> int:
     within = [c for c in closest if c <= 0.15]
 
     print(f"\n  scoreable runs           {len(rows)}")
-    print(f"  excluded: infrastructure {len(infra)}")
+    print(f"  excluded: rerun / crash  {len(infra)}")
     print(f"  excluded: dock never ran {len(no_dock)}")
+    print(f"  excluded: truth stream   {len(truth_dead)}")
     print(f"  reached DOCKED           {len(docked)}")
     print(f"    ...on B                {len(on_b)}")
     print(f"    ...on the stub decoy   {len(on_stub)}")
