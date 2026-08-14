@@ -685,7 +685,8 @@ class DockingMachine:
         return goal
 
     def creep(self, verdict: dict | None, measured_vx: float | None,
-              now_s: float) -> dict | None:
+              now_s: float, governed_vx: float | None = None,
+              laser_stationary: bool | None = None) -> dict | None:
         """One creep tick. Returns what to command, or None when not creeping.
 
         **This is the only place in the project that commands a velocity.**
@@ -700,11 +701,24 @@ class DockingMachine:
         the same safety filter as everything else, and the filter is TOLD what
         is happening rather than switched off: the returned `approach` is
         published to the governor's docking topic, which masks the proximity
-        floor in a 15-degree cone toward this confirmed bearing and nothing
-        else. Deadman, stale-scan and off-cone stops stay live throughout.
+        floor over B's own SILHOUETTE -- a disc of the authored radius plus a
+        margin, at the confirmed bearing and range -- and nothing else. Deadman,
+        stale-scan, empty-sector and off-object stops stay live throughout.
 
-        Returns a dict with `vx`, `approach` (bearing/range/margin for the
-        governor) and `reason`, or None when the machine is not in DOCKING.
+        It was a fixed 15-degree cone until 2026-08-14, which is a shape no
+        target of finite size fits inside: B subtends 33.5 degrees at contact,
+        so the cone brakes on B's own leaked shoulders and contact is
+        unreachable. See `DockingDisc` in the fleet governor.
+
+        `governed_vx` is what the safety filter actually PERMITTED, read back
+        off /cmd_vel, and `laser_stationary` is the scan matcher's verdict that
+        the robot did not move. Both are optional so the unit tests and the
+        bench can exercise the machine alone, and both are supplied live --
+        without them a governor stop forges a bump and a wheel slip hides one.
+
+        Returns a dict with `vx`, `wz`, `approach` (bearing/range/target radius
+        for the governor) and `reason`, or None when the machine is not in
+        DOCKING.
         """
 
         if self.state != self.DOCKING:
@@ -732,11 +746,40 @@ class DockingMachine:
         # design and the encoders report zero because nothing is translating.
         # Counting that as a stall would confirm a contact that never happened,
         # which is the one failure mode here that looks like success.
-        commanding_forward = (
-            abs(self._last_seen_bearing_rad) <= CREEP_MAX_BEARING_RAD
-        )
-        moving = measured_vx is None or abs(measured_vx) > STALL_SPEED_MPS
-        if moving or not commanding_forward:
+        # PERMITTED, not merely commanded. `governed_vx` is what the safety
+        # filter actually let through, read back off /cmd_vel. Without it a
+        # governor-imposed stop is indistinguishable from a bump: the machine
+        # asks for motion, the filter zeroes it, the encoders read nothing, and
+        # the debounce forges a delivery against thin air. The measured cone
+        # leak pinned A at 0.31-0.35 m -- inside the 0.39 m sighting ceiling --
+        # so that forgery was one uninterrupted second away on every run.
+        #
+        # When the caller supplies nothing, fall back to the bearing test. That
+        # keeps the old unit tests meaningful, and the live gate always supplies
+        # it.
+        if governed_vx is None:
+            permitted = abs(self._last_seen_bearing_rad) <= CREEP_MAX_BEARING_RAD
+        else:
+            permitted = governed_vx > STALL_SPEED_MPS
+
+        # AND THE WHEELS ARE NOT THE WITNESS. The twin authors rear friction at
+        # 0.1 and its EKF fuses wheel twist only, so at a real bump the wheels
+        # keep turning and `measured_vx` never falls -- measured on the bench,
+        # the slip case reaches contact and reports ARRIVED_UNPROVEN forever.
+        #
+        # `laser_stationary` is the scan matcher's verdict that the ROBOT did
+        # not move, which is the quantity that actually matters. Its own author
+        # notes it "correctly reports no translation while the wheels spin".
+        # Used as a witness only, never fused into control, which is the limit
+        # its docstring asks callers to respect. When it is unavailable the
+        # encoders stand in, and a slip then costs a delivery rather than
+        # forging one -- the safe direction to fail.
+        if laser_stationary is None:
+            stationary = measured_vx is not None and abs(measured_vx) <= STALL_SPEED_MPS
+        else:
+            stationary = laser_stationary
+
+        if not permitted or not stationary:
             self._stall_since_s = None
         elif self._stall_since_s is None:
             self._stall_since_s = now_s
@@ -771,6 +814,10 @@ class DockingMachine:
             "approach": {
                 "bearing_rad": bearing,
                 "range_m": self._last_seen_range_m,
+                # The AUTHORED radius, never the fitted one: fitted spans
+                # 0.072-0.168 m across 38 runs, so a disc sized from a fit
+                # would intermittently be smaller than B and unmask its nose.
+                "target_radius_m": self.expected_radius_m,
                 "margin_m": 0.10,
             } if self._last_seen_range_m is not None else None,
             "reason": (f"creeping, {elapsed:.1f}s, bearing "

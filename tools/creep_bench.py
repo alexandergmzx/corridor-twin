@@ -74,7 +74,15 @@ from pathlib import Path
 # including a negative control that a realpath implementation MUST fail. Import
 # it rather than keep a second copy that can drift -- a second copy is how this
 # went wrong in the first place.
-_TOOLS = os.path.dirname(os.path.abspath(sys.argv[0])) if sys.argv[0] else "tools"
+#
+# `__file__` first, `sys.argv[0]` only as a fallback: under pytest, argv[0] is
+# the pytest binary, so an argv-only form resolved the fleet to
+# `.venv/lib/python3.12/yahboomcar-ros2` and the bench could not be imported at
+# all -- it worked solely as a script. `os.path.abspath` normalises without
+# resolving symlinks, which is the whole point.
+_TOOLS = os.path.dirname(
+    os.path.abspath(__file__ if "__file__" in globals() else sys.argv[0] or "tools")
+)
 sys.path.insert(0, _TOOLS)
 
 import build_corridor_arena as _layout  # noqa: E402
@@ -197,6 +205,9 @@ class Robot:
     odom_travel_m: float = 0.0
     measured_vx: float = 0.0
     contacted: bool = False
+    #: What a laser scan matcher would see: did the BODY move? Slip divorces
+    #: this from `measured_vx`, which is the whole reason A3 needs it.
+    truly_stationary: bool = True
 
     def step(self, vx: float, wz: float, world: World) -> None:
         self.yaw += wz * DT
@@ -207,6 +218,7 @@ class Robot:
         self.x += moved * math.cos(self.yaw)
         self.y += moved * math.sin(self.yaw)
         self.odom_travel_m += abs(moved)
+        self.truly_stationary = abs(moved) <= 1e-4
         # THE SLIP CASE. The wheels turn, the encoders integrate, and the robot
         # does not move. The twin authors rear friction at 0.1 and fuses wheel
         # twist only, so this is the twin's own documented behaviour, not a
@@ -256,6 +268,7 @@ def run_scenario(
 
     trace: list[dict] = []
     duty_by_range: list[tuple[float, float]] = []
+    last_governed_vx = 0.0
     ticks = int(max_seconds * TICK_HZ)
     for tick in range(ticks):
         ranges = raycast((robot.x, robot.y), robot.yaw, world.segments,
@@ -269,7 +282,17 @@ def run_scenario(
         # robot PINS -- otherwise the false stall below terminates them first
         # and hides the geometry under test.
         witness = robot.measured_vx if stall_witness else None
-        command = machine.creep(verdict, witness, now)
+        # A3's two witnesses. `governed_vx` is what the filter permitted on the
+        # PREVIOUS tick (the live gate reads it off /cmd_vel, which is likewise
+        # one tick behind). `laser_stationary` stands in for the scan matcher:
+        # here it is ground truth, because the bench's question is what the
+        # software does with a correct witness, not how noisy the estimator is.
+        command = machine.creep(
+            verdict, witness, now,
+            governed_vx=(None if not stall_witness else last_governed_vx),
+            laser_stationary=(None if not stall_witness
+                              else robot.truly_stationary),
+        )
         if command is None:
             break
 
@@ -285,6 +308,12 @@ def run_scenario(
         duty_by_range.append((true_r, decision.vx))
         trace.append({
             "t": round(now, 2), "true_range_m": round(true_r, 4),
+            # The DECLARED range, recorded separately because it is the only
+            # quantity a session bag can be compared against -- the bag has no
+            # ground truth. Detector bias makes the two differ, and comparing
+            # a bench true range to a bag declared range is not a comparison.
+            "declared_range_m": (None if declared is None
+                                 else round(declared["range_m"], 4)),
             "commanded_vx": round(command["vx"], 4),
             "governed_vx": round(decision.vx, 4),
             "unmasked_min_range_m": (None if math.isinf(min_range)
@@ -293,6 +322,7 @@ def run_scenario(
             "state": machine.state,
         })
 
+        last_governed_vx = decision.vx
         robot.step(decision.vx, decision.wz, world)
         if machine.state in machine.TERMINAL:
             break
@@ -307,6 +337,7 @@ def run_scenario(
         "final_true_range_m": round(final_r, 4),
         "contact_range_m": round(world.contact_range_m, 4),
         "elapsed_s": round(len(trace) * DT, 2),
+        "pin": _pin(trace),
         "duty": _duty_bands(duty_by_range),
         "history": machine.report().get("state"),
         "trace_tail": trace[-6:],
@@ -342,17 +373,17 @@ def _build_mask(governor_module, declared, mask_mode, world):
 
 
 def _decide(governor_module, command, min_range, cfg, docking, slow_zone_exempt):
-    """`decide`, with the A2 exemption expressed as the caller's flag until it lands."""
+    """`decide`, as shipped.
 
-    kwargs = {}
-    if slow_zone_exempt:
-        import inspect
-        if "creep_exempt_slow_zone" in inspect.signature(
-                governor_module.decide).parameters:
-            kwargs["creep_exempt_slow_zone"] = True
+    `slow_zone_exempt` is recorded in the result but no longer passed: A2 made
+    the exemption a property of the filter (live declaration AND a command at
+    or under the creep clamp), not something a caller may ask for. A flag that
+    the governor ignores would be a lie in the artifact.
+    """
+
     return governor_module.decide(
         command["vx"], 0.0, command["wz"], min_range, 0.05, 0.05, cfg,
-        docking=docking, **kwargs,
+        docking=docking,
     )
 
 
@@ -372,6 +403,41 @@ def _duty_bands(samples):
         out[key] = (None if not inside
                     else round(sum(1 for v in inside if v > 1e-6) / len(inside), 3))
     return out
+
+
+def _pin(trace):
+    """Where the run came to rest, in the quantities a session bag also has.
+
+    A bag records no ground truth, so a bench `true_range_m` cannot be compared
+    against one. What both sides hold is the DECLARED range and the leaked
+    minimum the governor actually braked on -- those are the reproduction test.
+    """
+
+    last = len(trace) - 1
+    while last >= 0 and trace[last]["governed_vx"] > 1e-6:
+        last -= 1
+    if last < 0:
+        return None
+    # Walk back to the start of the final contiguous run of zero-command ticks.
+    first = last
+    while first > 0 and trace[first - 1]["governed_vx"] <= 1e-6:
+        first -= 1
+    # A successful run also ends on a zero command -- the terminal tick, after
+    # the machine has stopped asking. That is an arrival, not a pin. Only a
+    # stall the robot actually sat in counts.
+    if (last - first + 1) * DT < 0.5:
+        return None
+    at = trace[first]
+    leaked = [t["unmasked_min_range_m"] for t in trace[first:last + 1]
+              if t["unmasked_min_range_m"] is not None]
+    return {
+        "declared_range_m": at["declared_range_m"],
+        "true_range_m": at["true_range_m"],
+        "leaked_min_m": (None if not leaked else round(min(leaked), 4)),
+        "leaked_max_m": (None if not leaked else round(max(leaked), 4)),
+        "reason": at["reason"],
+        "held_s": round((last - first + 1) * DT, 2),
+    }
 
 
 SCENARIOS: dict = {}
@@ -446,22 +512,12 @@ def _slow_zone_false_stall(manifest, profile):
 
 @scenario("disc")
 def _disc(manifest, profile):
-    """A1 alone: silhouette mask, slow zone still active.
+    """A1 + A2 as shipped: silhouette mask, creep exempt from the slow zone.
 
-    Expected to reach contact but SLOWLY -- the stub's south face throttles the
-    creep to ~8.7 mm/s, so this is the scenario that shows why A2 is needed.
+    The head-on case. Must reach contact, and must do it in seconds rather than
+    the ~46 s the throttled creep needed -- a delivery nobody can see happen is
+    not much of a demonstration.
     """
-
-    world, robot = _world_and_robot(manifest, profile, start_range=0.62,
-                                    start_bearing_deg=0.0)
-    return run_scenario(world=world, robot=robot, mask_mode="disc",
-                        slow_zone_exempt=False, max_seconds=90.0,
-                        **_fleet_kwargs())
-
-
-@scenario("disc_exempt")
-def _disc_exempt(manifest, profile):
-    """A1 + A2: the shipping configuration. Contact in ~8-12 s."""
 
     world, robot = _world_and_robot(manifest, profile, start_range=0.62,
                                     start_bearing_deg=0.0)
