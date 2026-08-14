@@ -115,3 +115,32 @@ on `nav_ready_waiter` instead of a 5 s timer).
   number: `discovery-convergence.json` in `out/evidence/bringup-rework/`
   (fresh participant sees an existing publisher in ≤0.05 s, n=20, under
   Isaac load, UDP-only).
+
+## Fleet-edit spot-check: two runs, all three simctl edits live
+
+Fleet branch `yahboomcar-ros2 simctl-events-2026-08-14` (commits
+`cfa1220` dwell/`--trust-clean`, `39b47d6` wait_for check-first,
+`47a8f95` safety event), corridor `--trust-clean` wired. robot2 2d smoke
+first: **green** — "[3/3] both topics advertised **(1 s)**" (the old
+wait carried a ≥5 s floor), clean teardown
+(`out/evidence/bringup-rework/robot2-smoke-2026-08-14.log`).
+
+| run | lens frac | nav attempts | simctl (s) | goal at (s) | motion after goal (s) |
+|---|---|---|---|---|---|
+| 162722 | 0.971 | 1 | **40** | **74** | 1.44 |
+| 163036 | 0.968 | 1 | **39** | **75** | 1.51 |
+
+- `simctl start` 63 → **39–40 s**: dwell 14→4 s (`--trust-clean`,
+  silence budget only), post-safety pause → governor+deadman
+  discoverable at **4.0 s** measured (the event halved the old fixed 8),
+  check-first poll floors gone.
+- **Command → first motion ≈ 76 s** — beats the ≤85 s
+  with-fleet-delegation target; corridor-side-only was already ≤105 at
+  ~101 s. Baseline: ≈131 s.
+- Lens healthy on both → **0 deaf of 16 runs today**.
+- **Two runs are a spot-check, not a batch** (gate discipline): quoting
+  ≤85 s as a standing number should wait on a full 8-run batch under the
+  merged fleet branch — parked as a morning decision. The corridor's
+  descriptive `phase_typical_s`/header numbers deliberately still say
+  ~63 s / ~100 s (the corridor-only shape) until the fleet branch passes
+  review and a full batch re-measures.
