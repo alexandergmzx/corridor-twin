@@ -117,3 +117,97 @@ actually died in.
   the next run and is covered only by its unit test so far.
 - **The second handoff trigger (ADR 0036) has never fired.** This run never
   reached the docking phase.
+
+
+---
+
+# A batch of four, 2026-08-14 08:54–09:10
+
+```bash
+BATCH_LOGDIR=<dir> bash tools/diagnostics/run_batch.sh 4 nominal_m6_n3
+```
+
+Sequential and lock-serialised, as that script requires. Table:
+[`batch-table-20260814-0854.txt`](batch-table-20260814-0854.txt); independent
+2 s liveness sampler:
+[`batch-liveness-20260814-0854.txt`](batch-liveness-20260814-0854.txt).
+
+| run | lens | scan Hz | sim→nav | reached | handoff | A→B | dup_wall |
+|---|---|---|---|---|---|---|---|
+| 1 | announced | 12.9 | 102 s | CREEP | FIRED | 0.2249 | **0.52** |
+| 2 | announced | 12.7 | 92 s | CREEP | FIRED | 0.2263 | 0.70 |
+| 3 | announced | 13.5 | 91 s | CREEP | FIRED | 0.2252 | 0.92 |
+| 4 | announced | 13.7 | 101 s | CREEP | FIRED | 0.2262 | **0.94** |
+
+## Faux launches: none
+
+**Four announcements, four served, zero refusals.** Lens uptime over the whole
+batch: **285 / 293 samples = 97.3%**, measured by a process that never consults
+the agent. Every one of the 8 `DOWN` samples falls in a reap/replace handover —
+the ~6 s window where one run's lens is replaced by the next's. That gap is the
+honest cost of one-lens-per-run and it is the only one.
+
+The handover was captured, including replacing a lens that had been serving for
+**3.5 hours**:
+
+```
+08:54:20 lens=ok   pids=[1582050]   <- 3.5 h old, from run 051901
+08:54:23 lens=DOWN pids=[1582050]   <- TERM
+08:54:26 lens=DOWN pids=[]          <- reaped
+08:54:29 lens=ok   pids=[1971766]   <- replaced, same port
+```
+
+with `replacing the previous run's lens (pid 1582050)` in the runner log. That
+is `reap_previous_lens`, the last untested path in ADR 0035.
+
+## The freeze, proved over 3.5 hours by accident
+
+Run `051901`'s lens lived from 05:19 until it was reaped at 08:54. Unfrozen at
+5 Hz that is ~63,000 samples, which would have rolled the entire run out of a
+4500-row buffer and left a dump of nothing. Its `lens.json` holds **1700 rows
+ending at t = 343.7 s** — exactly the run, and nothing after it.
+
+**And its log ends `slam_lens: ROS context shut down, exiting` with no dump
+line** — the exact signature of the three dumps lost on 2026-08-14 — yet the
+file is complete, because the sampler had already written it. That is the
+cleanest available proof of the continuous-dump change.
+
+## Bring-up: 4 of 4 reached the creep
+
+Against 2 of 5 the night before. Every run handed off; A→B spans **1.4 mm**
+(0.2249–0.2263), all 7–9 mm outside the 0.2175 m contact. All four still report
+`ARRIVED_UNPROVEN` on the unchanged witness (ADR 0034), and all four handed off
+on the `range` trigger — **ADR 0036's second trigger did not fire in this
+batch.**
+
+## A lead for SLAM, and the reason B5 exists
+
+Map divergence rises **monotonically across consecutive runs**:
+
+| run | 1 | 2 | 3 | 4 |
+|---|---|---|---|---|
+| duplicate wall extent | 0.52 | 0.70 | 0.92 | 0.94 |
+| median wall thickness | 0.02 | 0.02 | 0.04 | 0.04 |
+
+Run 1 followed a **3.5 hour host idle** and produced **0.52 m — the best map
+score measured on this host.** The previous night's runs, deep into a long
+session, measured 0.76, 0.92, 0.84, 1.58 and 1.42.
+
+That is consistent with the "host degrades over a long session" note of
+2026-08-13, and it is the first time the degradation has a *number* attached
+per run rather than a description. **It is a correlation over four runs, not a
+mechanism**: run index, host uptime since the last idle, and accumulated Isaac
+cycles are all confounded here, and n=4. What it does is make the question
+answerable by design of experiment rather than by anecdote — which is exactly
+why the map score became a recorded covariate instead of a gate.
+
+## A correction to a claim made earlier in this session
+
+The SLAM log oracle was described as turning a lost attempt from 110 s into
+about two. **That is true of the FAILURE path and not of healthy activation.**
+In this batch only run 1 reports `active (attempt 1, from its own log)`; runs
+2-4 report `active (attempt 1)`, meaning the daemon poll answered before the
+`Managed nodes are active` line reached the log. Both signals agreed in all
+four runs — the corroboration working as designed — but the speed-up applies
+where the 110 s was actually being burned, which is the lost-response case,
+not to the healthy case.
