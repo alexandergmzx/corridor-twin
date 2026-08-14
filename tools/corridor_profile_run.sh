@@ -1395,6 +1395,47 @@ else
       --json "$RUN_DIR/map-score.json" \
       | tee "$RUN_DIR/map-score.txt" || status=1
   fi
+  # THE MAP SCORE IS A COVARIATE IN run.json, NEVER A GATE ON THE RUN.
+  #
+  # It is tempting to abort early on a diverged map. Measured on 2026-08-14 it
+  # would have been actively harmful: all five runs exceeded
+  # MAX_DUPLICATE_WALL_M = 0.20 (0.76, 0.92, 0.84, 1.58, 1.42 m) and the WORST
+  # map -- 031348 at 1.580 m -- produced the BEST approach, the run that
+  # touched B at 0.2146 m. On this sample the metric does not discriminate a
+  # good delivery from a bad one, and gating on it would have killed the three
+  # best runs of the night.
+  #
+  # It also cannot see the fault in time: ADR 0029 measures the corridor as
+  # clean and the map degrading AT and AFTER the delivery standoff, so a
+  # pre-goal map is a map of the spawn area. Recorded so the
+  # divergence-vs-outcome question becomes answerable across runs without
+  # spending any more of them.
+  if [ -f "$RUN_DIR/map-score.json" ]; then
+    # Emitted as key=value pairs and handed to the existing `manifest` helper,
+    # rather than importing run_manifest from a heredoc: `python -` sets
+    # argv[0] to "-", so any path derived from it is wrong.
+    map_fields=$("$REPO/.venv/bin/python" - "$RUN_DIR/map-score.json" <<'PYEOF' || true
+import json, sys
+score = json.load(open(sys.argv[1])).get("score") or {}
+wanted = {"duplicate wall extent": "map_duplicate_wall_extent_m",
+          "median wall thickness": "map_median_wall_thickness_m"}
+out = [f"map_score_passed={str(bool(score.get('passed'))).lower()}"]
+for row in score.get("rows") or []:
+    key = wanted.get(row.get("metric"))
+    if key:
+        try:
+            out.append(f"{key}={float(str(row.get('measured', '')).split()[0])}")
+        except (ValueError, IndexError):
+            pass
+print(" ".join(out))
+PYEOF
+)
+    if [ -n "$map_fields" ]; then
+      # shellcheck disable=SC2086 - deliberate word splitting into --set pairs
+      manifest $(for field in $map_fields; do printf -- '--set %s ' "$field"; done)
+      echo "  map score recorded in run.json: $map_fields"
+    fi
+  fi
 fi
 
 # THE STARTUP CRITERION, from ground truth, on every run. The circle was

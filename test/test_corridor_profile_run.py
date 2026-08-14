@@ -595,3 +595,75 @@ def test_teardown_signals_the_group_so_setsid_does_not_weaken_it() -> None:
 
     assert 'signal_launch_group "$nav_pid"' in body
     assert 'signal_launch_group "$slam_pid"' in body
+
+
+# ------------------------------- the map score is a covariate, never a gate
+#
+# Gating a run on map divergence is the obvious idea and it is wrong here.
+# Measured 2026-08-14: all five runs exceeded MAX_DUPLICATE_WALL_M = 0.20
+# (0.76, 0.92, 0.84, 1.58, 1.42 m) and the WORST map -- 031348 at 1.580 m --
+# produced the BEST approach, the run that touched B. A gate would have killed
+# the three best deliveries of the night.
+
+
+def _map_extractor() -> str:
+    """The runner's own extraction snippet, lifted so it can be run."""
+
+    source = RUNNER.read_text(encoding="utf-8")
+    start = source.index('map_fields=$("$REPO/.venv/bin/python" - ')
+    # The heredoc marker is followed by `|| true`, so the body starts at the
+    # next NEWLINE, not at a fixed offset past the marker.
+    marker = source.index("<<'PYEOF'", start)
+    body = source[source.index("\n", marker) + 1:]
+    return body[:body.index("PYEOF")]
+
+
+def test_the_extractor_reads_a_real_score_artifact(tmp_path) -> None:
+    """Run 031922's actual numbers, through the runner's actual snippet."""
+
+    artifact = tmp_path / "map-score.json"
+    artifact.write_text(json.dumps({"score": {"passed": False, "rows": [
+        {"metric": "duplicate wall extent", "measured": "1.420 m"},
+        {"metric": "median wall thickness", "measured": "0.020 m"},
+        {"metric": "bounding box (context only)", "measured": "7.06 x 7.44 m"},
+    ]}}), encoding="utf-8")
+
+    out = subprocess.run([sys.executable, "-c", _map_extractor(), str(artifact)],
+                         capture_output=True, text=True, timeout=30).stdout
+    fields = dict(pair.split("=", 1) for pair in out.split())
+
+    assert fields["map_duplicate_wall_extent_m"] == "1.42"
+    assert fields["map_median_wall_thickness_m"] == "0.02"
+    assert fields["map_score_passed"] == "false"
+    assert "bounding" not in out, "a context-only row must not become a field"
+
+
+def test_the_extractor_survives_a_malformed_row(tmp_path) -> None:
+    """Fail-open: a scorer change must not take the run's manifest with it."""
+
+    artifact = tmp_path / "map-score.json"
+    artifact.write_text(json.dumps({"score": {"passed": True, "rows": [
+        {"metric": "duplicate wall extent", "measured": "n/a"},
+    ]}}), encoding="utf-8")
+
+    result = subprocess.run([sys.executable, "-c", _map_extractor(), str(artifact)],
+                            capture_output=True, text=True, timeout=30)
+
+    assert result.returncode == 0, result.stderr
+    assert "map_score_passed=true" in result.stdout
+    assert "duplicate" not in result.stdout
+
+
+def test_the_map_score_gates_nothing() -> None:
+    """**The finding, pinned.** The worst map produced the best approach."""
+
+    source = RUNNER.read_text(encoding="utf-8")
+    at = source.index("map score recorded in run.json")
+    window = source[at - 2000:at + 500]
+    code = "\n".join(line for line in window.splitlines()
+                     if not line.lstrip().startswith("#"))
+
+    assert "rerun " not in code, "the map score aborts the run; measured 100% false-positive"
+    assert "status=1" not in code.split("map_fields=")[-1], (
+        "the map score sets a red status of its own"
+    )
