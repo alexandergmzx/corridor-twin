@@ -108,3 +108,44 @@ def test_normalization_is_idempotent_and_ascending() -> None:
     assert once == normalized_speed_rules(
         [{"maximum_width_m": width, "limit_mps": limit} for width, limit in once]
     )
+
+
+def test_a_policy_boundary_is_not_decided_by_the_sixteenth_decimal() -> None:
+    """**ADR 0016's two-gate floor had been void at robot scale since 0030.**
+
+    The nominal profile's gate at station 2.4 sits at the corridor's midpoint
+    on a linear taper, so its clear width is exactly 1.2 m by construction --
+    the strict rule's threshold. Evaluated in floats it is 1.2000000000000002,
+    and a bare `<=` put it in the permissive zone. The strict zone held ONE
+    gate; `consecutive_estimates` is 2; a corner-confined violation could
+    therefore never be confirmed, and the demonstration's central claim would
+    have produced zero events with nothing to point at.
+
+    Scale-dependent, which is why no test caught it: v1's own arithmetic,
+    `6.0 + (8.0 / 12.0) * (3.0 - 6.0)`, is exactly 4.0.
+    """
+
+    from police_observer.estimator import covered_by
+
+    robot_scale_width = 1.8 + (2.4 / 3.6) * (0.9 - 1.8)
+    assert robot_scale_width != 1.2, "the float error is gone; this test is moot"
+    assert covered_by(robot_scale_width, 1.2), (
+        "gate 2.4 is outside the strict zone again, by 2.2e-16 m"
+    )
+
+    v1_width = 6.0 + (8.0 / 12.0) * (3.0 - 6.0)
+    assert v1_width == 4.0
+    assert covered_by(v1_width, 4.0), "v1's exact boundary stopped holding"
+
+
+def test_the_boundary_tolerance_is_far_below_anything_physical() -> None:
+    """A tolerance wide enough to move a real decision would be a moved
+    threshold wearing a disguise. One nanometre is 8 orders of magnitude below
+    the narrowest width this scenario distinguishes (0.15 m between tiers)."""
+
+    from police_observer.estimator import POLICY_WIDTH_EPSILON_M, covered_by
+
+    assert POLICY_WIDTH_EPSILON_M < 1e-6
+    assert not covered_by(1.2 + 1e-6, 1.2), (
+        "a micrometre over the threshold is now inside the zone"
+    )

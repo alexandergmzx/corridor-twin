@@ -81,6 +81,43 @@ class Violation:
     confirmation_duration_s: float
 
 
+#: Metres of slack on a policy zone boundary. One nanometre: far below any
+#: length this scenario means anything at, and far above the float error that
+#: put a gate in the wrong zone.
+POLICY_WIDTH_EPSILON_M = 1e-9
+
+
+def covered_by(width_m: float, maximum_width_m: float) -> bool:
+    """Is `width_m` inside a rule whose threshold is `maximum_width_m`?
+
+    **A policy boundary is not decided by the 16th decimal.** The nominal
+    profile's gate at station 2.4 has a clear width of exactly 1.2 m by
+    construction -- it is the corridor's midpoint on a linear taper -- and the
+    strict rule's threshold is exactly 1.2 m. ADR 0016 chose that boundary so
+    the strict zone would hold TWO gates, because `consecutive_estimates` is 2
+    and a corner-confined violation cannot otherwise be confirmed.
+
+    Evaluated in floating point, `1.8 + (2.4 / 3.6) * (0.9 - 1.8)` is
+    `1.2000000000000002`, and a bare `<=` therefore put that gate in the
+    permissive zone. The strict zone held one gate, the confirmation rule could
+    never fire from the corner, and the demonstration's central claim would
+    have produced zero violations with nothing to point at.
+
+    It went unnoticed because the defect is scale-dependent. At v1's authored
+    metres the same expression, `6.0 + (8.0 / 12.0) * (3.0 - 6.0)`, is exactly
+    `4.0` and the comparison holds -- so ADR 0016's own arithmetic was correct
+    when it was written, and ADR 0030's 0.30 scaling silently broke it while
+    every v1 test stayed green.
+
+    A tolerance, rather than rounding the widths or nudging the threshold: the
+    threshold is ADR 0016's decision and must not move, and rounding would put
+    a different arbitrary precision in the same place with less to say for
+    itself.
+    """
+
+    return width_m <= maximum_width_m + POLICY_WIDTH_EPSILON_M
+
+
 def normalized_speed_rules(rules: object) -> tuple[tuple[float, float], ...]:
     """Return policy rules as ascending, validated (maximum_width_m, limit_mps).
 
@@ -207,7 +244,10 @@ class MarkerMap:
         widths = {self.entry_width_m, self.corner_width_m}
         widths.update(self.width_at(station) for station in self.gate_stations_m)
         widest_rule = self.speed_rules[-1][0] if self.speed_rules else 0.0
-        uncovered = sorted(width for width in widths if width > widest_rule)
+        # Same tolerance as `limit_at`, or this could refuse to start on a
+        # width the runtime would happily have covered.
+        uncovered = sorted(width for width in widths
+                           if not covered_by(width, widest_rule))
         if uncovered:
             raise ValueError(
                 f"speed policy does not cover corridor widths {uncovered} on profile "
@@ -221,7 +261,7 @@ class MarkerMap:
     def limit_at(self, station_m: float) -> float:
         width = self.width_at(station_m)
         for maximum_width, limit in self.speed_rules:
-            if width <= maximum_width:
+            if covered_by(width, maximum_width):
                 return limit
         raise ValueError(f"speed policy does not cover corridor width {width}")
 
