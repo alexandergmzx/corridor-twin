@@ -345,7 +345,9 @@ function connect() {
             : `searching — ${L.candidates||0} candidate(s) this frame` + (L.range_m ? `, best at ${L.range_m} m (r ${L.fitted_radius_m})` : ''));
       el.style.color = L.confirmed ? '#ff5d8f' : '';
     }
-    if (S.hist.length > 3000) S.hist.shift();
+    // >= corridor_lens.py HISTORY_LEN, or the page forgets the bring-up the
+    // server kept. Pinned by test_the_page_remembers_at_least_as_much.
+    if (S.hist.length > 4500) S.hist.shift();
     for (const [key, p] of [['pose', st.pose], ['truth', st.truth_ghost],
                             ['odomg', st.odom_ghost]]) {
       if (p) {

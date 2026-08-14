@@ -201,6 +201,47 @@ class StalenessTracker:
         return self.duplicates / self.total if self.total else 0.0
 
 
+class RateWindow:
+    """Message rates over a TRAILING WINDOW, not since the process started.
+
+    Cumulative `count / (now - t0)` is only honest when the process starts with
+    the data. Once the lens comes up BEFORE the simulator (ADR 0035) that stops
+    being true: ~130 s of legitimate pre-Isaac silence turns a healthy 14 Hz
+    /scan into a displayed ~9 Hz for the rest of the run -- in the one window
+    where this footer is the only live signal there is, and in direct
+    contradiction of `check_isaac_contract`'s own rate table.
+
+    A trailing window also does something cumulative rates cannot: it shows a
+    topic DYING. A publisher that stops mid-run barely moves a lifetime average.
+
+    `window_s` is 10 rather than 5 so /map at ~1 Hz still has ten samples to
+    average over.
+    """
+
+    def __init__(self, window_s: float = 10.0):
+        self.window_s = float(window_s)
+        self._samples: deque = deque()          # (t, {key: cumulative count})
+
+    def feed(self, t: float, counts: dict) -> None:
+        self._samples.append((float(t), dict(counts)))
+        cutoff = t - self.window_s
+        # Keep one sample at or before the cutoff: it is the baseline the
+        # newest count is differenced against.
+        while len(self._samples) > 2 and self._samples[1][0] <= cutoff:
+            self._samples.popleft()
+
+    def rates(self) -> dict:
+        """-> {key: Hz}. Empty until two samples exist; never divides by zero."""
+
+        if len(self._samples) < 2:
+            return {}
+        (t0, c0), (t1, c1) = self._samples[0], self._samples[-1]
+        dt = t1 - t0
+        if dt <= 0.0:
+            return {}
+        return {k: max(0.0, (c1.get(k, 0) - c0.get(k, 0)) / dt) for k in c1}
+
+
 class YawRatioWindow:
     """Median |odom wz| / |truth wz| over the recent turning samples.
 
