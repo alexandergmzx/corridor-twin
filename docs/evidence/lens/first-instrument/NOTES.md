@@ -211,3 +211,67 @@ In this batch only run 1 reports `active (attempt 1, from its own log)`; runs
 four runs — the corroboration working as designed — but the speed-up applies
 where the 110 s was actually being burned, which is the lost-response case,
 not to the healthy case.
+
+
+---
+
+# Two more runs, and the trend was not real
+
+**A correction to the section above, which is wrong.** Runs 5 and 6 were run to
+test the map-degradation reading, and they refuted it.
+
+| # | run | dup_wall | thick | scan Hz | creep | A→B | rest before |
+|---|---|---|---|---|---|---|---|
+| 1 | 085419 | 0.52 | 0.02 | 12.9 | 3505 | 0.2249 | 3.5 h |
+| 2 | 085821 | 0.70 | 0.02 | 12.7 | 3493 | 0.2263 | none |
+| 3 | 090216 | 0.92 | 0.04 | 13.5 | 3481 | 0.2252 | none |
+| 4 | 090613 | 0.94 | 0.04 | 13.7 | 3503 | 0.2262 | none |
+| 5 | 093434 | **2.24** | 0.02 | 12.3 | 3395 | 0.2284 | 23 min |
+| 6 | 093830 | **0.52** | 0.06 | 11.9 | 3436 | 0.2264 | none |
+
+`dup_wall` = **0.52, 0.70, 0.92, 0.94, 2.24, 0.52**.
+
+**Run 6 returned to 0.52 — the joint best of the day — four minutes after run
+5's 2.24, the worst.** The monotonic rise across runs 1-4 does not survive two
+more samples.
+
+## What that kills, including a claim made above
+
+- **The "3.5 hour idle produced the best map" reading is withdrawn.** Run 6
+  scored the identical 0.52 after a four-minute gap. It was four points read as
+  a trend, and I stated it with more confidence than four points earn.
+- **Cycle accumulation:** unsupported. Run 6 is the 6th consecutive cycle.
+- **Host rest:** already refuted by run 5 (2.24 *after* a rest); run 6 removes
+  the remaining support.
+- **Scan rate:** anti-correlated if anything. Run 6 has the rate CLOSEST to
+  nominal (11.9 against 12.0) and the WORST wall thickness (0.06).
+- **Creep duration:** ruled out earlier and still ruled out — 3395-3505 ticks,
+  a 3% spread, against a 4.3x spread in `dup_wall`.
+
+Six samples spanning 0.52-2.24 with no ordering are consistent with a
+**bimodal or heavy-tailed distribution**, not a trend. Which run-internal event
+separates a 2.24 from a 0.52 is not answered here, and repeating the run is not
+how to answer it.
+
+## What survived all six runs
+
+- **Faux launches: none.** 6 announced, 6 served, 0 refusals.
+- **6 of 6 reached the creep and handed off**, against 2 of 5 before this
+  session's changes. All six on the `range` trigger; ADR 0036's second trigger
+  has still never fired.
+- **A→B spans 3.5 mm** (0.2249-0.2284) while the map varied **4.3x**. The
+  docking is map-independent by construction (ADR 0029's landmark) and this is
+  the direct demonstration of it.
+
+## What this means for "stabilise SLAM"
+
+Map divergence does **not** affect delivery accuracy — the six-run spread says
+so. It affects **transit**: a map bad enough to break NavFn planning aborts the
+run, as in `20260814-025049`. All six transits here succeeded, so this sample
+contains **no failing case to diagnose against**.
+
+The next measurement should therefore be offline and free rather than another
+Isaac cycle: every run now carries a `lens.json` history, so
+**compare the `fit` and `div_pos` traces of run 5 (2.24) against run 6 (0.52)**
+and find where inside the run they diverge. That is a comparison of two
+recorded runs, not a new experiment.
