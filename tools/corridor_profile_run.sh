@@ -1252,6 +1252,37 @@ PYEOF
   echo "  the acceptance response was lost, not the goal (nav_gate.py:270-274)" >&2
   manifest_error "acceptance response lost: nav reported 'goal not accepted' while the robot drove ${moved} m"
 fi
+# A RUN THAT NEVER HANDED OFF MUST SAY SO IN run.json, not only in nav.json.
+#
+# On a reported-only profile the nav gate returns 0 by design, so its own
+# failures list cannot reach the run's classification. Run 20260814-031922
+# skipped the entire terminal phase -- Nav2 SUCCEEDED at 0.6621 m, outside the
+# 0.620 m handoff radius, zero creep ticks -- and the only thing that made the
+# run non-green was an unrelated map-frame goal error. Same shape and same
+# reason as the "goal not accepted" reconciliation above.
+#
+# A RESULT, never a rerun: the robot was asked and the robot drove.
+if [ -f "$RUN_DIR/nav.json" ]; then
+  handoff=$("$REPO/.venv/bin/python" - "$RUN_DIR/nav.json" <<'PYEOF' 2>/dev/null || echo "unknown"
+import json, sys
+try:
+    dock = json.load(open(sys.argv[1])).get("docking") or {}
+except Exception:
+    print("unknown"); raise SystemExit
+if not dock.get("enabled"):
+    print("no-dock")
+elif (dock.get("handoff") or {}).get("fired"):
+    print("fired")
+else:
+    print("missed")
+PYEOF
+)
+  if [ "$handoff" = "missed" ]; then
+    echo "  ** the docking handoff never fired: the terminal phase was skipped **" >&2
+    manifest_error "the docking handoff never fired; the terminal phase was skipped"
+  fi
+fi
+
 # Not a gate yet -- U2 measures first and decides after. Printed so the answer
 # is in front of whoever watched the run.
 kill -TERM "$probe_pid" 2>/dev/null || true

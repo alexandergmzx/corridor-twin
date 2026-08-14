@@ -152,6 +152,57 @@ def laser_stationary_from_track(track, now_s: float) -> bool | None:
     return statistics.median(speeds) < LASER_STATIONARY_EPS_MPS
 
 
+#: Dock states reachable only by way of the handoff.
+_PAST_HANDOFF = ("DOCKING", "DELIVERED_CONFIRMED", "ARRIVED_UNPROVEN")
+
+
+def delivery_reconciliation(dock_report: dict, action_status: str):
+    """-> (excuse_the_cancel, failure_or_None). Pure, so it is testable.
+
+    Two questions about the same moment, and they used to share one branch.
+
+    **Was the cancel ours?** A goal this gate cancelled ITSELF at the handoff is
+    not a navigation failure; recording it as one reports a delivery as ABORTED.
+
+    **Did the handoff happen at all?** It did not, on run 20260814-031922, and
+    NOTHING SAID SO. Nav2 reported SUCCEEDED at 0.6621 m from B -- 0.198 m off
+    its own refined goal -- while the handoff only fires on a confirmed sighting
+    inside `docked_max_range_m` (0.620 m). The machine sat in REFINE with zero
+    creep ticks, the dock loop's exit condition was satisfied, control fell
+    through to reporting, and the run's only complaint was an unrelated
+    map-frame goal error. The entire terminal phase was skipped in silence.
+
+    That is systematic rather than unlucky: `GOAL_TOLERANCE_M` and Nav2's own
+    `xy_goal_tolerance` are both 0.15, so the SUCCEEDED envelope and the handoff
+    radius move together and no choice of standoff creates margin between them.
+
+    Guarded to require creep_ticks == 0 AND a state outside TERMINAL, so a run
+    that really delivered cannot trip it -- the three that handed off recorded
+    3416 to 3496 ticks.
+    """
+
+    if not dock_report.get("enabled"):
+        return False, None
+
+    state = dock_report.get("state")
+    excuse = state in _PAST_HANDOFF
+    if excuse or dock_report.get("creep_ticks"):
+        return excuse, None
+    if action_status != "SUCCEEDED":
+        # An abort short of the handoff is already reported by the status check.
+        return excuse, None
+
+    creep = dock_report.get("creep") or {}
+    seen = creep.get("last_seen_range_m")
+    ceiling = creep.get("last_sighting_ceiling_m")
+    return excuse, (
+        f"Nav2 reported SUCCEEDED and the handoff never fired: state {state}, "
+        f"creep_ticks 0, last detected range {seen} m against a handoff radius "
+        f"of {ceiling} m. The refined goal's SUCCEEDED envelope and that radius "
+        f"are the same number, so the terminal phase was skipped in silence."
+    )
+
+
 def route_to_delivery_m(manifest: dict, profile: str) -> float:
     """Path length from A's spawn to the delivery, from the manifest's own legs.
 
@@ -746,10 +797,14 @@ def main() -> int:
     # so it precedes the creep instead of ending the run. Every state reachable
     # only by way of that handoff has to be listed here, and `DOCKED` -- the
     # state this used to test for -- no longer exists.
-    if dock_report.get("state") in (
-        "DOCKING", "DELIVERED_CONFIRMED", "ARRIVED_UNPROVEN",
-    ):
+    excuse_cancel, handoff_failure = delivery_reconciliation(
+        dock_report, report["action_status"])
+    if excuse_cancel:
         report["docked_and_cancelled"] = True
+    dock_report["handoff"] = {
+        "fired": bool(excuse_cancel or dock_report.get("creep_ticks")),
+        "creep_ticks": dock_report.get("creep_ticks", 0),
+    }
     report["travelled_m"] = round(gate.travelled_m(), 3)
 
     try:
@@ -763,6 +818,9 @@ def main() -> int:
     report["goal_error_m"] = round(error_m, 4)
 
     failures = []
+    if handoff_failure:
+        failures.append(handoff_failure)
+        print(f"  ** {handoff_failure} **")
     if status != STATUS_SUCCEEDED and not report.get("docked_and_cancelled"):
         failures.append(f"action status {report['action_status']}, not SUCCEEDED")
     if error_m > GOAL_TOLERANCE_M:

@@ -439,3 +439,105 @@ def test_the_threshold_sits_between_the_two_measured_regimes():
     """A pinned number, printed and enforced from one place."""
 
     assert 0.0168 < EPS < 0.05
+
+
+# ------------------------------------------- a run that never hands off says so
+#
+# Run 20260814-031922: Nav2 reported SUCCEEDED at 0.6621 m from B while the
+# handoff only fires inside 0.620 m. The machine sat in REFINE with zero creep
+# ticks, the dock loop exited, control fell through to reporting, and NOTHING
+# said the terminal phase had been skipped. The run's only complaint was an
+# unrelated map-frame goal error.
+#
+# Each case below names the run it was measured on.
+
+from corridor_nav_gate import delivery_reconciliation  # noqa: E402
+
+
+def test_a_run_that_delivered_is_excused_and_not_faulted() -> None:
+    """Runs 023306, 030242, 031348 -- cancelled at the handoff, then crept."""
+
+    for state in ("DOCKING", "DELIVERED_CONFIRMED", "ARRIVED_UNPROVEN"):
+        excuse, failure = delivery_reconciliation(
+            {"enabled": True, "state": state, "creep_ticks": 3416}, "CANCELED")
+
+        assert excuse is True, f"{state} is reachable only through the handoff"
+        assert failure is None
+
+
+def test_a_transit_abort_is_left_to_the_status_check() -> None:
+    """Run 025049: Nav2 ABORTED at 4.792 m, 57 mm short of the arming travel.
+
+    Already reported as an action-status failure; saying it twice in different
+    words would send the reader looking for a second fault.
+    """
+
+    excuse, failure = delivery_reconciliation(
+        {"enabled": True, "state": "TRANSIT", "creep_ticks": 0}, "ABORTED")
+
+    assert excuse is False
+    assert failure is None
+
+
+def test_succeeding_outside_the_handoff_radius_is_a_failure() -> None:
+    """**Run 031922, the silent one.** This is the whole commit."""
+
+    excuse, failure = delivery_reconciliation(
+        {"enabled": True, "state": "REFINE", "creep_ticks": 0,
+         "creep": {"last_seen_range_m": 0.6621,
+                   "last_sighting_ceiling_m": 0.39}},
+        "SUCCEEDED")
+
+    assert excuse is False
+    assert failure is not None, "the terminal phase was skipped and nothing said so"
+    assert "handoff never fired" in failure
+    assert "0.6621" in failure, "the failure must carry the measured range"
+    assert "creep_ticks 0" in failure
+
+
+def test_a_run_without_docking_is_not_faulted() -> None:
+    """The negative control: --no-dock is transit-only by choice."""
+
+    excuse, failure = delivery_reconciliation({"enabled": False}, "SUCCEEDED")
+
+    assert excuse is False
+    assert failure is None
+
+
+def test_a_delivered_run_can_never_trip_the_new_branch() -> None:
+    """Guarded on creep_ticks AND state. The three real deliveries recorded
+    3416-3496 ticks, so the guard has four orders of magnitude of room."""
+
+    excuse, failure = delivery_reconciliation(
+        {"enabled": True, "state": "DELIVERED_CONFIRMED", "creep_ticks": 3496},
+        "SUCCEEDED")
+
+    assert failure is None
+    assert excuse is True
+
+
+def test_the_gate_records_whether_the_handoff_fired() -> None:
+    """A field, not only prose: the F15 lesson."""
+
+    source = (ROOT / "tools/corridor_nav_gate.py").read_text(encoding="utf-8")
+
+    assert 'dock_report["handoff"]' in source
+    assert '"fired"' in source
+
+
+def test_the_runner_records_a_missed_handoff_in_run_json() -> None:
+    """A reported-only profile returns 0 from the gate by design, so the gate's
+    own failures list cannot reach the run's classification. Same shape as the
+    existing "goal not accepted" reconciliation, and for the same reason."""
+
+    runner = (ROOT / "tools/corridor_profile_run.sh").read_text(encoding="utf-8")
+
+    assert "the docking handoff never fired" in runner
+    assert 'manifest_error "the docking handoff never fired' in runner, (
+        "a missed handoff must land in run.json, not only in the console"
+    )
+    # A result, not a rerun: the robot was asked and the robot drove.
+    at = runner.index("the docking handoff never fired")
+    assert "rerun " not in runner[at - 400:at + 400], (
+        "a missed handoff is a result; classifying it a rerun would hide it"
+    )
