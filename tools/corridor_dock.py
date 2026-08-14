@@ -237,9 +237,69 @@ MAX_REFINEMENTS = 4
 #: reached within tolerance may be reached this much nearer or further than
 #: commanded", the same quantity `final_approach_m` uses for the same reason.
 def docked_max_range_m(standoff_m: float) -> float:
-    """The furthest detected range that still counts as arrived."""
+    """The furthest detected range that still counts as arrived.
+
+    **Since ADR 0033 this is a HANDOFF, not an arrival.** Reaching it ends
+    Nav2's part of the delivery and begins the creep; arrival is the contact
+    that follows. The threshold is unchanged, and the name is kept because it
+    is still the same boundary -- what changed is what happens at it.
+    """
 
     return standoff_m + GOAL_TOLERANCE_M
+
+
+#: The MS200's minimum range. Below this the lidar reports nothing, so B stops
+#: existing as far as A's own sensing is concerned.
+LIDAR_MIN_RANGE_M = 0.12
+
+#: The creep, commanded. The governor clamps to its own
+#: `docking_creep_max_speed` independently -- this is not relying on that, it is
+#: agreeing with it, and a mismatch is a bug in one of the two.
+CREEP_SPEED_MPS = 0.05
+
+#: Below this, A is not moving. Measured EKF noise while genuinely stationary is
+#: 0.014 mm per sample, so this is three orders of magnitude above the floor and
+#: well under the 0.05 m/s being commanded.
+STALL_SPEED_MPS = 0.01
+
+#: How long A must be commanded forward while not moving before it counts as
+#: contact rather than as a slow start. Ten samples at the gate's 10 Hz spin.
+STALL_DEBOUNCE_S = 1.0
+
+#: The creep is bounded like every other loop here. 0.40 m at 0.05 m/s is 8 s;
+#: this is generous enough for a slow start and short enough that a robot stuck
+#: on nothing gives up while the session still has time to say so.
+CREEP_TIMEOUT_S = 25.0
+
+
+def contact_range_m(b_radius_m: float, a_length_m: float) -> float:
+    """Centre-to-centre distance at which A touches B.
+
+    Derived from the two bodies, never authored: A's front face is half its
+    length from its centre, and B's surface is one radius from its. At the
+    committed scenario that is 0.0975 + 0.120 = 0.2175 m.
+    """
+
+    return a_length_m / 2.0 + b_radius_m
+
+
+def last_sighting_ceiling_m(b_radius_m: float, a_length_m: float) -> float:
+    """How near B must have been, last time A could see it, for a stall to be B.
+
+    **A cannot see the bump.** B's surface enters the MS200's 0.12 m minimum
+    range while A's centre is still `LIDAR_MIN_RANGE_M + b_radius` away -- 0.240 m
+    at the committed scenario -- and contact is at 0.2175 m. So the final 22 mm
+    are driven blind, and no laser reading exists at the moment of contact to
+    confirm it with.
+
+    What the laser CAN do is testify that B was closing. If A stalls having last
+    seen B at 1.5 m, something else stopped it and the delivery is unproven. If
+    A stalls having last seen B just before it went blind, the stall is the
+    bump. This is that threshold, and it is the blind radius plus the arrival
+    tolerance rather than a chosen number.
+    """
+
+    return LIDAR_MIN_RANGE_M + b_radius_m + GOAL_TOLERANCE_M
 
 
 def final_approach_m(b_radius_m: float, a_length_m: float) -> float:
@@ -330,8 +390,20 @@ class DockingMachine:
     TRANSIT = "TRANSIT"
     ACQUIRE = "ACQUIRE"
     REFINE = "REFINE"
-    DOCKED = "DOCKED"
+    #: Nav2 has handed off and A is creeping onto B under the docking
+    #: controller. ADR 0033: transit is governed Nav2, terminal is a governed
+    #: docking controller -- the standard AMR split.
+    DOCKING = "DOCKING"
+    #: The bump happened and the encoders witnessed it.
+    DELIVERED_CONFIRMED = "DELIVERED_CONFIRMED"
+    #: A stopped without a witnessed bump. **Never reported as success.**
+    ARRIVED_UNPROVEN = "ARRIVED_UNPROVEN"
+    #: Retained: the refinement budget ran out during the Nav2 phase.
     UNREFINED = "DELIVERED_UNREFINED"
+
+    #: Terminal states. `DOCKED` is gone -- reaching the old arrival band is now
+    #: a handoff into DOCKING, not an arrival.
+    TERMINAL = (DELIVERED_CONFIRMED, ARRIVED_UNPROVEN, UNREFINED)
 
     def __init__(self, nominal_goal: tuple[float, float], *,
                  standoff_m: float,
@@ -340,6 +412,7 @@ class DockingMachine:
                  route_length_m: float | None = None,
                  window_m: float | None = None,
                  expected_radius_m: float | None = None,
+                 a_length_m: float | None = None,
                  arm_confirm_k: int = ARM_CONFIRM_K,
                  arm_confirm_n: int = ARM_CONFIRM_N,
                  max_bearing_error_deg: float = MAX_BEARING_ERROR_DEG) -> None:
@@ -377,6 +450,22 @@ class DockingMachine:
         self._arm_frames: deque = deque(maxlen=arm_confirm_n)
         self._last_arm_frame: int | None = None
         self.rejections: dict[str, int] = {}
+        # Terminal creep state (ADR 0033). `b_radius_m` and `a_length_m` are
+        # taken from the scenario rather than assumed, so a rescale moves the
+        # contact distance and the blind radius together.
+        self.contact_range_m = (
+            contact_range_m(expected_radius_m, a_length_m)
+            if expected_radius_m is not None and a_length_m is not None else 0.0
+        )
+        self.last_sighting_ceiling_m = (
+            last_sighting_ceiling_m(expected_radius_m, a_length_m)
+            if expected_radius_m is not None and a_length_m is not None
+            else LIDAR_MIN_RANGE_M + GOAL_TOLERANCE_M
+        )
+        self._creep_started_s: float | None = None
+        self._stall_since_s: float | None = None
+        self._last_seen_range_m: float | None = None
+        self._last_seen_bearing_rad: float = 0.0
         self.state = self.TRANSIT
         self.refinements = 0
         self.current_goal = nominal_goal
@@ -522,7 +611,7 @@ class DockingMachine:
              verdict: dict | None, travelled_m: float | None = None) -> dict | None:
         """One detector verdict in; a new goal to issue, or None to keep going."""
 
-        if self.state in (self.DOCKED, self.UNREFINED):
+        if self.state in self.TERMINAL or self.state == self.DOCKING:
             return None
         if not self.armed(verdict, travelled_m):
             return None
@@ -532,13 +621,15 @@ class DockingMachine:
         landmark = landmark_in_map(verdict["candidate"], robot_xy, robot_yaw)
         detected_range = verdict["candidate"]["range_m"]
 
-        # Arrival is decided on the SENSOR, never on a map-frame number -- and
-        # it is ONE-SIDED. See `docked_max_range_m`.
+        # THE HANDOFF, not the arrival. Reaching the old arrival band used to be
+        # the end of the delivery; since ADR 0033 it is where Nav2's part ends
+        # and the creep begins, because the delivery is a contact and Nav2 will
+        # not plan into an inflated lethal cell to make one.
         if detected_range <= self.docked_max_range_m:
-            self.state = self.DOCKED
+            self.state = self.DOCKING
             self.landmark_map = landmark
             self.history.append({
-                "event": "docked", "range_m": detected_range,
+                "event": "handoff_to_docking", "range_m": detected_range,
                 "landmark_map": [round(v, 4) for v in landmark],
             })
             return None
@@ -570,10 +661,116 @@ class DockingMachine:
         })
         return goal
 
+    def creep(self, verdict: dict | None, measured_vx: float | None,
+              now_s: float) -> dict | None:
+        """One creep tick. Returns what to command, or None when not creeping.
+
+        **This is the only place in the project that commands a velocity.**
+        Everywhere else, motion is Nav2 executing a `NavigateToPose`, and
+        `corridor_dock`'s own header said so as a design principle. ADR 0033
+        supersedes that by name: transit stays governed Nav2, and the terminal
+        phase becomes a governed docking controller. The split is the ordinary
+        AMR one -- `opennav_docking` is the pattern -- and this is its minimal
+        in-house form.
+
+        "Governed" is not decoration. The creep goes to `/cmd_vel_raw`, through
+        the same safety filter as everything else, and the filter is TOLD what
+        is happening rather than switched off: the returned `approach` is
+        published to the governor's docking topic, which masks the proximity
+        floor in a 15-degree cone toward this confirmed bearing and nothing
+        else. Deadman, stale-scan and off-cone stops stay live throughout.
+
+        Returns a dict with `vx`, `approach` (bearing/range/margin for the
+        governor) and `reason`, or None when the machine is not in DOCKING.
+        """
+
+        if self.state != self.DOCKING:
+            return None
+
+        if self._creep_started_s is None:
+            self._creep_started_s = now_s
+            self._stall_since_s = None
+            self.history.append({"event": "creep_begin", "at_s": round(now_s, 3)})
+
+        # The freshest sighting drives the mask, so it narrows as A closes.
+        candidate = (verdict or {}).get("candidate") if verdict else None
+        if candidate and (verdict or {}).get("confirmed"):
+            self._last_seen_range_m = candidate["range_m"]
+            self._last_seen_bearing_rad = candidate.get("bearing_rad", 0.0)
+
+        elapsed = now_s - self._creep_started_s
+
+        # STALL. Commanded forward, not moving. The debounce is what separates
+        # contact from a slow start, and `measured_vx` is A's own EKF -- the
+        # encoders are the bumper, because this chassis has no bumper.
+        moving = measured_vx is None or abs(measured_vx) > STALL_SPEED_MPS
+        if moving:
+            self._stall_since_s = None
+        elif self._stall_since_s is None:
+            self._stall_since_s = now_s
+
+        stalled_for = (
+            0.0 if self._stall_since_s is None else now_s - self._stall_since_s
+        )
+        if stalled_for >= STALL_DEBOUNCE_S:
+            return self._finish_creep(now_s, elapsed)
+
+        if elapsed >= CREEP_TIMEOUT_S:
+            self.state = self.ARRIVED_UNPROVEN
+            self.history.append({
+                "event": "creep_timeout", "elapsed_s": round(elapsed, 2),
+                "last_seen_range_m": self._last_seen_range_m,
+            })
+            return {"vx": 0.0, "approach": None, "reason": "creep timed out"}
+
+        return {
+            "vx": CREEP_SPEED_MPS,
+            "approach": {
+                "bearing_rad": self._last_seen_bearing_rad,
+                "range_m": self._last_seen_range_m,
+                "margin_m": 0.10,
+            } if self._last_seen_range_m is not None else None,
+            "reason": f"creeping, {elapsed:.1f}s",
+        }
+
+    def _finish_creep(self, now_s: float, elapsed: float) -> dict:
+        """A stall happened. Was it B?
+
+        The laser cannot answer at the moment of contact -- B is inside its
+        minimum range by then -- so the question is whether B was closing when
+        it was last visible. A stall with B last seen at arm's length is a
+        bump; a stall with B last seen a metre away is something else stopping
+        A, and that is `ARRIVED_UNPROVEN`, never a success.
+        """
+
+        seen = self._last_seen_range_m
+        confirmed = seen is not None and seen <= self.last_sighting_ceiling_m
+        self.state = (
+            self.DELIVERED_CONFIRMED if confirmed else self.ARRIVED_UNPROVEN
+        )
+        self.history.append({
+            "event": "stall",
+            "elapsed_s": round(elapsed, 2),
+            "last_seen_range_m": seen,
+            "last_sighting_ceiling_m": round(self.last_sighting_ceiling_m, 4),
+            "verdict": self.state,
+        })
+        return {
+            "vx": 0.0, "approach": None,
+            "reason": ("contact confirmed" if confirmed
+                       else f"stalled but B last seen at {seen} m -- unproven"),
+        }
+
     def report(self) -> dict:
         return {
             "state": self.state,
             "refinements": self.refinements,
+            "creep": {
+                "last_seen_range_m": self._last_seen_range_m,
+                "last_sighting_ceiling_m": round(self.last_sighting_ceiling_m, 4),
+                "contact_range_m": round(self.contact_range_m, 4),
+                "commanded_speed_mps": CREEP_SPEED_MPS,
+            },
             # What containment refused, and why. A run where docking never armed
             # should say whether the detector saw nothing or saw something it
             # was right to distrust -- the difference between a sensor problem

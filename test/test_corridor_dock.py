@@ -193,13 +193,21 @@ def test_a_landmark_that_has_not_moved_does_not_re_issue() -> None:
     assert machine.refinements == 1
 
 
-def test_arrival_is_decided_by_the_sensor_not_the_map() -> None:
+def test_the_handoff_is_decided_by_the_sensor_not_the_map() -> None:
+    """Renamed with ADR 0033: reaching this band is a HANDOFF, not an arrival.
+
+    It is still decided on the detected range and still never on a map-frame
+    number. What changed is what happens next -- Nav2's part of the delivery
+    ends here and the creep begins, because the delivery is a contact and Nav2
+    will not plan into an inflated lethal cell to make one.
+    """
+
     machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M)
 
     goal = machine.step((0.0, 0.0), 0.0, _verdict(STANDOFF_M, 0.0))
 
     assert goal is None
-    assert machine.state == DockingMachine.DOCKED
+    assert machine.state == DockingMachine.DOCKING
 
 
 def test_arriving_is_one_sided__too_far_out_is_not_arrival() -> None:
@@ -222,7 +230,7 @@ def test_arriving_is_one_sided__too_far_out_is_not_arrival() -> None:
 
     goal = machine.step((0.0, 0.0), 0.0, _verdict(0.6655, 0.0))
 
-    assert machine.state != DockingMachine.DOCKED, (
+    assert machine.state != DockingMachine.DOCKING, (
         "0.6655 m is 0.196 m too far out; that is what refinement is for"
     )
     assert goal is not None and machine.refinements == 1
@@ -239,15 +247,17 @@ def test_arriving_is_one_sided__nearer_than_the_standoff_is_arrival() -> None:
     machine = DockingMachine(nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M)
 
     assert machine.step((0.0, 0.0), 0.0, _verdict(0.15, 0.0)) is None
-    assert machine.state == DockingMachine.DOCKED
+    assert machine.state == DockingMachine.DOCKING
 
 
-def test_a_docked_machine_stops_issuing_goals() -> None:
+def test_a_machine_in_docking_stops_issuing_nav_goals() -> None:
+    """Once the creep owns the robot, Nav2 must not be sent anywhere else."""
+
     machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M)
     machine.step((0.0, 0.0), 0.0, _verdict(STANDOFF_M, 0.0))
 
     assert machine.step((0.0, 0.0), 0.0, _verdict(5.0, 0.0)) is None
-    assert machine.state == DockingMachine.DOCKED
+    assert machine.state == DockingMachine.DOCKING
 
 
 def test_the_report_records_every_refinement() -> None:
@@ -560,3 +570,150 @@ def test_facing_yaw_is_not_the_identity_quaternions_zero() -> None:
 
     assert facing_yaw((0.0, 0.0), (-1.0, 0.0)) == pytest.approx(math.pi)
     assert facing_yaw((0.0, 0.0), (0.0, -1.0)) == pytest.approx(-math.pi / 2)
+
+
+# --- the terminal creep: the encoders are the bumper (ADR 0033, R2) ----------
+
+#: The committed scenario's two bodies. B's radius 0.12, A's length 0.195.
+B_RADIUS_M, A_LENGTH_M = 0.12, 0.195
+
+
+def _docking(**kwargs):
+    """A machine already handed off to the creep."""
+
+    machine = DockingMachine(
+        nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M,
+        expected_radius_m=B_RADIUS_M, a_length_m=A_LENGTH_M, **kwargs,
+    )
+    machine.step((0.0, 0.0), 0.0, _verdict(0.30, 0.0))
+    assert machine.state == DockingMachine.DOCKING
+    return machine
+
+
+def test_contact_and_the_blind_radius_are_derived_from_the_two_bodies() -> None:
+    """Neither number is authored, and they must move together on a rescale.
+
+    Contact is A's half-length plus B's radius. The blind radius is where B's
+    surface enters the MS200's 0.12 m minimum range -- which is FARTHER than
+    contact, so the last stretch is driven with no laser return from B at all.
+    """
+
+    from corridor_dock import contact_range_m, last_sighting_ceiling_m
+
+    assert contact_range_m(B_RADIUS_M, A_LENGTH_M) == pytest.approx(0.2175)
+    # B goes invisible at 0.240 m centre-distance, 22.5 mm before contact.
+    assert contact_range_m(B_RADIUS_M, A_LENGTH_M) < 0.12 + B_RADIUS_M
+    assert last_sighting_ceiling_m(B_RADIUS_M, A_LENGTH_M) == pytest.approx(0.39)
+
+
+def test_a_stall_with_b_last_seen_close_is_the_bump() -> None:
+    """**The delivery.** Commanded forward, encoders reporting nothing.
+
+    A has no bumper. The stall IS the bump, and the laser's job is only to
+    testify that B was closing when it could still be seen.
+    """
+
+    machine = _docking()
+    verdict = _verdict(0.26, 0.0)                    # B, just before it blinds
+
+    assert machine.creep(verdict, measured_vx=0.05, now_s=0.0)["vx"] > 0.0
+    # Now A stops dead while still being commanded forward.
+    machine.creep(verdict, measured_vx=0.0, now_s=1.0)
+    out = machine.creep(verdict, measured_vx=0.0, now_s=2.1)
+
+    assert out["vx"] == 0.0
+    assert machine.state == DockingMachine.DELIVERED_CONFIRMED
+
+
+def test_a_stall_with_b_last_seen_far_is_NOT_claimed_as_a_delivery() -> None:
+    """**The negative control.** Something else stopped A.
+
+    A wheel against a kerb, a wall, a jammed caster -- all produce exactly the
+    same encoder signature as a bump. What separates them is where B was when
+    the laser last saw it, and a metre away is not a delivery.
+    """
+
+    machine = _docking()
+    far = _verdict(1.10, 0.0)
+
+    machine.creep(far, measured_vx=0.05, now_s=0.0)
+    machine.creep(far, measured_vx=0.0, now_s=1.0)
+    out = machine.creep(far, measured_vx=0.0, now_s=2.1)
+
+    assert out["vx"] == 0.0
+    assert machine.state == DockingMachine.ARRIVED_UNPROVEN
+    assert "unproven" in out["reason"]
+
+
+def test_a_slow_start_is_not_mistaken_for_contact() -> None:
+    """The debounce. A robot that has not got going yet is not a robot that
+    has arrived, and without the window every creep would confirm instantly."""
+
+    machine = _docking()
+    verdict = _verdict(0.26, 0.0)
+
+    out = machine.creep(verdict, measured_vx=0.0, now_s=0.0)
+
+    assert out["vx"] > 0.0, "must keep commanding through the debounce"
+    assert machine.state == DockingMachine.DOCKING
+
+
+def test_the_creep_is_bounded_and_gives_up_unproven() -> None:
+    """A creep that never contacts anything must stop and say it did not."""
+
+    from corridor_dock import CREEP_TIMEOUT_S
+
+    machine = _docking()
+    verdict = _verdict(0.26, 0.0)
+
+    machine.creep(verdict, measured_vx=0.05, now_s=0.0)
+    out = machine.creep(verdict, measured_vx=0.05, now_s=CREEP_TIMEOUT_S + 0.1)
+
+    assert out["vx"] == 0.0
+    assert machine.state == DockingMachine.ARRIVED_UNPROVEN
+
+
+def test_the_creep_declares_its_approach_so_the_governor_can_be_told() -> None:
+    """The mask follows the freshest sighting, so it narrows as A closes.
+
+    The governor is INFORMED, never bypassed: this is the payload that tells it
+    which single object to stop braking for.
+    """
+
+    machine = _docking()
+
+    first = machine.creep(_verdict(0.30, 0.0), measured_vx=0.05, now_s=0.0)
+    closer = machine.creep(_verdict(0.26, 0.0), measured_vx=0.05, now_s=1.0)
+
+    assert first["approach"]["range_m"] == pytest.approx(0.30)
+    assert closer["approach"]["range_m"] == pytest.approx(0.26), (
+        "a stale mask is a wide mask"
+    )
+
+
+def test_creep_refuses_outside_docking_state() -> None:
+    """**The negative control R1 requires**, on this side of the interface.
+
+    Nothing may command a velocity unless the machine has actually handed off.
+    """
+
+    machine = DockingMachine(
+        nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M,
+        expected_radius_m=B_RADIUS_M, a_length_m=A_LENGTH_M,
+    )
+
+    assert machine.state == DockingMachine.TRANSIT
+    assert machine.creep(_verdict(0.26, 0.0), measured_vx=0.0, now_s=0.0) is None
+
+
+def test_a_confirmed_delivery_is_terminal() -> None:
+    """After the bump, neither a nav goal nor another creep tick."""
+
+    machine = _docking()
+    verdict = _verdict(0.26, 0.0)
+    machine.creep(verdict, measured_vx=0.0, now_s=0.0)
+    machine.creep(verdict, measured_vx=0.0, now_s=1.1)
+    assert machine.state == DockingMachine.DELIVERED_CONFIRMED
+
+    assert machine.creep(verdict, measured_vx=0.0, now_s=2.0) is None
+    assert machine.step((0.0, 0.0), 0.0, _verdict(0.26, 0.0)) is None
