@@ -213,6 +213,20 @@ def healthz_payload(state):
                 lens is a correct post-run state (ADR 0035), not a fault.
     - `t`       seconds since the lens started, so a caller can tell a lens
                 that is young from one that is deaf.
+    - `counts`  cumulative per-topic message totals since start. Monotonic,
+                where `rates` is a trailing window: a lens that heard a burst
+                and died still shows a non-zero rate for the window length
+                (run 133559 passed its gate exactly that way), but its counts
+                stop moving immediately.
+    - `matched` per-topic DDS matching, {current, total}, from the matched
+                events. The deaf discriminator this endpoint never had:
+                matched-and-silent is a transport fault (the Fast DDS SHM
+                churn family), never-matched is a discovery fault, and every
+                deaf run before this field could have been either.
+    - `exec_tick_age_s`  seconds since the executor's 1 Hz wall-clock tick.
+                Proves the spin thread itself is alive when every topic is
+                silent -- silence with a live tick is the transport's fault,
+                silence with a dead tick is ours.
 
     Pure, and separate from the handler, so the runner's gate can be tested
     against every shape this returns without a socket or a ROS graph. `state`
@@ -222,11 +236,15 @@ def healthz_payload(state):
     """
 
     if state is None:
-        return {'ok': True, 't': None, 'frozen': None, 'rates': None}
+        return {'ok': True, 't': None, 'frozen': None, 'rates': None,
+                'counts': None, 'matched': None, 'exec_tick_age_s': None}
     return {'ok': True,
             't': state.get('t'),
             'frozen': state.get('frozen'),
-            'rates': state.get('rates')}
+            'rates': state.get('rates'),
+            'counts': state.get('counts'),
+            'matched': state.get('matched'),
+            'exec_tick_age_s': state.get('exec_tick_age_s')}
 
 
 def yaw_of(q):
@@ -243,6 +261,8 @@ class LensNode:
 
     def __init__(self, args):
         import rclpy
+        from rclpy.clock import Clock
+        from rclpy.event_handler import SubscriptionEventCallbacks
         from rclpy.node import Node
         from rclpy.qos import (QoSDurabilityPolicy, QoSProfile,
                                QoSReliabilityPolicy, qos_profile_sensor_data)
@@ -263,6 +283,15 @@ class LensNode:
         self.truth = None
         self.odom = None
         self.counts = {'scan': 0, 'map': 0, 'truth': 0, 'odom': 0, 'odom_raw': 0}
+        # Per-topic DDS matching, {'current': n, 'total': n}, written by the
+        # matched-event callbacks. Every deaf run before 2026-08-14 left a
+        # three-line log that never said whether the participant MATCHED, so a
+        # transport fault (matched-and-silent -- the Fast DDS SHM churn family)
+        # was indistinguishable from a discovery fault (never-matched).
+        self.matched = {}
+        # Wall time of the last executor-driven 1 Hz tick. Proves the spin
+        # thread is alive independently of any DDS data arriving.
+        self.exec_tick_wall = None
         self.rate_win = RateWindow()
         # Wall time of the newest message on ANY topic -- the freeze predicate
         # (ADR 0035) reads it. None until the first one arrives.
@@ -292,11 +321,26 @@ class LensNode:
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
         s = qos_profile_sensor_data
 
-        self.node.create_subscription(OccupancyGrid, args.map_topic, self._on_map, latched)
-        self.node.create_subscription(LaserScan, args.scan_topic, self._on_scan, s)
-        self.node.create_subscription(Odometry, args.truth_topic, self._on_truth, s)
-        self.node.create_subscription(Odometry, '/odom', self._on_odom, s)
-        self.node.create_subscription(Odometry, '/odom_raw', self._on_odom_raw, s)
+        def _matched(topic):
+            return SubscriptionEventCallbacks(matched=self._matched_cb(topic))
+
+        self.node.create_subscription(OccupancyGrid, args.map_topic, self._on_map,
+                                      latched, event_callbacks=_matched('map'))
+        self.node.create_subscription(LaserScan, args.scan_topic, self._on_scan,
+                                      s, event_callbacks=_matched('scan'))
+        self.node.create_subscription(Odometry, args.truth_topic, self._on_truth,
+                                      s, event_callbacks=_matched('truth'))
+        self.node.create_subscription(Odometry, '/odom', self._on_odom,
+                                      s, event_callbacks=_matched('odom'))
+        self.node.create_subscription(Odometry, '/odom_raw', self._on_odom_raw,
+                                      s, event_callbacks=_matched('odom_raw'))
+
+        # The liveness tick goes through the same executor as every callback
+        # above, on an explicit wall clock so it fires with or without /clock.
+        # NOT a publisher: the lens stays zero-publisher (ADR 0035 s2), which
+        # is why executor liveness is a timer rather than a self-ping topic.
+        self._exec_timer = self.node.create_timer(1.0, self._on_exec_tick,
+                                                  clock=Clock())
 
         self._rclpy = rclpy
 
@@ -341,6 +385,26 @@ class LensNode:
             self.counts['odom_raw'] += 1
             self.last_msg_wall = time.time()
             self.yaw_win.feed_odom(time.time(), msg.twist.twist.angular.z)
+
+    def _matched_cb(self, topic):
+        """One matched-event callback per topic, logged every time it fires."""
+        def cb(info):
+            now = time.time()
+            with self.lock:
+                self.matched[topic] = {'current': info.current_count,
+                                       'total': info.total_count}
+            print(f'corridor_lens: matched {topic}: '
+                  f'current={info.current_count} total={info.total_count} '
+                  f'change={info.current_count_change:+d} '
+                  f't={now - self.t0:.1f}', flush=True)
+        return cb
+
+    def _on_exec_tick(self):
+        # Deliberately does NOT stamp last_msg_wall: a timer tick is not data,
+        # and stamping it would stop a fully deaf lens from ever freezing
+        # (ADR 0035 relies on the freeze to protect the dump).
+        with self.lock:
+            self.exec_tick_wall = time.time()
 
     # ---- TF ----------------------------------------------------------------
     def _landmark_payload(self):
@@ -389,6 +453,8 @@ class LensNode:
             truth = self.truth
             odom = self.odom
             counts = dict(self.counts)
+            matched = {k: dict(v) for k, v in self.matched.items()}
+            exec_tick = self.exec_tick_wall
             last_msg = self.last_msg_wall
             stale_run = self.stale.current_run
             stale_max = self.stale.max_run
@@ -507,6 +573,9 @@ class LensNode:
             # overwriting a good dump with hours of nothing.
             'frozen': is_frozen(last_msg is not None, last_msg, now),
             'rates': {k: _r3(rates.get(k)) for k in counts},
+            'counts': counts,
+            'matched': matched,
+            'exec_tick_age_s': None if exec_tick is None else _r3(now - exec_tick),
             'pose': None if pose is None else [_r3(v) for v in pose],
             'truth_ghost': None if truth_ghost is None else [_r3(v) for v in truth_ghost],
             'odom_ghost': None if odom_ghost is None else [_r3(v) for v in odom_ghost],

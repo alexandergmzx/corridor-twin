@@ -382,8 +382,110 @@ def test_healthz_reads_the_same_keys_build_state_writes() -> None:
     body = source[source.index("def healthz_payload"):source.index("def yaw_of")]
     projected = set(re.findall(r"state\.get\('(\w+)'\)", body))
 
-    assert projected == {'t', 'frozen', 'rates'}, projected
+    assert projected == {'t', 'frozen', 'rates',
+                         'counts', 'matched', 'exec_tick_age_s'}, projected
     for key in projected:
         assert re.search(rf"^\s+'{key}':", source, re.M), (
             f"/healthz projects state[{key!r}], which build_state no longer writes"
         )
+
+
+# --------------------------------------------- the deaf-lens discriminators
+#
+# Every deaf run of 2026-08-14 left the same three-line log, and none of the
+# lines said whether the participant ever MATCHED the publishers it was silent
+# about. Fast DDS's documented churn failure (eProsima/Fast-DDS#5053) is
+# matched-but-silent; a discovery failure is never-matched; and a dead executor
+# hears nothing with matching in any state. The lens now carries one signal for
+# each, all observation-only.
+
+
+def test_every_subscription_reports_its_matching() -> None:
+    """All five subscriptions carry the matched-event callback, so the next
+    deaf lens's log says which kind of deaf it is."""
+
+    tree = ast.parse(LENS.read_text(encoding="utf-8"))
+    subs = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "create_subscription"
+    ]
+    assert len(subs) == 5, "the lens no longer creates five subscriptions"
+    unwired = [
+        ast.unparse(call)[:60]
+        for call in subs
+        if not any(kw.arg == "event_callbacks" for kw in call.keywords)
+    ]
+    assert not unwired, f"subscriptions without matched-event logging: {unwired}"
+    # And the callback actually logs -- an unlogged match event answers nothing.
+    assert "corridor_lens: matched" in LENS.read_text(encoding="utf-8")
+
+
+def test_the_liveness_tick_is_not_data() -> None:
+    """The 1 Hz executor tick proves the spin thread is alive. It must run on
+    an explicit wall clock (it has to fire with or without /clock), and it must
+    NOT stamp last_msg_wall -- a tick is not data, and stamping it would stop a
+    fully deaf lens from ever freezing (ADR 0035 protects the dump that way)."""
+
+    source = LENS.read_text(encoding="utf-8")
+    assert "clock=Clock()" in source
+
+    tree = ast.parse(source)
+    tick = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.FunctionDef) and n.name == "_on_exec_tick"),
+        None,
+    )
+    assert tick is not None, "_on_exec_tick is gone; this test needs rewriting"
+    assigned = {
+        target.attr
+        for node in ast.walk(tick)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Attribute)
+    }
+    assert "exec_tick_wall" in assigned
+    assert "last_msg_wall" not in assigned, (
+        "the tick stamps last_msg_wall: a deaf lens would never freeze"
+    )
+
+
+def test_the_lens_is_still_zero_publisher() -> None:
+    """ADR 0035 s2 excludes the lens from residents() BECAUSE it cannot
+    command the robot: it publishes nothing. The liveness discriminator is a
+    timer, not a self-ping topic, precisely to keep this true."""
+
+    tree = ast.parse(LENS.read_text(encoding="utf-8"))
+    publishers = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "create_publisher"
+    ]
+    assert publishers == [], "the lens grew a publisher; ADR 0035 s2 is void"
+
+
+def test_healthz_carries_the_deaf_discriminators() -> None:
+    """The gate's caller can now tell WHICH deaf it is looking at."""
+
+    lens = _lens_module()
+    state = {
+        't': 5.0, 'frozen': False, 'rates': {'scan': 12.0},
+        'counts': {'scan': 61},
+        'matched': {'scan': {'current': 1, 'total': 1}},
+        'exec_tick_age_s': 0.4,
+    }
+
+    health = lens.healthz_payload(state)
+
+    assert health['counts'] == {'scan': 61}
+    assert health['matched'] == {'scan': {'current': 1, 'total': 1}}
+    assert health['exec_tick_age_s'] == 0.4
+
+    young = lens.healthz_payload(None)
+    assert young['counts'] is None, "no sample yet must not read as zero"
+    assert young['matched'] is None
+    assert young['exec_tick_age_s'] is None
