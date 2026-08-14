@@ -78,13 +78,34 @@ ARM_RADIUS_M = 3.0
 #: TRAVEL test, which reads A's own EKF and is the one that excludes the spawn.
 #:
 #: The window is therefore now a tolerance on travel alone: how much less than
-#: the full route-to-delivery A may have driven and still be believed. It is
-#: still a FRACTION OF THE ROUTE, not a copied metre. 3.0 m was 15.653%
-#: of the authored 19.166 m route-to-delivery; at the committed scale that route
-#: is 5.750 m and the window is 0.900 m -- which is also exactly 3.0 x the 0.30
-#: scale factor, so the derivation checks against itself. A literal 3.0 here
-#: would be more than half the route.
-ARM_WINDOW_ROUTE_FRACTION = 0.15653
+#: the full route-to-delivery A may have driven and still be believed.
+#:
+#: **RE-BASED on 2026-08-13, in the same commit that corrected the route.**
+#: 0.15653 was 3.0 m of the authored 19.166 m route, carried across the rescale.
+#: It was applied to a `route_to_delivery_m` that dropped the departure leg, so
+#: the effective `min_travel_m` was 4.850 m -- and that number worked, while the
+#: 0.900 m window it appeared to express did not describe anything real.
+#:
+#: The fraction has to absorb a gap nobody had measured: **A does not drive the
+#: authored route.** Nav2 plans its own, and the measured odometry travel at
+#: first arming on the real B is 5.699-6.695 m against an authored 7.380 m --
+#: a shortfall of 0.685 to 1.681 m across seven bags
+#: (`tools/diagnostics/arming_replay.py`, 2026-08-13).
+#:
+#: So the window is bounded on both sides by measurement, and the band is wide:
+#:
+#:   * it must EXCEED route - earliest measured arming = 7.380 - 5.699 = 1.681 m,
+#:     or a good arming is refused;
+#:   * it must FALL SHORT of route - the spawn control = 7.380 - 0.58 = 6.800 m,
+#:     or the spawn phantom is admitted again.
+#:
+#: 0.343 puts the window at 2.531 m: **50% margin above the largest measured
+#: shortfall**, and 4.27 m clear of the spawn control. It also holds `min_travel`
+#: at 4.849 m on nominal, which is the value under which 8 of 8 post-convexity
+#: docked runs armed on B -- so the correction changes the derivation without
+#: disturbing the behaviour the evidence was gathered on. Both bounds are
+#: asserted in `test_corridor_nav_gate.py`, by name.
+ARM_WINDOW_ROUTE_FRACTION = 0.343
 
 #: How far the transit goal stands off from B's CENTRE.
 #:

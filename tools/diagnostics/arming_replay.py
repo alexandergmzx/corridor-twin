@@ -34,18 +34,14 @@ from rosidl_runtime_py.utilities import get_message
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from corridor_dock import DockingMachine, final_approach_m  # noqa: E402
+from corridor_nav_gate import route_to_delivery_m  # noqa: E402
 from landmark_detector import LandmarkDetector  # noqa: E402
 
-
-def _route_to_delivery_m(manifest: dict, profile: str) -> float:
-    trajectory = manifest["profiles"][profile]["delivery_trajectory"]
-    return (
-        float(trajectory["approach_length_m"])
-        + abs(float(trajectory["arc_sweep_rad"])) * float(trajectory["arc_radius_m"])
-        + float(trajectory["delivery_length_m"])
-        + abs(float(trajectory["delivery_arc_sweep_rad"]))
-        * float(trajectory["delivery_arc_radius_m"])
-    )
+# The route length is IMPORTED, not re-derived. This file used to carry its own
+# copy of the sum, and it carried the same bug -- both dropped the departure leg
+# on the premise that it runs past B, which it does not. Two copies of one
+# derivation is how they drift, and a replay that computes a different arming
+# threshold from the live gate answers a question nobody asked.
 
 
 def replay(bag: Path, manifest: dict, profile: str) -> dict:
@@ -54,7 +50,7 @@ def replay(bag: Path, manifest: dict, profile: str) -> dict:
     machine = DockingMachine(
         nominal_goal=(0.0, 0.0),
         standoff_m=final_approach_m(radius, float(actors["a_size_xyz_m"][0])),
-        route_length_m=_route_to_delivery_m(manifest, profile),
+        route_length_m=route_to_delivery_m(manifest, profile),
         expected_radius_m=radius,
     )
     detector = LandmarkDetector(radius)

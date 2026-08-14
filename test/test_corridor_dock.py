@@ -267,8 +267,13 @@ def test_the_report_records_every_refinement() -> None:
 # committed scale: route-to-delivery 5.750 m, window 0.900 m, goal (4.106,
 # -2.932), phantom "confirmed" at 1.06 m while the robot stood near (0, 0).
 
-ROUTE_M = 5.7497
-WINDOW_M = 0.9
+#: The route-to-delivery at the committed scale, CORRECTED on 2026-08-13: the
+#: previous 5.7497 dropped `departure_length_m` on the false premise that the
+#: departure leg runs past B. It is the third of five legs and lies before the
+#: delivery; the route ends AT B.
+ROUTE_M = 7.3804
+#: 0.343 of it. See ARM_WINDOW_ROUTE_FRACTION for the two measured bounds.
+WINDOW_M = 2.5315
 GOAL = (4.1061, -2.9319)
 
 
@@ -278,17 +283,33 @@ def _contained(**kwargs):
     return DockingMachine(GOAL, standoff_m=STANDOFF_M, route_length_m=ROUTE_M, **kwargs)
 
 
-def test_the_window_is_derived_from_the_route_not_copied() -> None:
-    """3.0 m was 15.653% of the authored route. Here it is 0.900 m.
+def test_the_window_is_bounded_at_both_ends_by_measurement() -> None:
+    """**Rewritten 2026-08-13.** It used to assert a window of 0.900 m derived
+    as 15.653% of a route that was short by a whole leg. Both numbers changed
+    in the same commit, and the window is now bounded rather than copied.
 
-    Which is also 3.0 x the 0.30 scale factor, so the derivation checks against
-    itself. A literal 3.0 would be more than half of this route.
+    A does not drive the authored route -- Nav2 plans its own -- so the window
+    exists to absorb that shortfall. Measured over seven bags, first arming on
+    the real B happens at 5.699-6.695 m of odometry against an authored
+    7.380 m. That fixes the band from both sides.
     """
+
+    #: Measured, tools/diagnostics/arming_replay.py, 2026-08-13.
+    EARLIEST_MEASURED_ARMING_M = 5.699
+    #: The 2026-08-12 13:16 spawn phantom: confirmed at 1.06 m after 0.58 m.
+    SPAWN_CONTROL_TRAVEL_M = 0.58
 
     machine = _contained()
     assert machine.window_m == pytest.approx(WINDOW_M, abs=0.005)
     assert machine.min_travel_m == pytest.approx(ROUTE_M - WINDOW_M, abs=0.005)
-    assert machine.window_m < 3.0 / 2
+
+    # Too small a window refuses a good arming; too large re-admits the spawn.
+    assert machine.window_m > ROUTE_M - EARLIEST_MEASURED_ARMING_M
+    assert machine.window_m < ROUTE_M - SPAWN_CONTROL_TRAVEL_M
+
+    # And it holds min_travel at the value 8 of 8 post-convexity docked runs
+    # armed under, so correcting the derivation did not move the behaviour.
+    assert machine.min_travel_m == pytest.approx(4.849, abs=0.01)
 
 
 def _scan(verdict: dict, frame: int) -> dict:

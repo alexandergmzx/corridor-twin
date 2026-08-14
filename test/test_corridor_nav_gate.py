@@ -207,3 +207,87 @@ def test_every_target_names_the_ekf_topic_the_containment_integrates() -> None:
 
     assert nav_gate.ROBOT_TARGETS["robot1"]["ekf_topic"] == "/odom"
     assert nav_gate.ROBOT_TARGETS["robot2"]["ekf_topic"] == "odometry/filtered"
+
+
+def test_route_to_delivery_reaches_b_and_omits_nothing_before_it() -> None:
+    """**The docstring was false and the sum was short by a whole leg.**
+
+    It excluded `departure_length_m` on the stated grounds that "the departure
+    leg runs PAST B". It does not. The five legs run approach -> corner arc ->
+    departure -> delivery arc -> delivery, and the route ENDS at B: measured,
+    the station closest to B is the full trajectory length, at a distance of
+    0.0000 m. The departure leg is the third of five and lies entirely before
+    the delivery.
+
+    So the function under-reported the route by 1.631 m at the committed scale,
+    and `min_travel_m` unlocked arming 2.531 m before B rather than the 0.900 m
+    its own window implied.
+    """
+
+    import json
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "corridor_scene"))
+    from scene.model import default_config_path, load_scenario
+    from scene.trajectory import delivery_trajectory
+
+    manifest = json.loads(
+        (Path(__file__).parent.parent / "out" / "corridor.manifest.json").read_text()
+    )
+    scenario = load_scenario(default_config_path())
+
+    for profile in ("nominal_m6_n3", "wide_corner_m6_n4_5", "uniform_m6_n6"):
+        entry = next(p for p in scenario.profiles if p.name == profile)
+        authored = delivery_trajectory(scenario, entry)
+        # The route the manifest describes must be the route the scenario
+        # authors -- the whole of it, because the whole of it precedes B.
+        assert nav_gate.route_to_delivery_m(manifest, profile) == pytest.approx(
+            authored.length_m, abs=1e-3
+        ), f"{profile}: the sum must not drop a leg"
+
+
+def test_arming_still_unlocks_before_the_earliest_measured_arming() -> None:
+    """The regression the correction would otherwise cause, pinned by name.
+
+    Correcting the sum alone moves `min_travel_m` from 4.850 m to 6.480 m. Bag
+    `20260813-113859-isaac-d67` armed on the REAL B at **5.699 m** of A's own
+    odometry travel, so the corrected sum would have refused a good arming.
+
+    The cause is that A does not drive the authored route: Nav2 plans its own,
+    and the measured odometry distance at first arming is 5.699-6.695 m against
+    an authored 7.380 m. The window therefore has to absorb that difference,
+    which is what re-basing `ARM_WINDOW_ROUTE_FRACTION` does.
+    """
+
+    import json
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
+    from corridor_dock import DockingMachine
+
+    manifest = json.loads(
+        (Path(__file__).parent.parent / "out" / "corridor.manifest.json").read_text()
+    )
+
+    #: Measured first-arming travel on the real B, seven bags, 2026-08-13,
+    #: after the convexity fix. tools/diagnostics/arming_replay.py.
+    EARLIEST_MEASURED_ARMING_M = 5.699
+    #: The spawn negative control: a confirmed detection 1.06 m away after
+    #: 0.58 m of travel must still be refused (the 2026-08-12 13:16 failure).
+    SPAWN_CONTROL_TRAVEL_M = 0.58
+
+    for profile in ("nominal_m6_n3", "wide_corner_m6_n4_5", "uniform_m6_n6"):
+        machine = DockingMachine(
+            nominal_goal=(0.0, 0.0), standoff_m=0.470,
+            route_length_m=nav_gate.route_to_delivery_m(manifest, profile),
+        )
+        assert machine.min_travel_m < EARLIEST_MEASURED_ARMING_M, (
+            f"{profile}: min_travel {machine.min_travel_m:.3f} would have refused "
+            f"the arming measured at {EARLIEST_MEASURED_ARMING_M} m"
+        )
+        assert machine.min_travel_m > SPAWN_CONTROL_TRAVEL_M, (
+            f"{profile}: min_travel {machine.min_travel_m:.3f} no longer excludes "
+            f"the spawn region"
+        )

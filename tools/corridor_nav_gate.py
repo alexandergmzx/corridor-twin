@@ -83,16 +83,24 @@ STATUS_SUCCEEDED = 4
 def route_to_delivery_m(manifest: dict, profile: str) -> float:
     """Path length from A's spawn to the delivery, from the manifest's own legs.
 
-    NOT the whole trajectory: the departure leg runs PAST B, and requiring the
-    robot to have driven that far before the detector may arm would mean it
-    could never arm at all. At the committed scale this is 5.750 m against a
-    7.380 m full trajectory.
+    **The previous version dropped a leg on a false premise.** It excluded
+    `departure_length_m` because "the departure leg runs PAST B". It does not.
+    `scene.trajectory.DeliveryTrajectory.segments` orders the five pieces
+    approach -> corner arc -> **departure** -> delivery arc -> delivery, and the
+    route ENDS at B: measured, the station closest to B is the full trajectory
+    length at a distance of 0.0000 m. The departure leg is the third of five and
+    lies entirely before the delivery.
+
+    So the sum under-reported the route by 1.631 m at the committed scale --
+    5.750 against 7.380 -- and `min_travel_m` therefore unlocked arming
+    **2.531 m** before B rather than the 0.900 m its own window implied.
     """
 
     legs = manifest["profiles"][profile]["delivery_trajectory"]
     return (
         legs["approach_length_m"]
         + legs["arc_radius_m"] * legs["arc_sweep_rad"]
+        + legs["departure_length_m"]
         + legs["delivery_arc_radius_m"] * legs["delivery_arc_sweep_rad"]
         + legs["delivery_length_m"]
     )
