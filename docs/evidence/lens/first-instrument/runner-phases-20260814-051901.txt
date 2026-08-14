@@ -1,0 +1,14 @@
+=== [05:19:01 +0s] corridor profile run: nominal_m6_n3 (reported only) ===
+=== [05:19:01 +0s] precondition: the arena is the scenario ===
+=== [05:19:01 +0s] precondition: the host and the domain are clean ===
+=== [05:19:01 +0s] lens ===
+  lens: http://127.0.0.1:8765/  (map, scan, 3 pose ghosts, landmark)
+=== [05:19:02 +1s] simctl start ===
+=== [05:20:03 +62s] precondition: robot1 contract (--domain 67 --speed 0.0 --turn 0.0 --seconds 8) ===
+=== [05:20:20 +79s] slam bring-up attempt 1 (params: slam_toolbox.yaml) ===
+  slam_toolbox active (attempt 1, from its own log)
+=== [05:20:22 +81s] waiting for the TF chain ===
+=== [05:20:33 +92s] nav stack ===
+  nav attempt 1: group reaped (KILL)
+  nav attempt 2: group reaped
+**INFRASTRUCTURE: bt_navigator never reached ACTIVE in 2 attempts (last state: unknown)**
