@@ -153,6 +153,40 @@ them. It touches only entries whose owning pid is dead — a live one may belong
 to a concurrent Isaac — and it fails silently, because a tidy-up that can abort
 a teardown is worse than the litter.
 
+## The host degrades over a long session
+
+The settle restoration was tested in a batch of the same shape as the one
+before it, and the test **failed to answer the question** -- which is itself the
+finding.
+
+Both `nominal` runs were non-starts, in two ways neither seen earlier that day
+and neither matching the bring-up race:
+
+| run | what happened |
+|---|---|
+| 195321 | bring-up clean; A drove **0.128 m** and stopped. No landmark detections at all. Truth and odometry agree it did not move |
+| 195837 | `no map-frame pose via TF: "map" ... does not exist`. slam_toolbox alive but dropping EVERY scan -- `Message Filter dropping message: frame 'laser_frame' ... queue is full` -- so no map was ever built |
+
+Neither has an obvious link to a 4 s pause between SLAM and Nav2.
+
+The day's shape is the point. Runs this morning were largely clean; through the
+evening the failures grew both more frequent and **more varied** -- the
+bring-up race, then a dead evaluator subscription, then a robot that will not
+move, then a SLAM that will not consume its own scans. That is the signature of
+accumulating state, not of a code defect, on a host that had cycled Isaac about
+forty times.
+
+**The batch was stopped rather than completed.** On a degrading host, further
+runs produce evidence that cannot be interpreted in either direction: a clean
+batch would not have validated the settle and a failed one would not have
+condemned it. Twenty more minutes to learn nothing is worse than stopping.
+
+So `b9a844a` is **committed and unvalidated**, and the honest test is a fresh
+session on a rested host, run before the day's Isaac cycles accumulate.
+
+For the demonstration this is the operational rule that falls out of it:
+**do not rehearse for hours and then present on the same boot.**
+
 ## What this means for the demo
 
 - **Budget for reruns.** At the observed rate, roughly one run in four needs
