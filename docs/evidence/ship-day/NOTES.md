@@ -138,6 +138,64 @@ table filling in as A passes each one. Truth is drawn beside it in a separate
 colour, labelled `EVAL`, which incidentally makes the render lag visible: at
 station 2.667 the truth line reads 3.009.
 
+## Verifying the launch: two more runs, after ADR 0039
+
+`20260814-131949` and `-132443`, run to exercise the second checkpoint, which
+had never fired live when it was written.
+
+**Both mechanisms worked, and run 1 exercised the failure path as well as the
+happy one.**
+
+| | run 1 `131949` | run 2 `132443` |
+|---|---|---|
+| Previous run's lens reaped | yes, pid 3738372 | yes, pid 3801436 |
+| Seeing gate, attempt 1 | **deaf** — "bound port 8765 but heard no scans in 20 s" | passed |
+| Restart-once | **fired, and the second lens saw** | not needed |
+| Second checkpoint (ADR 0039) | **"lens still seeing at the mission start"** | same |
+| `lens_resolved_frac` | **0.861** | **0.886** |
+| Handoff | fired | fired |
+| Creep ticks | 3205 | 3442 |
+| A→B | 0.2285 m | 0.2257 m |
+| Verdict | FAIL on known gates | FAIL on known gates |
+
+Run 1 is the more valuable of the two. A lens went deaf, the gate caught it,
+the restart replaced it, and the replacement watched the whole run — **0.861 is
+the highest coverage measured on any run to date**, against 0.776 for the best
+of the morning six and 0.000 for the run that prompted ADR 0039. The mechanism
+converted a would-be blind run into the best-watched one.
+
+Run 2 needed no restart, which is the other half of the evidence: the retry
+fires when it is needed and not otherwise.
+
+Neither run passed its gates, and both failed on items that predate this
+session — map-frame goal error (ADR 0028's recorded state, 381 and 409 mm),
+midpoint longitudinal drift (ADR 0022, 0.235 and 0.182), and on run 2 an EKF
+output gap of 0.566 s (ADR 0029's unexplained fusion anomaly). **The delivery
+worked on both**: handoff fired, and A finished 0.2285 m and 0.2257 m from B,
+inside the band of every other run this month.
+
+### What the bring-up measurement said
+
+Phase medians over the seven runs of the day, which is where the
+"~120 s before the robot moves" header comes from:
+
+| phase | median | share |
+|---|---|---|
+| `simctl start` | **62 s** | **52%** |
+| contract precondition | 17 s | 14% |
+| nav stack | 16 s | 13% |
+| TF chain | 11 s | 9% |
+| lens | 7 s | 6% |
+| SLAM activation | 3 s | 2% |
+
+Over half of bring-up is Isaac/Kit's cold start, and it is the step that
+printed nothing of its own. That is why every phase banner now carries its
+typical duration and the header names the 62 s step as expected rather than
+leaving a first-time reader to guess. Two levers exist and neither was pulled
+today: the contract precondition costs 17 s for a verdict this runner overrides
+on every run, and `simctl start` is per-run only because the simulator is
+stopped between runs.
+
 ## What none of these runs show
 
 - **No run here is both autonomous and enforced.** F3.1 and F3.2 are scripted
