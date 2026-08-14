@@ -45,6 +45,7 @@ yahboomcar_safety FIRST.
 import os
 
 from launch import LaunchDescription
+from launch.actions import TimerAction
 from launch_ros.actions import Node
 
 #: Absolute, because this file is launched by path rather than from a package
@@ -119,4 +120,33 @@ def generate_launch_description() -> LaunchDescription:
             }
         ],
     )
-    return LaunchDescription([controller, planner, behaviors, bt_navigator, lifecycle])
+    # THE MANAGER MUST NOT RACE THE NODES IT MANAGES.
+    #
+    # All five used to start in one LaunchDescription, at the same instant, with
+    # `autostart: True`. The manager then immediately calls `get_state` on
+    # services that may not be discoverable yet, and when that call fails it does
+    # not retry -- it aborts the ENTIRE bring-up:
+    #
+    #     Failed to change state for node: planner_server. Exception:
+    #       planner_server/get_state service client: async_send_request failed.
+    #     Failed to bring up all requested nodes. Aborting bringup.
+    #
+    # Measured: 7 of 27 runs on 2026-08-13 died this way, 26%, and it recurred
+    # on 2026-08-14. The evidence for it being a discovery race rather than a
+    # slow node is that the victim MOVES -- controller_server on some runs,
+    # planner_server on others -- and that the reported `last state` is
+    # sometimes `unknown`, i.e. the query itself never landed. A node that was
+    # merely slow would fail in the same place every time.
+    #
+    # Five seconds against a bring-up that already takes ~110 s, to remove a
+    # failure that costs a whole ~250 s run one time in four. It cannot slow a
+    # healthy run by more than those five seconds, and the runner's own
+    # lifecycle deadline absorbs it with 100 s to spare.
+    #
+    # This is a LAUNCH-COMPOSITION fix, not a Nav2 parameter change: nothing
+    # about how Nav2 plans or drives is touched.
+    LIFECYCLE_MANAGER_DELAY_S = 5.0
+    return LaunchDescription([
+        controller, planner, behaviors, bt_navigator,
+        TimerAction(period=LIFECYCLE_MANAGER_DELAY_S, actions=[lifecycle]),
+    ])
