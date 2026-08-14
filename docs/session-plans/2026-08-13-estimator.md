@@ -331,10 +331,133 @@ No scene topology change. Park-don't-decide for the rest.
 | U1 | **DONE** — `75acd37`, four deliveries promoted with hashes, stale block superseded | 21:58-21:59 |
 | U2 | **DONE** — `268fe1c`, route corrected, window re-based, 7/7 bags still arm on B | 22:00-22:06 |
 | U3 | **SKIPPED, moot** — 0 of 22 runs walked away after ACQUIRE; the defect was conditional on a rule not adopted | 22:07 |
-| U4-U11 | reshaped 22:26 on the bump-arrival ruling | |
+| U4 | **DONE** — `c3e2b03`, B is solid | 22:29-22:34 |
+| U5 | **DONE** — `1d325ff` (fleet), governor docking mode | 22:35-22:47 |
+| U6 | **DONE** — `ffb6672` + `d9ac16e`, creep, stall, handoff wired | 22:48-23:01 |
+| U7 | **DONE** — `0502068`, ADR 0033 Accepted | 23:02-23:45 |
+| U8 | **RED** — nine runs, no completed delivery; three creep bugs found and fixed, bring-up took the rest | 00:06-01:02 |
+| U9-U11 | not started | |
 
 ---
 
 ## Handback
 
-*(written at session end, or on early failure — whichever comes first)*
+**Correction 2 is banked. Bump-arrival is built, pinned and unproven.** Nine
+live runs and the delivery did not complete once.
+
+### What landed
+
+| unit | commit | |
+|---|---|---|
+| U1 | `75acd37` | Correction 2 banked: four deliveries promoted with hashes, attribution derived, stale block superseded in place |
+| U2 | `268fe1c` | `route_to_delivery_m` dropped a leg; window re-based on measured travel; 7/7 bags still arm on B |
+| U3 | — | **Skipped, moot**: 0 of 22 runs walked away after ACQUIRE |
+| U4 | `c3e2b03` | **B is solid.** It had no collider at all; A would have driven through it |
+| U5 | `1d325ff` **(fleet)** | Governor docking mode: ±15° mask, range-gated, creep clamp, expires on silence |
+| U6 | `ffb6672` | Terminal creep + stall detection; the encoders are the bumper |
+| — | `d9ac16e` | Handoff wiring: Nav2 cancels, then the creep owns the robot |
+| U7 | `0502068` | **ADR 0033** — arrival is contact; supersedes 0028, 0029:127-130, 0031:100-106 and the no-raw-`cmd_vel` principle, all by name |
+| — | `9e7eb56` | Lifecycle manager no longer races the nodes it manages |
+| — | `09a6643`, `b2c4d9c`, `abbf610` | Three creep bugs, each found by a run |
+
+### The three creep bugs, and how each was caught
+
+Every one was found by a live run and identified from a distinct artifact
+signature, not by reading code:
+
+| run | signature | cause |
+|---|---|---|
+| 4 | `creep_begin` then silence | the loop exited on the cancelled goal's future — the cancel is the *middle* of the delivery now, not the end |
+| 5 | range **grew** 0.6133 → 0.6335 | the creep drove a tangent: it commanded pure forward motion while A arrives 51-79° off, a number I had written down myself the day before |
+| 6 | asymptote at 0.346 m, governor logging `obstacle at 0.24 m` | the creep sat behind a TF lookup it does not need, so every TF gap starved a tick and let the mask expire |
+
+The governor interface itself was proved separately, in-process: with B at
+0.25 m, **0 of 31 ticks move with no approach declared and 29 of 31 at the full
+0.05 m/s with one.** The mask works; the caller was not feeding it.
+
+### Where the delivery actually got to
+
+Best closest-approach improved run over run: **0.634 → 0.346 → 0.0166 m** from
+the standoff. Nothing has yet reached the 0.2175 m contact, and **no run has
+produced a stall**, so `DELIVERED_CONFIRMED` remains unobserved. Whether A
+stalls against B's new collider cleanly enough for the 1 s debounce is the
+single unproven link in the chain.
+
+### Bring-up: better, then worse
+
+`9e7eb56` removed the abort variant — three consecutive clean bring-ups with
+zero `async_send_request` failures, where the cause was our own launch file
+starting the lifecycle manager alongside the four nodes it manages.
+
+Then a **second, slower variant** appeared: the manager reaches
+`Configuring controller_server` (or `planner_server`) and simply **hangs** for
+the full deadline, no abort, no error. Three of the last four runs died that
+way. The 5 s delay does not touch it and neither did the earlier deadline and
+settle changes, which were both treating timing around a race rather than the
+race.
+
+**Two earlier "fixes" of mine are now suspect as symptom-treatment**: the
+lifecycle deadline 75→110 s and the settle 4→8 s. Neither is wrong, neither is
+validated, and neither could have fixed the abort — the manager gives up 2.2 s
+in, long before any deadline matters.
+
+### Mistakes worth carrying forward
+
+- **Launched over a held Isaac lock twice.** Both times I put the occupancy
+  check and the launch in one command, where the check cannot gate anything.
+  The runner's lock refused both — it is the only reason this did not become
+  two Isaac instances — but that interlock is a backstop, not a procedure.
+- **Ran fleet tooling from the wrong path** after hitting and fixing that exact
+  error 90 minutes earlier, and then narrated a lens URL for a run that had
+  died six minutes before I checked its log.
+- **`0502068` mixes an ADR with a code fix and its test**, from a `git add -A`
+  sweep, against the documentation-as-a-following-commit rule.
+- **`c3e2b03` claims "pytest 355 / colcon 141"**; the true figures were 354 and
+  142. Corrected in `ffb6672`.
+
+### The likely cause of the hang, found while cleaning up
+
+When run 9's runner exited, it left these behind:
+
+    1007348  planner_server      <- attempt 1
+    1007349  behavior_server     <- attempt 1
+    1012322  planner_server      <- attempt 2, DUPLICATE node name
+    1012323  behavior_server     <- attempt 2, DUPLICATE node name
+
+**Killing the `ros2 launch` parent does not reap its child nodes.** So a failed
+attempt leaves its whole stack running, the retry starts a second set on the
+same node names, and two `planner_server`s answering one `get_state` is exactly
+the shape of failure where the lifecycle manager waits forever. That is the
+hang, and it is also self-amplifying: every failed attempt leaves more debris
+for the next.
+
+It fits the escalation pattern across both sessions — clean early, worse later,
+recovering after a manual sweep — better than any host-degradation story, and
+it is testable: reap between attempts and see whether the hang survives.
+
+**Not fixed tonight.** The runner's teardown escalates TERM then KILL over a
+`residents()` list and verifies, so it does handle this at END of run; what it
+does not do is reap between the two nav-stack ATTEMPTS. `corridor_profile_run.sh`
+kills `nav_pid` and waits, which kills the launcher only.
+
+### Open, in priority order
+
+1. **The bring-up hang.** Roughly half of tonight's runs. Not the abort race,
+   not diagnosed. This is the biggest obstacle to any live evidence.
+2. **The stall is unobserved.** Everything upstream of it now works; whether
+   Isaac's physics produces a clean encoder stall against a static collider is
+   untested.
+3. **`ARRIVED_UNPROVEN` is doing its job** — three runs reported it rather than
+   claiming a delivery. That is the design working, and it is also why there is
+   no false success to report.
+4. Speed policy still unreachable (governor 0.35 / Nav2 0.22 against a 0.80
+   limit); ADR 0032 still owed; estimator not started.
+
+### Morning decisions
+
+1. **Chase the bring-up hang, or accept reruns and a recorded fallback?** At the
+   observed rate a live demo needs roughly two attempts per success.
+2. **Is the creep's 25 s timeout right?** Run 6 was still closing when it
+   expired. A longer timeout may be all that stands between here and a
+   confirmed bump — but lengthening it on a hunch is exactly the kind of change
+   this session has repeatedly measured and reverted.
