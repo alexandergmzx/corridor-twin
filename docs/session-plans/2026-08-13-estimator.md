@@ -207,27 +207,75 @@ leg is estimable.
 
 ---
 
-## Queue
+## Queue — RESHAPED 22:26 on the bump-arrival ruling
+
+**Arrival is contact.** A must physically bump B, and the bump is the arrival.
+That ruling arrived after U2 and it reorders everything: bump-arrival becomes
+the headline and the estimator slips to the next session.
+
+Four blockers were established before accepting it, and only one was known:
+
+| # | blocker | resolution |
+|---|---|---|
+| 1 | **B has no collider** — a bare `Cylinder`, no physics schemas, so A drives *through* it. Walls get `CollisionAPI` (`usd_authoring.py:101`); B never did | scene change, this repo |
+| 2 | governor `stop_distance` 0.35 m stops A at 0.470 m centre-distance | **governor docking mode**, fleet commit, per R1 |
+| 3 | Nav2 `inflation_radius` 0.18 + `robot_radius` 0.128 keep the planner ~0.31 m clear of B | **terminal creep** — Nav2 hands off, per the ruling |
+| 4 | the MS200 is blind below 0.240 m centre-distance; contact is 0.2175 m | unavoidable: the last **22 mm is open-loop**, and the encoders are the bumper |
 
 | # | unit | box | skip-edge |
 |---|---|---|---|
-| **U0** | This plan | 15 m | never |
-| **U1** | **Bank correction 2** — supersede the stale block; promote the four post-convexity greens + NOTES | 45 m | never; first deliverable |
-| **U2** | Defect: `route_to_delivery_m` + arming-window re-base, one commit, **test first** | 60 m | if the re-base cannot keep bag 113859's 5.699 m arming, STOP and record — do not ship half |
-| **U3** | Defect: `ARRIVED_UNPROVEN` cancel path at `:445` | 45 m | drop if U2 overruns |
-| **U4** | **ADR 0033**, superseding 0029 and 0031's arrival clauses | 60 m | never — U5 is meaningless without it |
-| **U5** | Acceptance runs, three profiles, dock-ON, lens up | 90 m | 3 consecutive nominal, then wide_corner gated, uniform reported; on ≥2 infra failures bank what exists |
-| **U6** | Governor-vs-stub bag check | 15 m | drop freely |
-| **U7** | **Detector inference script + val-split bench** — no simulator, no GPU lock | 60 m | never — free, and it pins a 6% error before any run |
-| **U8** | **Fleet edit** + footage of two real deliveries | 90 m | **abort on any `/scan` regression** — revert the fleet commit, keep the delivery, fall back to `--robot-prim` and label the footage scripted |
-| **U9** | **Estimator v0**, offline on U8's footage | 90 m | the headline; protect it |
-| **U10** | ArUco baseline A/B *skeleton* only | 30 m | only if U9's number exists |
-| **U11** | Matcher A/B, revert-by-default | 90 m cap | **first dropped**; only after U5 is banked |
+| **U0** | This plan | 15 m | **DONE** |
+| **U1** | Bank correction 2 | 45 m | **DONE**, 7 m |
+| **U2** | `route_to_delivery_m` + window re-base | 60 m | **DONE**, 7 m |
+| **U3** | ~~`ARRIVED_UNPROVEN` cancel path~~ | — | **SKIPPED, moot** — 0 of 22 runs reached ACQUIRE and then walked away; the defect was conditional on the approach-proof rule, which convexity replaced |
+| **U4** | **B gets a collider** + rebuild arenas + arena-check | 45 m | never — nothing downstream works without a solid B |
+| **U5** | **Governor docking mode** (fleet commit #1, R1) | 90 m | the mask must be *narrower* than the fix it enables; if the cone cannot be range-gated, STOP and record |
+| **U6** | **Terminal creep + stall detection** in `corridor_dock` (R2) | 90 m | tests first |
+| **U7** | **ADR 0033** — contact arrival, the AMR split, supersessions by name | 60 m | never |
+| **U8** | Acceptance runs, dock-ON, lens up — a visible gentle bump | 90 m | on ≥2 infra failures bank what exists |
+| **U9** | Governor-vs-stub bag check | 15 m | drop freely |
+| **U10** | Detector inference + val-split bench (estimator groundwork) | 60 m | only if the bump is banked; GPU-free so it survives a dead Isaac |
+| **U11** | Matcher A/B | — | **dropped for this session** |
 
-**Critical path:** U7 → U8 → U9. U7 sits *ahead* of the footage because it costs
-no simulator and no GPU lock, and a 1 px box-edge convention error is worth 6% of
-the speed number — cheaper to pin before the run than to discover inside it.
-Under time pressure U3, U6, U10 and U11 go first.
+**Critical path:** U4 → U5 → U6 → U8. U7 can be written while runs execute.
+
+### R1 — governor docking mode, as ratified
+
+The governor is **informed, never bypassed**. Entered only from DOCK state with
+a convexity-confirmed B. The proximity floor is masked **only** in a ±15° cone
+toward the confirmed B bearing, range-gated to the measured B distance plus
+margin. Deadman, stale-scan stop and off-cone obstacle stop stay fully live, and
+the governor itself clamps creep to **≤ 0.05 m/s**. The mode — and the mask —
+dies on stall, timeout, or any safety event.
+
+Three tests, one of them live: creep commands outside DOCKING mode are refused;
+a stale scan kills creep mid-approach (live negative control); an off-cone
+obstacle still stops A while in mode.
+
+`--fun` is **rejected**: cap-raising is the wrong tool for a terminal phase that
+wants to go slower.
+
+### R2 — the bump is the confirmation
+
+Contact is detected as commanded `vx > 0` with EKF/encoder `vx ≈ 0` over a
+debounce window, cross-checked against laser range-to-B ≈ contact. On stall:
+zero the command, state **`DELIVERED_CONFIRMED`**, and the evaluation plane logs
+the world-frame contact distance. On timeout with no stall: stop, state
+**`ARRIVED_UNPROVEN`**, never claimed as success.
+
+**A has no bumper. The encoders are the bumper**, and ADR 0033 says so.
+
+### What ADR 0033 must carry
+
+Transit is governed Nav2; terminal is a governed docking controller. That is the
+standard AMR split — `opennav_docking` is the pattern precedent and this is its
+minimal in-house form. `corridor_dock`'s "no raw `cmd_vel`" principle is
+superseded **by name**, with that rationale, alongside the arrival clauses of
+0028, `0029:127-130` and `0031:100-106`.
+
+Acceptance for the delivery demo becomes **TRANSIT → ACQUIRE → REFINE → DOCKING
+→ DELIVERED_CONFIRMED**, with a visible gentle bump on the lens capture and the
+contact distance in the artifact.
 
 ---
 
@@ -277,9 +325,13 @@ No scene topology change. Park-don't-decide for the rest.
 
 *(updated after every unit)*
 
-| unit | status |
-|---|---|
-| U0 | **DONE** — this document |
+| unit | status | time |
+|---|---|---|
+| U0 | **DONE** — this document | 21:52-21:58 |
+| U1 | **DONE** — `75acd37`, four deliveries promoted with hashes, stale block superseded | 21:58-21:59 |
+| U2 | **DONE** — `268fe1c`, route corrected, window re-based, 7/7 bags still arm on B | 22:00-22:06 |
+| U3 | **SKIPPED, moot** — 0 of 22 runs walked away after ACQUIRE; the defect was conditional on a rule not adopted | 22:07 |
+| U4-U11 | reshaped 22:26 on the bump-arrival ruling | |
 
 ---
 
