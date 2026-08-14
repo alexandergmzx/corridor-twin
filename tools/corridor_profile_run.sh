@@ -212,16 +212,44 @@ ln -sfn "$RUN_ID" "$EVIDENCE/latest-$ROBOT-$PROFILE"
 manifest() { python3 "$REPO/tools/run_manifest.py" set --path "$RUN_JSON" "$@" || true; }
 
 PHASE="startup"
+# HOW LONG EACH PHASE TAKES WHEN IT IS WORKING. Medians over the seven runs of
+# 2026-08-14 on this host (RTX 5070 Ti, Isaac Sim 5.1).
+#
+# A phase banner that says only "+62s" cannot be read. The operator's question
+# during a long wait is never "how long has this taken" -- it is "is this
+# normal, or has it hung", and only a typical value answers that. The single
+# longest wait in the run, `simctl start`, printed nothing of its own from this
+# script for 62 s, so a first-time reader had no way to tell a cold Kit start
+# from a dead one.
+#
+# These are DESCRIPTIVE, never enforced. Nothing branches on them; a phase that
+# runs long says so and carries on, because the watchdog is what bounds the run
+# and a second timeout here would just be a worse one.
+phase_typical_s() {
+  case "$1" in
+    "simctl start")                       echo 62 ;;   # Isaac/Kit cold start
+    "lens")                               echo 7  ;;
+    "precondition: "*contract*)           echo 17 ;;
+    "slam bring-up"*)                     echo 3  ;;
+    "waiting for the TF chain")           echo 11 ;;
+    "nav stack")                          echo 16 ;;
+    *)                                    echo "" ;;
+  esac
+}
+
 phase() {
   PHASE="$1"
-  local now elapsed
+  local now elapsed typical note
   now=$(date +%s)
   elapsed=$(( now - ${SESSION_START_S:-now} ))
   printf '%s\n' "$1" > "$RUN_DIR/.phase" 2>/dev/null || true
   printf '%s +%ss %s\n' "$(date +%H:%M:%S)" "$elapsed" "$1" \
     >> "$RUN_DIR/phases.log" 2>/dev/null || true
+  typical=$(phase_typical_s "$1")
+  note=""
+  [ -n "$typical" ] && note="  (~${typical}s when healthy)"
   echo ""
-  echo "=== [$(date +%H:%M:%S) +${elapsed}s] $1 ==="
+  echo "=== [$(date +%H:%M:%S) +${elapsed}s] $1 ===${note}"
 }
 
 # The launch log that best explains a death in the current phase. Newest
@@ -284,6 +312,25 @@ echo "  domain : $ROS_DOMAIN_ID"
 echo "  robot  : $ROBOT"
 echo "  arena  : $ARENA"
 echo "  run    : $RUN_DIR"
+# WHAT THE OPERATOR IS ABOUT TO WAIT THROUGH, said before the waiting starts.
+#
+# Bring-up is around two minutes and over half of it is one silent step. The
+# runner used to announce `simctl start` and then print nothing for 62 s, which
+# is indistinguishable from a hang if you have not seen it before -- and the
+# question during any long wait is "is this normal", which only a number
+# answers. Measured medians over the seven runs of 2026-08-14 on this host.
+echo ""
+echo "  bring-up is ~120 s before the robot moves, and it is dominated by one step:"
+echo "    simctl start   ~62 s   Isaac/Kit cold start -- over half of it, and the"
+echo "                           quiet one. Kit is loading extensions, the RTX"
+echo "                           renderer and the stage; this is not a hang."
+echo "    contract       ~17 s   robot1 rate report (verdict overridden here)"
+echo "    nav stack      ~16 s   Nav2 lifecycle activation"
+echo "    TF chain       ~11 s   waiting for map->odom->base_link"
+echo "    lens           ~7 s    cold rclpy + tf2 import, then the seeing gate"
+echo "    slam           ~3 s    activation, read from its own log"
+echo "  every phase banner below repeats its typical duration, so a long one is"
+echo "  visible as it happens rather than afterwards."
 
 # WHICH SCENARIO, not merely which paths. The arena and the manifest are hashed
 # because they came apart once and no artifact could show it: runs after the
@@ -786,6 +833,12 @@ if [ "$LENS" = 1 ]; then
       --dump "$RUN_DIR/lens.json" \
       --announce "$LENS_ANNOUNCE" \
       >"$RUN_DIR/lens.log" 2>&1 &
+    # Job control announces a killed background job on the terminal, so the
+    # deliberate reap below printed `line 792: 3800360 Killed` into the launch
+    # log -- which reads exactly like a crash in the middle of the one sequence
+    # the operator is being asked to trust. Disowning is safe here precisely
+    # because nothing uses `$!`: the pid comes from the announcement file.
+    disown %% 2>/dev/null || true
     # 20 s, not 10: a cold rclpy + tf2 import is 2-4 s. $! is the setsid
     # wrapper, so liveness comes from the announcement and from the lens's own
     # "all busy" line, never from kill -0.
