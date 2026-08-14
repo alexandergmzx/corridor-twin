@@ -1,0 +1,103 @@
+{
+  "robot": "robot1",
+  "profile": "nominal_m6_n3",
+  "caveat": "PRECONDITION FAILED (recorded, overridden): see contract.txt",
+  "gated": false,
+  "goal_map_frame": [
+    4.1061,
+    -2.9319
+  ],
+  "goal_map_yaw_deg": -7.125,
+  "tolerance_m": 0.15,
+  "goal_send_attempts": 1,
+  "goal_accepted": true,
+  "docking": {
+    "enabled": true,
+    "creep_ticks": 3432,
+    "approach_publishes": 3431,
+    "state": "ARRIVED_UNPROVEN",
+    "refinements": 2,
+    "creep": {
+      "last_seen_range_m": 0.2333,
+      "last_sighting_ceiling_m": 0.39,
+      "contact_range_m": 0.2175,
+      "commanded_speed_mps": 0.05
+    },
+    "containment": {
+      "route_length_m": 7.3804,
+      "window_m": 2.5315,
+      "min_travel_m": 4.8489,
+      "max_bearing_error_deg": 100.0,
+      "rejections": {
+        "not yet persistent across scans": 121,
+        "two candidates fit B's radius equally well": 16
+      }
+    },
+    "landmark_map_frame": [
+      3.3098,
+      -2.1038
+    ],
+    "final_goal_map_frame": [
+      2.8991,
+      -2.3286
+    ],
+    "history": [
+      {
+        "event": "refine",
+        "n": 1,
+        "detected_range_m": 1.0249,
+        "landmark_map": [
+          3.381,
+          -2.3678
+        ],
+        "goal_map": [
+          2.9163,
+          -2.2972
+        ]
+      },
+      {
+        "event": "refine",
+        "n": 2,
+        "detected_range_m": 0.8238,
+        "landmark_map": [
+          3.3414,
+          -2.1697
+        ],
+        "goal_map": [
+          2.8991,
+          -2.3286
+        ]
+      },
+      {
+        "event": "handoff_to_docking",
+        "range_m": 0.6183,
+        "landmark_map": [
+          3.3098,
+          -2.1038
+        ]
+      },
+      {
+        "event": "creep_begin",
+        "at_s": 368327.483
+      },
+      {
+        "event": "creep_timeout",
+        "elapsed_s": 25.0,
+        "last_seen_range_m": 0.2333,
+        "last_seen_bearing_deg": 0.6
+      }
+    ]
+  },
+  "action_status": "CANCELED",
+  "docked_and_cancelled": true,
+  "travelled_m": 5.21,
+  "final_pose_map_frame": [
+    3.3206,
+    -2.2419
+  ],
+  "goal_error_m": 0.4304,
+  "failures": [
+    "map-frame goal error 430 mm exceeds 150 mm (ADR 0022)"
+  ],
+  "pass": false
+}

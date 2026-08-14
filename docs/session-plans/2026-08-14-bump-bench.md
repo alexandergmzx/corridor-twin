@@ -85,6 +85,33 @@ stop is indistinguishable from contact. The leak pins A at 0.31–0.35 m, **insi
 the 0.39 m sighting ceiling. One solid second forges `DELIVERED_CONFIRMED`
 0.12–0.17 m short of contact. It nearly fired in run 003844.
 
+### A standing precondition failure, found by tripping over it
+
+**Every corridor run on this host fails the robot1 Isaac contract, and has
+been waved through.** Measured across the last twelve runs: `scan at
+13.4–15.1 Hz, want ~12.0` and `battery at 1.6 Hz, want ~1.0`. All eight of
+last night's runs passed `--allow-contract-fail`; two attempts tonight without
+it stopped at the precondition, which is how this surfaced.
+
+Not a regression and not caused by anything in this session — the scan rate is
+a property of the twin, not of the docking mask. But it means the phrase
+"contract precondition passed" has never been true for robot1 in the corridor,
+and a 17% scan-rate overshoot is not nothing when a stationarity witness is
+being tuned against per-scan displacement.
+
+The twin's own bring-up banner explains the mechanism and makes it worse
+reading, not better: `/scan` lands on 12 Hz *"by CALIBRATION against a measured
+but unexplained 72-messages-per-render-second emission rate, not by the sensor
+honouring its configured rate."* So the target is a fitted constant against an
+emission rate nobody has explained, and 13.4–15.1 Hz is that fit drifting.
+
+**Morning decision.** Either robot1's corridor contract number is wrong —
+CLAUDE.md is explicit that contract figures are per-robot and robot1's must
+come from robot1's own measured entries, and a calibrated ~12.0 may simply not
+be robot1's number in this arena — or the calibration needs redoing against the
+unexplained emission rate. Both are outside this session's scope. Recorded, not
+fixed, and not tuned to green.
+
 ### Verified non-blockers
 
 The empty-sector fail-closed **never** triggers during the creep — the stub
@@ -128,11 +155,30 @@ cannot reproduce the observed failures is decoration.
 | V0 | Plan + branch | 15 m | **DONE** |
 | V1 | T0 bench + the four reproductions | 90 m | **DONE** — `c52b505` |
 | V2 | A1 + A2 (fleet) and A3 (repo), each proven on the bench; extended-arc fixtures | 90 m | **DONE** — fleet `c9c773b` |
-| V3 | T1 ROS bench | 30 m | |
-| V4 | T2 lens tile | 45 m | |
-| V5 | T3 micro-arena — the bump on screen | 45 m | 2 attempts max |
-| V6 | Orphan reap between nav attempts, then T4 | 60 m | |
-| V7 | Evidence + ADR 0034 + the `abbf610` correction | 45 m | never skipped |
+| V3 | T1 ROS bench **+ the live wiring itself** | 30 m | **DONE** — `5b96a1b` |
+| V4 | T2 lens tile | 45 m | **SKIPPED** — see below |
+| V5 | T3 micro-arena — the bump on screen | 45 m | folded into V6 |
+| V6 | Orphan reap between nav attempts, then T4 | 60 m | **DONE** — reap not needed; T4 run `023306` |
+| V7 | Evidence + ADR 0034 + the `abbf610` correction | 45 m | **DONE** |
+
+**V3 was rescoped mid-session, and the rescope mattered.** As planned it was a
+ROS in-process bench. But the fixes existed only in the bench: `corridor_dock`
+carried the radius, and nothing published it. An Isaac run at that point would
+have used the old cone and failed exactly as the previous nine did. The live
+wiring — disc topic, `/cmd_vel` readback, `/odom_laser` witness — went in first,
+and the T1 probe became its direct test rather than a separate tier.
+
+**V4 skipped deliberately.** The lens tile makes the docking state easier to
+watch; the existing lens already renders map, scan, pose ghosts and the landmark,
+which is enough to see whether A reaches B. With the wiring proven at T1 the
+next unknown is physics, and that is only answerable in Isaac. Recorded as a
+skip rather than done.
+
+**V5 folded into V6.** The micro-arena's value was avoiding the bring-up hang by
+skipping Nav2. Building it needs a `--spawn` flag, a relaxed clearance gate and
+a tagged arena filename — roughly the cost of two full runs. The full run was
+attempted directly instead; if bring-up proves to be the blocker, the
+micro-arena is the fallback and its cost is then justified.
 
 ---
 
@@ -146,4 +192,78 @@ cannot reproduce the observed failures is decoration.
 
 ## Handback
 
-*(written at session end, or on early failure — whichever comes first)*
+### Where it got to
+
+**A now drives all the way in. Nothing notices when it arrives.**
+
+Closest approach to B went from **0.3455 m to 0.2252 m** against a 0.2175 m
+contact — from 128 mm short to **7.7 mm** short — and the governor permitted
+**476 of 476** creep ticks at full speed where it previously permitted none
+below 0.42 m. The run still reports `ARRIVED_UNPROVEN` and still FAILS, and the
+reason is now a different one: not "A cannot move", but "A moved and no witness
+saw it stop".
+
+### Commits
+
+| repo | hash | what |
+|---|---|---|
+| corridor-twin | `c52b505` | T0 creep bench (V1) |
+| **fleet** | `c9c773b` | disc mask + slow-zone exemption + ray-traced cylinder fixtures |
+| corridor-twin | `de4e36e` | dual witness in `corridor_dock` |
+| corridor-twin | `f37c0ae` | bench evidence, and the `abbf610` correction |
+| **fleet** | `fc3ac41` | `~/docking_disc` topic, bounded radius, refusal-not-clamp |
+| corridor-twin | `5b96a1b` | live wiring + T1 probe |
+| corridor-twin | *(this)* | ADR 0034, live evidence, plan |
+
+Fleet work is under the per-session grant amending R1's docking mode, on
+`corridor-docking-mode-2026-08-13`. **Nothing pushed, either repo.**
+
+### Gates
+
+`bash tools/check_workspace.sh`: ruff clean, **pytest 479 passed / 1 skipped**,
+colcon **142 tests, 0 failures**. Fleet `yahboomcar_safety`: **102 passed**
+(`test_governor.py` 49 → 54 → 62).
+
+### The three things that would move this forward, in order
+
+1. **Replace the laser stationarity signal.** Measured this run: the matcher's
+   noise floor during a creep is ~4× the true speed (60 mm/s median against
+   16.5 mm/s actual; 0.882 m net displacement against 0.393 m). No fixed ε on
+   that signal can work. Candidates worth measuring: the change in the
+   matcher's own residual, the detector's range trend across the last
+   sightings before B goes blind, or drive current/effort. **Do not retune
+   0.030** — the problem is the signal, not the number.
+2. **Settle whether A touched B.** 7.7 mm short of a *modelled* contact range
+   is inside that model's slop. A truth-plane contact flag from the simulator,
+   read as an evaluation output only, would answer it in one run and is the
+   cheapest thing on this list.
+3. **The `--spawn` micro-arena (T3), now clearly worth its cost.** Each full
+   run is ~4 minutes of bring-up for ~24 s of the behaviour under test. The
+   witness work in (1) needs many iterations of exactly those 24 s.
+
+### Morning decisions
+
+- **The contract precondition has never passed for robot1 in the corridor.**
+  `scan 13.4–15.1 Hz` against `want ~12.0` across the last twelve runs; all of
+  them waved through with `--allow-contract-fail`. The 12.0 is itself a
+  calibration against an unexplained 72-msg-per-render-second emission rate.
+  Either the number is wrong for robot1 or the calibration is stale. Not
+  touched here.
+- **ADR 0034 is Accepted with decision 3 marked open**, because decisions 1, 2
+  and 4 are confirmed live and only the witness threshold is refuted. If the
+  preference is that a partly-refuted record should be Proposed instead, say
+  so and it gets superseded rather than edited.
+- **`yahboomcar_config/rviz/slam_debug.rviz` is dirty in the fleet tree** — an
+  RViz auto-save from an earlier session, not mine, outside the grant. Left
+  untouched.
+
+### Not done, and why
+
+- **T2 lens docking tile** — skipped. The existing lens showed the run
+  adequately, and with T1 proving the wiring the open question was physics.
+- **Dead-reckoning the declaration between sightings** — specified in A1, not
+  implemented. It did not bite this run: the creep held full speed throughout,
+  so the stale declaration never cost anything. It will matter once the creep
+  spends longer in the blind zone.
+- **Sighting ceiling 0.39 → 0.26 m** — deferred. It guarded against the forgery
+  that the dual witness now prevents structurally.
