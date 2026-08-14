@@ -205,6 +205,11 @@ def main(argv=None) -> int:
         rows.append({"index": index, "stamp_s": round(stamp, 4),
                      "detected": box is not None,
                      "score": None if box is None else round(box.get("score", 1.0), 4),
+                     # The box travels with the station so an overlay can show
+                     # WHAT was measured beside the number, which is the only
+                     # way a viewer can tell a good station from a lucky one.
+                     "box": None if box is None else
+                            {k: round(v, 2) for k, v in box.items()},
                      "station_m": None if station is None else round(station, 4)})
 
     found = [r for r in rows if r["station_m"] is not None]

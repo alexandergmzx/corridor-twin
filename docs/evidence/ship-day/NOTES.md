@@ -119,6 +119,25 @@ refuses the run instead of producing an unwatchable success.
 immutable; its placement keeps its conclusion — the seeing gate cannot be asked
 before `/scan` exists — and loses its stated reason.
 
+## The capture
+
+`enforcement-f3.1.mp4` — 376 frames, **25.1 s at 15 fps**, rendered by
+`tools/render_enforcement_video.py` from the committed frames, stations and
+table.
+
+**A capture of the artifacts, not of a screen.** A screen recording of a live
+replay depends on an X server, a window manager, RViz's startup timing and
+whatever else the desktop is doing — the least reproducible artifact in a
+repository whose discipline is reproducible artifacts. This renders the same
+video every time from the same inputs, and a test asserts the overlay *reads*
+its verdicts from the table rather than deciding them again.
+
+The overlay shows what P knows — the detector's box and score, the station it
+back-projects to, the local width, the limit that width selects, and the gate
+table filling in as A passes each one. Truth is drawn beside it in a separate
+colour, labelled `EVAL`, which incidentally makes the render lag visible: at
+station 2.667 the truth line reads 3.009.
+
 ## What none of these runs show
 
 - **No run here is both autonomous and enforced.** F3.1 and F3.2 are scripted

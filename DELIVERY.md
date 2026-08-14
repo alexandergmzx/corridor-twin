@@ -224,6 +224,21 @@ half-done. None is blocked; all are unstarted or unfinished.
 | Robust fitting for the 19.5% outliers | the obvious answer to a measured 20% contamination, deliberately **named and not applied** — changing the method after seeing the result is tuning to the answer |
 | Fixing the render-lag defect | measured and attributed today; the fix is a change to how frames are stamped and is not a ship-day change |
 
+## The capture
+
+[`docs/evidence/ship-day/enforcement-f3.1.mp4`](docs/evidence/ship-day/enforcement-f3.1.mp4)
+— 25 seconds of the violation pass with P's overlay: the detector's box and
+score, the station it back-projects to, the local width, the limit that width
+selects, and the five-gate table filling in as A passes each one until the
+violation confirms.
+
+It is rendered from the committed frames, stations and table by
+`tools/render_enforcement_video.py`, **not screen-grabbed**, so it reproduces
+byte-for-byte from the same inputs and a test asserts the overlay reads its
+verdicts rather than deciding them again. Truth is drawn beside the estimate,
+labelled `EVAL` — which incidentally puts the render-lag defect on screen: at
+station 2.667 the truth line reads 3.009.
+
 ## Running it
 
 ```bash
