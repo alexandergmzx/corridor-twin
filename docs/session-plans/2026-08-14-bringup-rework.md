@@ -48,8 +48,8 @@ else OI notes to the fleet backlog.
 | # | Unit | Timebox | Status |
 |---|---|---|---|
 | U1 | This plan on disk | 10 m | DONE |
-| U2 | Lens instrumentation: matched-event logging, executor-liveness timer, healthz counts/matched/exec fields (observation-only; NO new publisher — the zero-publisher invariant of ADR 0035 §2 stands, so H3's discriminator is a node timer, not a self-ping) + tests | 45 m | pending |
-| U3 | run.json covariates: per-phase durations from phases.log, /dev/shm fastrtps census ×3, schema 1.1.0 + tests | 45 m | pending |
+| U2 | Lens instrumentation: matched-event logging, executor-liveness timer, healthz counts/matched/exec fields (observation-only; NO new publisher — the zero-publisher invariant of ADR 0035 §2 stands, so H3's discriminator is a node timer, not a self-ping) + tests | 45 m | DONE — commit `c838e9c`; live-smoked on domain 69 (exec_tick_age_s 0.236) |
+| U3 | run.json covariates: per-phase durations from phases.log, /dev/shm fastrtps census ×3, schema 1.1.0 + tests | 45 m | DONE (this commit) |
 | U4 | DDS churn repro, no Isaac, domain 69, SHM vs UDP-only A/B; two realism escalations max, then batch decides | 60 m | pending |
 | U5 | Rung (a): UDP-only export (both env names, D5 resolution) + `--no-rviz` default + ADR draft + tests | 30 m | pending |
 | U6 | T1 batch: 4 runs → if 4/4 extend to 8; rate-cost table vs robot1 contract numbers; evidence commit | 120 m | pending |

@@ -46,12 +46,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 #: A run says one of three things about itself. `pass` is a separate field:
 #: a red result and a crash are different objects, and collapsing them is how
@@ -197,6 +198,48 @@ def diagnose(path: str | Path, why: str, phase: str, elapsed_s: float,
     return payload
 
 
+PHASE_LINE = re.compile(r"^(\d{2}:\d{2}:\d{2}) \+(\d+)s (.+)$")
+
+
+def phases_from_log(text: str, total_s: float | None = None) -> list[dict]:
+    """`phases.log` lines -> [{name, at_s, duration_s}], durations differenced.
+
+    The runner's `phase()` writes start stamps only (`HH:MM:SS +Ns <name>`),
+    and nothing in the tree parsed them: the 2026-08-14 bring-up attribution
+    was differenced by hand from seven logs. Each phase's duration is the gap
+    to the next stamp; the last phase runs to `total_s` when the caller knows
+    it (the run's own duration), else None rather than a guess.
+
+    Lines that do not match the stamp format are skipped, not fatal: this
+    parses a log, and a log can carry anything.
+    """
+
+    entries: list[dict] = []
+    for line in text.splitlines():
+        matched = PHASE_LINE.match(line.strip())
+        if not matched:
+            continue
+        entries.append({"name": matched.group(3), "at_s": int(matched.group(2))})
+    for current, following in zip(entries, entries[1:], strict=False):
+        current["duration_s"] = following["at_s"] - current["at_s"]
+    if entries:
+        last = entries[-1]
+        last["duration_s"] = (
+            round(float(total_s) - last["at_s"], 1) if total_s is not None else None
+        )
+    return entries
+
+
+def record_phases(path: str | Path, log: str | Path, total_s: float | None = None) -> dict:
+    """Parse the phase log into the manifest's `phases` field. Fail-open."""
+
+    try:
+        text = Path(log).read_text(encoding="utf-8")
+    except OSError:
+        return load(path)
+    return merge(path, {"phases": phases_from_log(text, total_s)})
+
+
 def _value(raw: str):
     """`k=v` values arrive from shell as text; JSON literals keep their type."""
 
@@ -234,6 +277,12 @@ def main() -> int:
     digest = sub.add_parser("digest", help="print a file's sha256")
     digest.add_argument("--file", required=True)
 
+    phases = sub.add_parser(
+        "phases", help="parse phases.log into the manifest's phases field")
+    phases.add_argument("--path", required=True)
+    phases.add_argument("--log", required=True)
+    phases.add_argument("--total-s", type=float, default=None)
+
     arguments = parser.parse_args()
 
     if arguments.command == "digest":
@@ -248,6 +297,9 @@ def main() -> int:
         return 0
     if arguments.command == "classify":
         classify(arguments.path, arguments.classification, arguments.cause)
+        return 0
+    if arguments.command == "phases":
+        record_phases(arguments.path, arguments.log, arguments.total_s)
         return 0
 
     fields = {}

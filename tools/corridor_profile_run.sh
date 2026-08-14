@@ -276,6 +276,16 @@ write_diagnosis() {
 }
 
 manifest_error() { python3 "$REPO/tools/run_manifest.py" error --path "$RUN_JSON" --message "$1" || true; }
+
+# HOW MANY FastDDS shared-memory entries /dev/shm holds right now. A covariate,
+# never a gate: fleet OI-13 measured "new participants completely blind" at 35
+# accumulated segments, and run 20260814-133559's teardown removed 85. Counted
+# at the three points that matter -- before Isaac, after Isaac, at teardown --
+# so a deaf lens correlates with the transport's actual state instead of with
+# folklore. Same globs as the fleet's _dds_shm.py.
+shm_fastrtps_count() {
+  ls /dev/shm/fastrtps* /dev/shm/sem.fastrtps* 2>/dev/null | wc -l | tr -d ' '
+}
 classify() {
   python3 "$REPO/tools/run_manifest.py" classify --path "$RUN_JSON" \
     --classification "$1" --cause "${2:-}" || true
@@ -553,6 +563,7 @@ teardown() {
   # every post-run look find a dead port.
   [ -n "$watchdog_pid" ] && kill -TERM "$watchdog_pid" 2>/dev/null || true
   "$SIMCTL" stop --domain "$DOMAIN" || true
+  manifest --set "shm_fastrtps_teardown=$(shm_fastrtps_count)"
   # POLL, do not sleep once and hope. A fixed 3 s answered "is it dead?" with
   # "it was not dead 3 s ago" and then said nothing more: the 13:16 run's
   # behavior_server survived its own teardown and was still running 84 minutes
@@ -643,6 +654,13 @@ reap_stale_carb_semaphores() {
 record_exit() {
   classify crash "run ended without a verdict (exit $1)"
   manifest --set "exit_status=$1" --set "teardown_verified=${teardown_verified:-0}"
+  # The phase stamps, differenced into durations, land in run.json on EVERY
+  # exit path. Until now the bring-up attribution lived in phases.log start
+  # stamps that nothing parsed -- the 2026-08-14 medians were differenced by
+  # hand from seven logs. These are the T2 covariates.
+  python3 "$REPO/tools/run_manifest.py" phases --path "$RUN_JSON" \
+    --log "$RUN_DIR/phases.log" \
+    --total-s "$(( $(date +%s) - ${SESSION_START_S:-$(date +%s)} ))" || true
 }
 # Removed on EVERY exit, not only on the map-scoring path it was created for.
 # Twenty-five of these were sitting in /tmp on 2026-08-13, one per run that
@@ -746,6 +764,7 @@ manifest --set "scan_walls=$SCAN_RELAY_WALLS_JSON" \
          --set "scan_min_valid_beams=$SCAN_RELAY_MIN_VALID_BEAMS"
 
 phase "simctl start"
+manifest --set "shm_fastrtps_pre=$(shm_fastrtps_count)"
 # --no-patrol is NOT optional. simctl's step 7 launches sim_patrol, which drives
 # 1.0 m legs at 0.18 m/s on /cmd_vel_raw for the life of the session. Every
 # corridor run before 2026-08-11 carried it, so Nav2's controller and the
@@ -767,6 +786,7 @@ SLAM_FLAG=""
 "$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" \
   --no-patrol $RVIZ_FLAG $SLAM_FLAG || {
   rerun "simctl start failed for $PROFILE"; }
+manifest --set "shm_fastrtps_post_simctl=$(shm_fastrtps_count)"
 
 # Is the lens on this port hearing scans right now? -> 0 if yes.
 #
