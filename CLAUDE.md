@@ -444,10 +444,14 @@ literal, because the lens walks to the next free port and the old unconditional
 banner announced dead ones.
 
 **The banner means the lens is SEEING.** It is printed only after `/healthz`
-reports a non-zero scan rate: two of six runs on 2026-08-14 were watched by a
-lens that answered `ok` all run and resolved nothing, which is why serving is
-not accepted as proof. A lens that cannot serve, or that hears nothing twice,
-**refuses the run**; `--no-lens` opts out and needs a reason.
+shows scan-count PROGRESS across two reads (ADR 0041; a windowed rate can
+echo a burst from a lens already deaf — run 133559 passed the old rate gate
+that way): two of six runs on 2026-08-14 were watched by a lens that answered
+`ok` all run and resolved nothing, which is why serving is not accepted as
+proof. A lens that cannot serve, or that hears nothing twice, **refuses the
+run**; `--no-lens` opts out and needs a reason. Since ADR 0040, corridor
+sessions run DDS over UDP only — the deafness measured 2-of-4 before it and
+0-of-14 after.
 
 This is a rule because ignoring it cost most of a day. A phantom landmark
 detection at 0.910 m re-aimed an entire mission while B's real post stood five
