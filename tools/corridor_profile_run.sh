@@ -1471,6 +1471,49 @@ PYEOF
   fi
 fi
 
+# WHAT THE LENS ACTUALLY SAW, AS A COVARIATE. ADR 0037.
+#
+# The seeing gate is a check at one moment: it proves the lens heard scans in
+# the 20 s after `simctl start`, and a lens that goes deaf at t=40 s passes it.
+# 0037 says so and calls closing the general case a separate additive change.
+# This is it, and it is a RECORDED NUMBER rather than a gate, for the same
+# reason the map score is: a run whose lens died mid-way still produced
+# navigation evidence, and throwing that away would cost more than it saves.
+#
+# `resolved_frac` is the fraction of samples that carry a scan-to-map fit --
+# the metric that was null in all 500 rows of both blind runs. It is expected
+# to be well below 1.0 on a healthy run, because nothing resolves before SLAM
+# publishes its first map; what a blind run looks like is exactly 0.
+if [ -f "$RUN_DIR/lens.json" ]; then
+  lens_fields=$("$REPO/.venv/bin/python" - "$RUN_DIR/lens.json" <<'PYEOF' || true
+import json, sys
+d = json.load(open(sys.argv[1]))
+rows, cols = d.get("history") or [], d.get("columns") or []
+if rows and "fit" in cols:
+    fit, t = cols.index("fit"), cols.index("t")
+    seen = sum(1 for r in rows if r[fit] is not None)
+    span = float(rows[-1][t]) - float(rows[0][t])
+    print(f"lens_rows={len(rows)} lens_span_s={span:.1f} "
+          f"lens_resolved_frac={seen / len(rows):.3f}")
+PYEOF
+)
+  if [ -n "$lens_fields" ]; then
+    # shellcheck disable=SC2086 - deliberate word splitting into --set pairs
+    manifest $(for field in $lens_fields; do printf -- '--set %s ' "$field"; done)
+    echo "  lens coverage recorded in run.json: $lens_fields"
+    case "$lens_fields" in
+      *lens_resolved_frac=0.000*)
+        # Loud, and in the same voice as the other findings this run reports.
+        echo "" >&2
+        echo "**THE LENS SAW NOTHING: it served this whole run and resolved no" \
+             "pose. The run's navigation artifacts stand; its lens.json is not" \
+             "evidence of anything. ADR 0037.**" >&2
+        manifest_error "the lens resolved nothing over the whole run (ADR 0037)"
+        ;;
+    esac
+  fi
+fi
+
 # THE STARTUP CRITERION, from ground truth, on every run. The circle was
 # diagnosed three times from the wrong signal -- twice from what something
 # commanded and once from a topic the offending driver was not using -- so its
