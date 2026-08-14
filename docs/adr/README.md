@@ -54,6 +54,7 @@ Three status strings differ between a file and this index, each deliberately:
 | [0035](0035-the-lens-is-the-first-instrument.md) | Accepted; **decision 1 superseded by [0037](0037-the-banner-means-seeing.md)** | **The lens starts before the run, and outlives it** — ten of twelve rerun() exits preceded it, so bring-up was unwatchable by construction and three runs wrote no lens.log at all; it is not a `resident`; a lens that cannot serve refuses the run; it freezes 60 s after the data stops; and the banner is a port the lens reported and the runner verified, never a literal. **Its own rollback clause fired:** 0037 moves the block below `simctl start` on the measured cost 0035 left open. Decisions 2–5 stand |
 | [0036](0036-the-handoff-has-two-triggers.md) | Accepted | **Nav2 finishing the refined goal is also a handoff** — `GOAL_TOLERANCE_M` and Nav2's `xy_goal_tolerance` are both 0.15, so the SUCCEEDED envelope and the handoff radius are the same number and no standoff creates margin; run 031922 succeeded at 0.6621 m and the terminal phase was skipped in silence. Four guards, SUCCEEDED only, never ABORTED. **Recovers a measurement, not a delivery** |
 | [0037](0037-the-banner-means-seeing.md) | Accepted | **The banner means the lens is SEEING, not that it is serving** — 2 of 6 runs were watched by a lens that answered `/healthz` all run and resolved nothing (500 rows, 100.4 s, every metric null), so "zero faux launches" measured the wrong thing. `/healthz` now reports per-topic rates; the banner is gated on a non-zero scan rate; a deaf lens is restarted once and then refuses the run. The gate is only askable after `/scan` exists, so the block moves below `simctl start` — 0035 decision 1 rolled back by its own clause, the rest untouched |
+| [0038](0038-the-speed-policy-pinned-to-a-measured-profile.md) | Accepted | **The speed policy is pinned to A's MEASURED profile, not to the scale factor** — robot1's band is 0.056-0.207 m/s and every scaled-v1 tier sits above it, so no violation could ever arise. Widest first **0.30 / 0.25 / 0.04 m/s**, one rule applied three times: a permissive tier above the fastest measurement in its zone, a strict tier below the slowest. Zone boundaries untouched — 0016 stays closed. Owner-ratified per 0007. **Verifying it found ADR 0016's two-gate floor had been void since 0030**: `width_at(2.4)` is 1.2000000000000002, so the strict zone held one gate and a corner violation could never be confirmed |
 
 0026 and 0027 have since landed with their evidence and are listed above; the
 line that reserved them is retired rather than left to read as pending.
@@ -143,7 +144,10 @@ flowchart LR
     A33 -. "handoff radius<br/>extended by" .-> A36
     A36 --> A37["0037<br/>the banner means<br/>SEEING, not serving<br/>2 of 6 lenses were blind"]
     A35 -. "placement<br/>rolled back by<br/>its own clause" .-> A37
-    A37 --> Demo
+    A37 --> A38["0038<br/>the speed policy is<br/>pinned to a MEASURED<br/>profile, not the scale"]
+    A23 -. "left the table<br/>to pin; this is it" .-> A38
+    A16 -. "zone boundaries<br/>untouched" .-> A38
+    A38 --> Demo
     A19 --> A30
     A18 --> A30
     A23 --> A29
