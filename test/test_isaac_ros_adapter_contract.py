@@ -377,3 +377,87 @@ def test_smoke_test_derives_its_wall_list_from_the_manifest() -> None:
     helper = _function_body(smoke, "_manifest_walls")
     assert "walls" in helper
     assert "manifest.json" in source
+
+
+RUN_DEMO = ROOT / "tools/run_demo.sh"
+DATASET = ROOT / "tools/replicator_p_cam_dataset.py"
+
+
+def test_the_arena_robot_prim_matches_what_the_dataset_rendered() -> None:
+    """**The reason `--deactivate-physics` is not a workaround.**
+
+    Every frame the detector was trained on was produced by writing a translate
+    onto this prim with the timeline never played. Inference on frames driven
+    any other way would be out of distribution by construction, so the adapter
+    must move the same prim the dataset moved -- asserted across the two files
+    rather than assumed by a reader comparing them.
+    """
+
+    assert literal_assignment(ADAPTER, "ARENA_ROBOT_PRIM") == \
+        literal_assignment(DATASET, "ROBOT_PRIM")
+
+
+def test_the_v1_prim_is_still_the_default() -> None:
+    """A composed arena is the new case, not the normal one. The v1 stage
+    carries a kinematic box at this path and no PhysicsScene, so a v1 run must
+    be unaffected by either new flag."""
+
+    assert literal_assignment(ADAPTER, "ROBOT_PRIM") == "/World/Actors/A"
+    # An annotated assignment, so `literal_assignment` (Assign only) misses it.
+    tree = ast.parse(ADAPTER.read_text(encoding="utf-8"))
+    override = next(node for node in tree.body
+                    if isinstance(node, ast.AnnAssign)
+                    and getattr(node.target, "id", None) == "_ROBOT_PRIM_OVERRIDE")
+    assert ast.literal_eval(override.value) is None
+
+
+def test_every_writer_reads_the_prim_through_the_accessor() -> None:
+    """A second `ROBOT_PRIM` reference would drive one prim and record another,
+    so the drive schedule would name a robot that never moved."""
+
+    source = ADAPTER.read_text(encoding="utf-8")
+    body = source[source.index("def robot_prim()"):]
+    stale = [line for line in body.splitlines()
+             if "ROBOT_PRIM" in line
+             and "ARENA_ROBOT_PRIM" not in line
+             and "_ROBOT_PRIM_OVERRIDE" not in line
+             and not line.lstrip().startswith("#")
+             and "f\"" not in line]
+    assert stale == [], f"ROBOT_PRIM read directly instead of via robot_prim(): {stale}"
+
+
+def test_a_relative_prim_path_is_refused_before_the_gpu_starts() -> None:
+    """`GetPrimAtPath` on a relative path returns an invalid prim, and the
+    adapter would report `missing robot prim` after paying for an app start."""
+
+    source = ADAPTER.read_text(encoding="utf-8")
+    at = source.index('if args.robot_prim is not None:')
+    guard = source[at:at + 400]
+    assert 'startswith("/")' in guard
+    assert source.index("SimulationApp(") > at, (
+        "the prim path is validated after the app starts, which is the "
+        "expensive order"
+    )
+
+
+def test_run_demo_derives_a_manifest_for_both_stage_suffixes() -> None:
+    """`${stage%.usda}` left a composed `.usd` arena asking for
+    `<arena>.usd.manifest.json`, so the run died on a missing manifest rather
+    than on the real question."""
+
+    # Use, not mention: the comment above the line names the old form to
+    # explain it, and a substring search cannot tell the two apart.
+    script = "\n".join(line for line in RUN_DEMO.read_text(encoding="utf-8").splitlines()
+                       if not line.lstrip().startswith("#"))
+    assert "${stage%.usd*}.manifest.json" in script, (
+        "the manifest default no longer strips a composed arena's suffix"
+    )
+    assert "${stage%.usda}" not in script
+
+
+def test_run_demo_defaults_leave_a_v1_run_unchanged() -> None:
+    script = RUN_DEMO.read_text(encoding="utf-8")
+    assert 'robot_prim="${ROBOT_PRIM:-}"' in script
+    assert 'DEACTIVATE_PHYSICS:-0' in script, (
+        "physics deactivation is no longer opt-in; a v1 run would change"
+    )

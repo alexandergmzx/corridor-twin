@@ -77,7 +77,26 @@ ADAPTER_CONTRACT = {
     "anti_aliasing": 3,
 }
 
+#: v1's stand-in box for robot A, and the default because it is what the v1
+#: stage carries. The COMPOSED arena is a different stage with a different
+#: answer: `build_corridor_arena.py` deactivates this prim and puts the real
+#: yahboom twin at `/World/Robot`. Overridden with --robot-prim.
 ROBOT_PRIM = "/World/Actors/A"
+
+#: The twin's prim in a composed arena. Named here rather than left to the
+#: caller because getting it wrong is silent: the adapter would drive v1's
+#: deactivated box, the twin would stand still at the spawn, and the frames
+#: would look like a corridor with a parked robot in it.
+ARENA_ROBOT_PRIM = "/World/Robot"
+
+#: Set once from --robot-prim; every writer reads it through `robot_prim()`.
+_ROBOT_PRIM_OVERRIDE: str | None = None
+
+
+def robot_prim() -> str:
+    """Which prim the drive schedule moves."""
+
+    return _ROBOT_PRIM_OVERRIDE or ROBOT_PRIM
 RENDER_PRODUCT_WARMUP_UPDATES = 12
 
 # Kit's own viewport camera. Moving it is a transform write on a prim the GUI
@@ -223,6 +242,24 @@ def arguments() -> argparse.Namespace:
             "is recorded in the evidence as a trial rather than a decision."
         ),
     )
+    parser.add_argument(
+        "--robot-prim",
+        default=None,
+        metavar="PRIM",
+        help=(
+            f"Prim the drive schedule moves. Default {ROBOT_PRIM} (v1's box); "
+            f"a composed arena wants {ARENA_ROBOT_PRIM}, the real twin."
+        ),
+    )
+    parser.add_argument(
+        "--deactivate-physics",
+        action="store_true",
+        help=(
+            "Deactivate /World/PhysicsScene before stepping. Required when "
+            "driving an articulated twin by transform writes, and it is what "
+            "the detector's training set was rendered under."
+        ),
+    )
     parser.add_argument("--report-gpu-memory", action="store_true")
     return parser.parse_args()
 
@@ -256,9 +293,10 @@ def _select_profile(stage, requested: str | None) -> str:
 def _set_actor_pose(stage, pose) -> None:
     from pxr import Gf, UsdGeom
 
-    actor = stage.GetPrimAtPath(ROBOT_PRIM)
+    prim_path = robot_prim()
+    actor = stage.GetPrimAtPath(prim_path)
     if not actor:
-        raise RuntimeError(f"missing robot prim {ROBOT_PRIM}")
+        raise RuntimeError(f"missing robot prim {prim_path}")
     operations = UsdGeom.Xformable(actor).GetOrderedXformOps()
     translate = next(
         (
@@ -387,7 +425,7 @@ def _run_drive(
                     "stage": str(stage_path),
                     "manifest": str(manifest_path),
                     "profile": profile,
-                    "robot_prim": ROBOT_PRIM,
+                    "robot_prim": robot_prim(),
                     "path_speed_mps": speed_mps,
                     "route_length_m": route_length_m,
                     "sim_time_epoch_s": epoch_s,
@@ -540,7 +578,7 @@ def _run_static_probe(
                 "stage": str(stage_path),
                 "manifest": str(manifest_path),
                 "profile": profile,
-                "robot_prim": ROBOT_PRIM,
+                "robot_prim": robot_prim(),
                 "camera_prim": ADAPTER_CONTRACT["camera_prim"],
                 "simulation_hz": ADAPTER_CONTRACT["simulation_hz"],
                 "camera_hz": ADAPTER_CONTRACT["camera_hz"],
@@ -745,6 +783,11 @@ def main() -> int:
         raise ValueError("--drive-speed-mps must be positive")
     if args.drive_out is not None and args.drive_speed_mps is None:
         raise ValueError("--drive-out requires --drive-speed-mps")
+    if args.robot_prim is not None:
+        if not args.robot_prim.startswith("/"):
+            raise ValueError("--robot-prim must be an absolute prim path")
+        global _ROBOT_PRIM_OVERRIDE
+        _ROBOT_PRIM_OVERRIDE = args.robot_prim
     if args.camera_resolution is not None:
         # Mutating the contract dict is deliberate: every consumer downstream --
         # the Camera construction, the CameraInfo intrinsics, and the logged
@@ -847,6 +890,39 @@ def main() -> int:
             "render_products=1",
             flush=True,
         )
+        if args.deactivate_physics:
+            # DRIVING AN ARTICULATION BY TRANSFORM WRITES MEANS NO SOLVER.
+            #
+            # The v1 stage carries a kinematic box and no PhysicsScene, so this
+            # never came up. A composed arena adds /World/PhysicsScene and a
+            # real articulated twin, and writing a pose onto an articulation
+            # root while the solver owns it is a fight the solver wins -- the
+            # twin sinks, tumbles, or snaps back, and the frames are of a
+            # different scenario than the schedule claims.
+            #
+            # This is not a workaround, it is the training distribution:
+            # replicator_p_cam_dataset.py renders every one of the detector's
+            # frames by writing a translate onto /World/Robot at z=0 with the
+            # timeline never played. Inference on frames produced any other way
+            # would be out of distribution by construction.
+            from pxr import Usd
+            physics = stage.GetPrimAtPath("/World/PhysicsScene")
+            if physics:
+                physics.SetActive(False)
+                deactivated = not stage.GetPrimAtPath("/World/PhysicsScene").IsActive()
+            else:
+                deactivated = None
+            print("ISAAC_ROS_CAMERA_PHYSICS",
+                  f"scene_present={bool(physics)}",
+                  f"deactivated={deactivated}",
+                  f"robot_prim={robot_prim()}",
+                  flush=True)
+            if physics and not deactivated:
+                raise RuntimeError(
+                    "/World/PhysicsScene refused deactivation; a transform-driven "
+                    "articulation would fight the solver")
+            del Usd
+
         timeline.play()
         # IsaacCreateRenderProduct constructs its Hydra product during the
         # first playback updates. Discard those renders and verify the active

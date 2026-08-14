@@ -44,10 +44,21 @@ set -euo pipefail
 
 workspace_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 stage="${STAGE:-$workspace_dir/out/corridor.usda}"
-manifest="${MANIFEST:-${stage%.usda}.manifest.json}"
+# `${stage%.usda}` only strips the v1 suffix. A composed arena is a `.usd`, so
+# the default silently became `<arena>.usd.manifest.json`, which does not
+# exist, and the run died on a missing manifest rather than on a wrong one.
+manifest="${MANIFEST:-${stage%.usd*}.manifest.json}"
 speed="${SPEED_MPS:-1.0}"
 profile="${CORRIDOR_PROFILE:-}"
 updates="${UPDATES:-3000}"
+# A composed arena carries the real twin at /World/Robot and a PhysicsScene;
+# the v1 stage carries a kinematic box and neither. Both default to the v1
+# answer, so nothing changes for a v1 run.
+robot_prim="${ROBOT_PRIM:-}"
+deactivate_physics=""
+if [ "${DEACTIVATE_PHYSICS:-0}" = 1 ]; then
+  deactivate_physics="--deactivate-physics"
+fi
 view="${VIEW:-rviz}"
 isaac_python="${ISAAC_PYTHON:-$HOME/isaac/env_isaaclab/bin/python}"
 evidence_dir="${EVIDENCE_DIR:-$workspace_dir/out/evidence/live-demo}"
@@ -70,6 +81,8 @@ Environment overrides:
   SPEED_MPS=<float>        constant path speed  (default 1.0)
   CORRIDOR_PROFILE=<name>  corridor variant     (default the stage's selection)
   UPDATES=<int>            adapter safety cap   (default 3000)
+  ROBOT_PRIM=<prim>        prim the schedule drives (arena: /World/Robot)
+  DEACTIVATE_PHYSICS=1     no solver; required when driving an articulation
   VIEW=<name>              viewport perspective (default rviz; corner, chase)
   ISAAC_PYTHON=<path>      Isaac interpreter    (default ~/isaac/env_isaaclab/bin/python)
   ROBOT_DOMAIN_ID=<int>    A's ROS domain       (default 42)
@@ -239,6 +252,8 @@ env -u AMENT_PREFIX_PATH -u PYTHONPATH -u ROS_DISTRO -u CMAKE_PREFIX_PATH \
     --drive-speed-mps "$speed" \
     --drive-out "$drive_out" \
     --updates "$updates" \
+    ${robot_prim:+--robot-prim "$robot_prim"} \
+    ${deactivate_physics} \
     --view "$view" \
     --report-gpu-memory \
     ${gui_flag} 2>&1 | tee "$isaac_log"
