@@ -8,8 +8,15 @@
 # metres were always demo choices -- this simply chooses them for a
 # 0.20 x 0.16 m robot instead of for nothing in particular.
 #
-# NOT scaled: limit_mps (a policy, still un-pinned per ADR 0023),
-# angles, pixels, rates, counts, and the robot itself.
+# NOT scaled: limit_mps, angles, pixels, rates, counts, and the
+# robot itself.
+#
+# limit_mps is PINNED rather than scaled: [0.04, 0.25, 0.3] m/s, widest
+# tier first, from robot1's profile measured over six runs on
+# 2026-08-14 (ADRs 0023 and 0038). Scaling v1's speeds by
+# 0.3 would put every tier above what the robot can
+# reach, so no violation could ever arise. Change them in
+# tools/scale_scenario.py and regenerate; never here.
 schema_version: 0.5.0
 status: topology_reconciled_metric_scale_demo_assumption
 provenance:
@@ -118,10 +125,10 @@ speed_policy:
   kind: piecewise_constant_by_clear_width
   rules:
   - maximum_width_m: 1.2
-    limit_mps: 0.8
+    limit_mps: 0.04
   - maximum_width_m: 1.5
-    limit_mps: 1.2
+    limit_mps: 0.25
   - maximum_width_m: 300.0
-    limit_mps: 1.5
+    limit_mps: 0.3
   confidence_sigma: 2.0
   consecutive_estimates: 2
