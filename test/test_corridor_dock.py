@@ -505,3 +505,37 @@ def test_the_bearing_gate_admits_the_REAL_B_from_the_real_manifest() -> None:
     # less. Recorded so a scenario change that erodes the margin is visible
     # rather than silent.
     assert worst < MAX_BEARING_ERROR_DEG, f"margin has eroded to {worst:.1f} deg"
+
+
+def test_the_refined_goal_faces_what_it_was_derived_from() -> None:
+    """Every refined goal must point at the landmark that produced it.
+
+    The refine path used to overwrite only the goal's x and y, leaving the
+    TRANSIT goal's yaw in place -- an angle derived for the nominal standoff
+    rather than for the point the detector just chose. W1's defect, one level
+    down. `dock_goal` places the goal on the segment from A to the landmark, so
+    the correct facing is the bearing along that segment, and it must hold from
+    whatever direction A happens to arrive.
+    """
+
+    from corridor_dock import dock_goal, facing_yaw
+
+    landmark = (5.0, 2.0)
+    for robot in ((0.0, 0.0), (9.0, 2.0), (5.0, -4.0), (1.0, 7.0)):
+        goal = dock_goal(landmark, robot, STANDOFF_M)
+        yaw = facing_yaw(goal, landmark)
+        # Walking the standoff along that heading from the goal lands on the
+        # landmark: the goal both stands off it and looks at it.
+        assert (
+            goal[0] + STANDOFF_M * math.cos(yaw),
+            goal[1] + STANDOFF_M * math.sin(yaw),
+        ) == pytest.approx(landmark, abs=1e-9)
+
+
+def test_facing_yaw_is_not_the_identity_quaternions_zero() -> None:
+    """The failure it prevents, stated as a value rather than as a property."""
+
+    from corridor_dock import facing_yaw
+
+    assert facing_yaw((0.0, 0.0), (-1.0, 0.0)) == pytest.approx(math.pi)
+    assert facing_yaw((0.0, 0.0), (0.0, -1.0)) == pytest.approx(-math.pi / 2)

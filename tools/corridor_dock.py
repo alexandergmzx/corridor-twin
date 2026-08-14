@@ -263,6 +263,21 @@ def landmark_in_map(detection: dict, robot_xy: tuple[float, float],
     )
 
 
+def facing_yaw(from_xy: tuple[float, float], to_xy: tuple[float, float]) -> float:
+    """Which way to point, standing at `from_xy` and looking at `to_xy`.
+
+    Trivial, and it exists so that the two places that need it cannot drift
+    apart. The transit goal derives its yaw from B's bearing off the delivery
+    standoff (`corridor_nav_gate.goal_yaw_in_map_frame`); every REFINED goal
+    needs the same rule applied at the point the detector just chose, and until
+    2026-08-13 it did not get it -- the refine path overwrote the goal's x and y
+    and left the transit yaw in place, an angle derived for a different
+    position. One function, so "facing B" means the same thing in both.
+    """
+
+    return math.atan2(to_xy[1] - from_xy[1], to_xy[0] - from_xy[0])
+
+
 def dock_goal(landmark_xy: tuple[float, float], robot_xy: tuple[float, float],
               standoff_m: float) -> tuple[float, float]:
     """Stop `standoff_m` short of B, on the side A is approaching from.

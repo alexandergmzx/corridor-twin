@@ -399,7 +399,7 @@ def main() -> int:
     # is. Every metre is still driven by Nav2; this only chooses the goal.
     dock_report = {"enabled": False}
     if arguments.dock and gate.detector is not None:
-        from corridor_dock import DockingMachine, final_approach_m
+        from corridor_dock import DockingMachine, facing_yaw, final_approach_m
 
         route_m = route_to_delivery_m(manifest, arguments.profile)
         actors = manifest.get("actors", {})
@@ -455,6 +455,17 @@ def main() -> int:
                   f"({refined[0]:.3f}, {refined[1]:.3f}) [map], "
                   f"landmark seen at {gate.last_verdict['candidate']['range_m']:.3f} m")
             goal.pose.pose.position.x, goal.pose.pose.position.y = refined
+            # AND ITS ORIENTATION. Overwriting only x/y left every refined goal
+            # carrying the TRANSIT goal's yaw -- an angle derived for the
+            # nominal standoff, not for the point the detector just chose. It
+            # is W1's defect one level down: an orientation picked for a
+            # different position. Recomputed here from the landmark the goal
+            # was derived from, by the same rule W1 applies to the transit
+            # goal, so both mean "facing B" rather than one meaning it by
+            # construction and the other by luck.
+            refined_yaw = facing_yaw(refined, machine.landmark_map)
+            goal.pose.pose.orientation.z = math.sin(refined_yaw / 2.0)
+            goal.pose.pose.orientation.w = math.cos(refined_yaw / 2.0)
             send = gate.client.send_goal_async(goal)
             rclpy.spin_until_future_complete(gate, send, timeout_sec=20.0)
             new_handle = send.result()
