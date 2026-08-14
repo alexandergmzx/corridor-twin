@@ -377,6 +377,66 @@ residents() {
   pgrep -af '/opt/ros/[^ ]*/lib/(nav2_[a-z_]+|slam_toolbox)/' 2>/dev/null \
     | grep -v -- '__ns:=' || true
 }
+# A FAILED BRING-UP ATTEMPT IS REAPED AS A PROCESS GROUP, NOT A PID.
+#
+# This is the root cause of the SLAM double-failure, not bad luck. Run
+# 20260814-025555: attempt 1 logged "failed to send response to
+# /slam_toolbox/change_state (timeout)"; the runner TERMed only the `ros2
+# launch` pid, which teardown's own comment already records as not propagating;
+# so attempt 1's async_slam_toolbox_node survived, and attempt 2's lifecycle
+# manager spent its full 110 s talking to attempt 1's orphan -- its log shows
+# "Configuring slam_toolbox" and then nothing for the whole deadline. Both
+# attempts "failed" and the run was recorded as a rerun.
+#
+# `ros2 launch` does not call setpgid, so its children inherit our group. We
+# give each launch its OWN group with setsid, and reap the group.
+launch_pgid() {
+  local pid="$1" pgid own
+  [ -n "$pid" ] || return 0
+  pgid=$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')
+  own=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+  # REFUSING OUR OWN GROUP IS LOAD-BEARING. setsid is what makes them
+  # different; if it silently did not, a group kill here would take down the
+  # run and the operator's shell with it. Guarded, and the guard is tested.
+  [ -n "$pgid" ] && [ "$pgid" != "$own" ] && printf '%s' "$pgid"
+  return 0
+}
+
+reap_launch_group() {
+  local pid="$1" what="$2" pgid
+  pgid=$(launch_pgid "$pid")
+  if [ -z "$pgid" ]; then
+    # No private group: fall back to exactly the old behaviour and say so,
+    # rather than pretending the reap happened.
+    echo "  $what: no private process group; falling back to a single-pid TERM" >&2
+    [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true
+    for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+    return 0
+  fi
+  kill -TERM -- "-$pgid" 2>/dev/null || true
+  for _ in $(seq 1 10); do
+    pgrep -g "$pgid" >/dev/null 2>&1 || { echo "  $what: group reaped"; return 0; }
+    sleep 0.5
+  done
+  echo "  $what: group survived TERM; escalating to KILL" >&2
+  kill -KILL -- "-$pgid" 2>/dev/null || true
+  sleep 1
+  pgrep -g "$pgid" >/dev/null 2>&1 \
+    && echo "  $what: ** group STILL alive after KILL **" >&2 \
+    || echo "  $what: group reaped (KILL)"
+}
+
+# Fire-and-forget, for teardown: with setsid a polite TERM to the pid alone no
+# longer reaches the children, so teardown must signal the group or setsid
+# would make teardown strictly weaker than it was.
+signal_launch_group() {
+  local pgid
+  pgid=$(launch_pgid "$1")
+  [ -n "$pgid" ] && kill -TERM -- "-$pgid" 2>/dev/null || true
+  [ -n "$1" ] && kill -TERM "$1" 2>/dev/null || true
+  return 0
+}
+
 # One lens per run. Under ADR 0035 a lens from the previous run is EXPECTED to
 # still be serving -- that is the point -- so this run replaces it rather than
 # refusing next to it. An open browser tab survives the handover: the page
@@ -435,10 +495,10 @@ teardown() {
   [ "$stopped" = 1 ] && return 0
   stopped=1
   echo "=== stopping $PROFILE on domain $DOMAIN ==="
-  [ -n "$nav_pid" ] && kill -TERM "$nav_pid" 2>/dev/null || true
+  signal_launch_group "$nav_pid"
   [ -n "$recorder_pid" ] && kill -TERM "$recorder_pid" 2>/dev/null || true
   [ -n "$probe_pid" ] && kill -TERM "$probe_pid" 2>/dev/null || true
-  [ -n "$slam_pid" ] && kill -TERM "$slam_pid" 2>/dev/null || true
+  signal_launch_group "$slam_pid"
   # THE LENS IS NOT KILLED HERE. ADR 0035: it outlives the run so the operator
   # can still look at the last frame, the final map and the full history after
   # everything else is gone. It freezes itself ~60 s after the data stops, and
@@ -827,7 +887,7 @@ if [ -n "$SLAM_PARAMS" ]; then
     # this stage had no phase() of its own and inherited the previous one. The
     # watchdog and the completion check both stamp ${PHASE} into the verdict.
     phase "slam bring-up attempt $slam_attempt (params: $(basename "$SLAM_PARAMS"))"
-    ros2 launch yahboomcar_config slam_launch.py "params_file:=$SLAM_PARAMS" \
+    setsid ros2 launch yahboomcar_config slam_launch.py "params_file:=$SLAM_PARAMS" \
       >"$RUN_DIR/slam-attempt$slam_attempt.log" 2>&1 &
     slam_pid=$!
     slam_deadline=$(( $(date +%s) + LIFECYCLE_DEADLINE_S ))
@@ -850,8 +910,14 @@ if [ -n "$SLAM_PARAMS" ]; then
     done
     if [ "$slam_ready" != 1 ]; then
       echo "  ** slam_toolbox never reached ACTIVE (last state: ${sstate:-unknown}) **"
-      kill -TERM "$slam_pid" 2>/dev/null || true
-      for _ in $(seq 1 10); do kill -0 "$slam_pid" 2>/dev/null || break; sleep 0.5; done
+      reap_launch_group "$slam_pid" "slam attempt $slam_attempt"
+      slam_pid=""
+      # A name sweep is safe HERE and only here: nothing else in this run
+      # legitimately owns a slam_toolbox node at this point. It is deliberately
+      # NOT done between nav attempts -- see that loop.
+      if [ -n "$(residents | grep -E 'slam_toolbox' || true)" ]; then
+        manifest_error "a slam_toolbox node survived the attempt-$slam_attempt reap"
+      fi
     fi
   done
   if [ "$slam_ready" != 1 ]; then
@@ -923,7 +989,7 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
   nav_attempt=$((nav_attempt + 1))
   [ "$nav_attempt" -gt 1 ] && echo "  ** nav stack attempt $nav_attempt (previous never reached ACTIVE) **"
   # shellcheck disable=SC2086
-  ros2 launch $NAV_LAUNCH \
+  setsid ros2 launch $NAV_LAUNCH \
     >"$RUN_DIR/nav-launch-attempt$nav_attempt.log" 2>&1 &
   nav_pid=$!
 
@@ -1010,8 +1076,13 @@ while [ "$nav_attempt" -lt 2 ] && [ "$nav_ready" != 1 ]; do
     sleep 1
   done
   if [ "$nav_ready" != 1 ]; then
-    kill -TERM "$nav_pid" 2>/dev/null || true
-    for _ in $(seq 1 10); do kill -0 "$nav_pid" 2>/dev/null || break; sleep 0.5; done
+    # GROUP ONLY, NEVER A NAME SWEEP. `lifecycle_manager_slam` runs out of
+    # /opt/ros/jazzy/lib/nav2_lifecycle_manager/ and therefore matches
+    # residents()' `nav2_[a-z_]+` -- so a residents-based reap between nav
+    # attempts would kill the SLAM stack, and with it the map->odom this run is
+    # built on. That is the dangerous naive fix; the test below pins its absence.
+    reap_launch_group "$nav_pid" "nav attempt $nav_attempt"
+    nav_pid=""
   fi
 done
 if [ "$nav_ready" != 1 ]; then

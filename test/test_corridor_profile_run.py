@@ -413,18 +413,23 @@ def test_a_lingering_lens_does_not_refuse_the_next_run() -> None:
     )
     namespaced = f"{orphan} -r __ns:=/robot2"
     lens = "python3 /home/x/tools/lens/corridor_lens.py --domain 67"
+    # Short-lived decoys, and the script WAITS for its own to be gone before
+    # exiting. A neighbouring test's `sleep 8` decoys outliving their run made
+    # this suite flaky the first time three of them existed at once.
     script = (
         f"{_residents_function()}\n"
-        f'bash -c \'exec -a "{orphan}" sleep 8\' &\n'
+        "for _ in $(seq 1 40); do [ -z \"$(residents)\" ] && break; sleep 0.25; done\n"
+        f'bash -c \'exec -a "{orphan}" sleep 3\' &\n'
         "first=$!\n"
-        f'bash -c \'exec -a "{namespaced}" sleep 8\' &\n'
+        f'bash -c \'exec -a "{namespaced}" sleep 3\' &\n'
         "second=$!\n"
-        f'bash -c \'exec -a "{lens}" sleep 8\' &\n'
+        f'bash -c \'exec -a "{lens}" sleep 3\' &\n'
         "third=$!\n"
         "sleep 1\n"
         "residents\n"
         "kill $first $second $third 2>/dev/null\n"
         "wait 2>/dev/null\n"
+        "for _ in $(seq 1 40); do [ -z \"$(residents)\" ] && break; sleep 0.25; done\n"
     )
     found = subprocess.run(
         ["bash", "-c", script], capture_output=True, text=True, timeout=60,
@@ -466,3 +471,127 @@ def test_the_next_run_replaces_the_previous_lens() -> None:
     assert 'pgrep -f "$pattern"' in body, (
         "the reaper interpolates its pattern literally and can match itself"
     )
+
+
+# ------------------------------- a failed attempt is reaped as a process group
+#
+# THE ROOT CAUSE of the SLAM double-failure, not bad luck. Run 20260814-025555:
+# attempt 1 logged "failed to send response to /slam_toolbox/change_state
+# (timeout)"; the runner TERMed only the `ros2 launch` pid, which teardown's own
+# comment already records as not propagating; so attempt 1's
+# async_slam_toolbox_node survived and attempt 2's lifecycle manager spent its
+# full 110 s talking to it. Its log reads "Configuring slam_toolbox" and then
+# nothing at all.
+
+
+def _lift(name: str) -> str:
+    """A shell function, lifted out of the runner so it can be run for real."""
+
+    source = RUNNER.read_text(encoding="utf-8")
+    start = source.index(f"{name}() {{")
+    return source[start:source.index("\n}\n", start) + len("\n}\n")]
+
+
+def _reaper_preamble() -> str:
+    return _lift("launch_pgid") + "\n" + _lift("reap_launch_group") + "\n"
+
+
+def test_a_launch_group_is_reaped_whole() -> None:
+    """The children are the point: TERMing the launcher never reached them."""
+
+    script = (
+        f"{_reaper_preamble()}"
+        "setsid bash -c 'sleep 30 & sleep 30 & sleep 30 & wait' &\n"
+        "leader=$!\n"
+        "sleep 1\n"
+        "pgid=$(ps -o pgid= -p $leader | tr -d ' ')\n"
+        'echo "BEFORE $(pgrep -g $pgid | wc -l)"\n'
+        'reap_launch_group "$leader" "test" >/dev/null 2>&1\n'
+        'echo "AFTER $(pgrep -g $pgid | wc -l)"\n'
+    )
+    out = subprocess.run(["bash", "-c", script], capture_output=True,
+                         text=True, timeout=60).stdout
+    before = int(re.search(r"BEFORE (\d+)", out).group(1))
+    after = int(re.search(r"AFTER (\d+)", out).group(1))
+
+    assert before >= 2, f"the fixture did not build a real group: {out!r}"
+    assert after == 0, f"{after} of {before} survived the group reap"
+
+
+def test_the_reaper_refuses_our_own_process_group() -> None:
+    """**The guard that stops this taking down the run and the shell.**
+
+    setsid is what makes the groups different. If it silently did not, an
+    unguarded group kill would signal the runner itself. A process started
+    WITHOUT setsid shares our group, and must be handled by the single-pid
+    fallback instead -- announced, never silent.
+    """
+
+    script = (
+        f"{_reaper_preamble()}"
+        "sleep 30 &\n"
+        "same_group=$!\n"
+        "sleep 0.5\n"
+        'pgid=$(launch_pgid "$same_group")\n'
+        'echo "PGID[$pgid]"\n'
+        'reap_launch_group "$same_group" "test" 2>&1\n'
+        'echo "SHELL_ALIVE"\n'
+    )
+    out = subprocess.run(["bash", "-c", script], capture_output=True,
+                         text=True, timeout=60)
+    combined = out.stdout + out.stderr
+
+    assert "PGID[]" in combined, "launch_pgid returned our own group; a kill would be suicide"
+    assert "no private process group" in combined, "the fallback is silent"
+    assert "SHELL_ALIVE" in out.stdout, "the reaper killed the shell that called it"
+
+
+def test_both_bringup_launches_get_their_own_group() -> None:
+    source = RUNNER.read_text(encoding="utf-8")
+
+    assert "setsid ros2 launch yahboomcar_config slam_launch.py" in source
+    assert "setsid ros2 launch $NAV_LAUNCH" in source
+
+
+def test_both_retry_loops_reap_before_the_next_attempt() -> None:
+    """Detection without reaping just makes the orphan fresher."""
+
+    source = RUNNER.read_text(encoding="utf-8")
+
+    assert 'reap_launch_group "$slam_pid"' in source
+    assert 'reap_launch_group "$nav_pid"' in source
+    assert 'kill -TERM "$slam_pid"' not in source, "the single-pid TERM is back"
+    assert 'kill -TERM "$nav_pid"' not in source, "the single-pid TERM is back"
+
+
+def test_the_nav_retry_never_reaps_by_name() -> None:
+    """**The dangerous naive fix, pinned as absent.**
+
+    `lifecycle_manager_slam` runs from /opt/ros/jazzy/lib/nav2_lifecycle_manager/
+    and therefore matches residents()' `nav2_[a-z_]+`. A residents-based reap
+    between nav attempts would kill the SLAM stack, and with it the map->odom
+    the whole run is built on.
+    """
+
+    source = RUNNER.read_text(encoding="utf-8")
+    start = source.index("nav_attempt=0")
+    # The loop body only: from `nav_attempt=0` to the `done` that closes the
+    # while, so the post-loop diagnosis block is not mistaken for loop code.
+    end = source.index("\ndone\n", start)
+    # USE, not mention: the loop carries a comment explaining why it must not
+    # do this, and that comment should survive.
+    body = "\n".join(line for line in source[start:end].splitlines()
+                     if not line.lstrip().startswith("#"))
+
+    assert "residents" not in body, (
+        "the nav retry loop reaps by name; it would take the SLAM stack with it"
+    )
+
+
+def test_teardown_signals_the_group_so_setsid_does_not_weaken_it() -> None:
+    """With setsid, a polite TERM to the pid alone no longer reaches children."""
+
+    body = _lift("teardown")
+
+    assert 'signal_launch_group "$nav_pid"' in body
+    assert 'signal_launch_group "$slam_pid"' in body
