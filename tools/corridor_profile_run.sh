@@ -102,10 +102,28 @@ SIM_MAX_S=600
 # nothing, so 14 iterations became 255 s and the loop sailed past every bound
 # anyone thought it had. A deadline in seconds cannot do that.
 #
-# 75 s is generous against what bring-up actually needs: bt_navigator bonded to
-# its manager 3.5 s after launch on that very run, and the healthy cluster of
-# runs reaches ACTIVE inside ~20 s.
-LIFECYCLE_DEADLINE_S=75
+# 75 s LOOKED generous -- bt_navigator bonded 3.5 s after launch on that run,
+# and the healthy cluster reaches ACTIVE inside ~20 s. Measured across 17
+# bring-ups on 2026-08-13 it was the worst number available, because the
+# distribution is bimodal with nothing in between:
+#
+#     fast : 9 10 10 11 12 13 13 14 15 16 18 s   (11 of 17)
+#     slow : 85 86 87 88 88 89 s                 ( 6 of 17)
+#
+# 75 sits in the empty gap. It is far above every fast bring-up, so it never
+# saves time; and just below every slow one, so a slow bring-up is GUARANTEED
+# to burn a full 75 s attempt and retry -- and 7 of 27 runs that day died as
+# infrastructure, five of them here.
+#
+# 110 s clears the measured slow mode by 21 s. It cannot make a fast run slower
+# (the loop exits on the bond, not on the deadline) and it turns the common
+# slow case from "fail, retry, sometimes fail again" into "succeed once".
+#
+# The bimodality itself is unexplained -- 9-18 s or 85-89 s and never between
+# suggests a discrete stall inside Nav2 bring-up rather than load. Worth
+# finding; this does not find it, it stops the deadline from being placed in
+# the one interval where it does harm.
+LIFECYCLE_DEADLINE_S=110
 
 # How much post-arrival data the transit recorder keeps after the nav gate has
 # returned. The recorder's job is to outlive the gate, not to outlast it by two
