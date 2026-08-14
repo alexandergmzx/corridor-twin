@@ -666,69 +666,6 @@ watchdog_pid=$!
 SESSION_START_S=$(date +%s)
 echo "  watchdog armed: ${SIM_MAX_S}s cap covers bring-up AND the transit"
 
-# THE LENS COMES UP FIRST. ADR 0035.
-#
-# It used to start after SLAM and Nav2 -- and TEN of the twelve rerun() exits
-# are before that point, so every bring-up death was invisible by construction.
-# Runs 20260814-022725, -023029 and -025555 wrote no lens.log at all. The lens
-# has no dependency on either stack: it is read-only, publishes nothing,
-# subscribes to /map latched so it picks the map up whenever SLAM gets there,
-# and every TF lookup is zero-timeout and None-tolerant. The old position
-# arrived in one commit with no rationale and no ADR.
-#
-# Before `simctl start`, not after it, for one reason: a lens that cannot serve
-# now REFUSES the run, and a refusal must not throw away 70 s of Isaac load.
-#
-# The known cost, stated rather than hidden: the landmark detector runs at 5 Hz
-# from the first scan and is NOT behind the tf_pose guard, so this adds a small
-# consumer to the window this file already blames for lifecycle contention
-# (see the settle comment below). Measured against contract.txt rates and the
-# simctl->nav interval over the first runs after the change; if it costs
-# anything the block moves below `simctl start` and nothing else changes.
-phase "lens"
-if [ "$LENS" = 1 ]; then
-  reap_previous_lens
-  LENS_ANNOUNCE="$RUN_DIR/lens.announce.json"
-  rm -f "$LENS_ANNOUNCE"
-  # setsid: a Ctrl-C in the operator's terminal must not take the instrument
-  # down at the moment they reached for it. simctl:117 does the same for every
-  # component it launches.
-  setsid python3 "$REPO/tools/lens/corridor_lens.py" --domain "$DOMAIN" \
-    --manifest "$MANIFEST" \
-    --dump "$RUN_DIR/lens.json" \
-    --announce "$LENS_ANNOUNCE" \
-    >"$RUN_DIR/lens.log" 2>&1 &
-  # 20 s, not 10: a cold rclpy + tf2 import is 2-4 s and there is nothing else
-  # loading yet. $! is the setsid wrapper, so liveness comes from the
-  # announcement and from the lens's own "all busy" line, never from kill -0.
-  for _ in $(seq 1 80); do
-    [ -s "$LENS_ANNOUNCE" ] && break
-    grep -q 'all busy; exiting' "$RUN_DIR/lens.log" 2>/dev/null && break
-    sleep 0.25
-  done
-  LENS_URL=""; LENS_PORT=""; LENS_PID=""
-  if [ -s "$LENS_ANNOUNCE" ]; then
-    read -r LENS_URL LENS_PORT LENS_PID <<<"$(python3 -c '
-import json, sys
-a = json.load(open(sys.argv[1]))
-print(a["url"], a["port"], a["pid"])' "$LENS_ANNOUNCE" 2>/dev/null)" || true
-  fi
-  # The banner is the port the lens SAID it bound, re-verified. There is no
-  # literal port number left in this file to print by mistake.
-  if [ -n "$LENS_URL" ] && [ -n "$LENS_PORT" ] \
-     && curl -sf --max-time 2 "http://127.0.0.1:$LENS_PORT/healthz" >/dev/null 2>&1; then
-    lens_pid="$LENS_PID"
-    echo "  lens: $LENS_URL  (map, scan, 3 pose ghosts, landmark)"
-    manifest --set "lens_url=$LENS_URL" --set "lens_pid=$LENS_PID"
-  else
-    tail -5 "$RUN_DIR/lens.log" 2>/dev/null | sed 's/^/    /' >&2
-    manifest_error "the lens never served; see lens.log"
-    rerun "the lens never served -- nothing is watching this run. Fix it, or pass --no-lens with a reason"
-  fi
-else
-  echo "  **--no-lens: this run is NOT watched (CLAUDE.md asks for a reason)**" >&2
-fi
-
 # THE SCAN FILTER NEEDS TO KNOW WHICH ROOM IT IS IN.
 #
 # The twin's scan_frame_relay drops phase-corrupted lidar revolutions by asking
@@ -783,6 +720,102 @@ SLAM_FLAG=""
 "$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" \
   --no-patrol $RVIZ_FLAG $SLAM_FLAG || {
   rerun "simctl start failed for $PROFILE"; }
+
+# THE LENS COMES UP, AND THE BANNER MEANS IT IS SEEING. ADR 0037.
+#
+# ADR 0035 put this block ahead of `simctl start` so that a refusal cost
+# nothing. Six runs later the cost that ADR asked for and left open is
+# measured, and it is not the one it expected: TWO OF SIX lenses created
+# before Isaac served /healthz for the whole run and resolved NOTHING --
+# 500 history rows, every metric column null, because no message ever
+# reached them. Lenses created after `simctl start` are 0 blind of ~90.
+# The mechanism is not identified; the correlation is what there is, and
+# ADR 0035's own rollback clause says to move the block. So it moves.
+#
+# WHAT THE MOVE COSTS, stated rather than hidden: the ~61 s Isaac load is
+# now unwatched, and a lens refusal throws it away. Paid deliberately. All
+# three recorded bring-up deaths were after the load, `simctl start` fails
+# loudly on its own, and a blind lens does not merely fail to help -- it
+# poisons the run with a page that looks alive.
+#
+# WHAT THE MOVE DOES NOT FIX, so the gate below does: serving is not
+# seeing. The banner is gated on /healthz reporting a NON-ZERO SCAN RATE.
+# Demanding that is legitimate here and only here -- `simctl start` has
+# already waited for /scan to publish before returning, so a lens that
+# hears nothing on it is deaf, not early.
+phase "lens"
+if [ "$LENS" = 1 ]; then
+  LENS_ANNOUNCE="$RUN_DIR/lens.announce.json"
+  LENS_URL=""; LENS_PORT=""; LENS_PID=""; LENS_SEEN=0
+  for attempt in 1 2; do
+    reap_previous_lens
+    rm -f "$LENS_ANNOUNCE"
+    # setsid: a Ctrl-C in the operator's terminal must not take the instrument
+    # down at the moment they reached for it. simctl:117 does the same for every
+    # component it launches.
+    setsid python3 "$REPO/tools/lens/corridor_lens.py" --domain "$DOMAIN" \
+      --manifest "$MANIFEST" \
+      --dump "$RUN_DIR/lens.json" \
+      --announce "$LENS_ANNOUNCE" \
+      >"$RUN_DIR/lens.log" 2>&1 &
+    # 20 s, not 10: a cold rclpy + tf2 import is 2-4 s. $! is the setsid
+    # wrapper, so liveness comes from the announcement and from the lens's own
+    # "all busy" line, never from kill -0.
+    for _ in $(seq 1 80); do
+      [ -s "$LENS_ANNOUNCE" ] && break
+      grep -q 'all busy; exiting' "$RUN_DIR/lens.log" 2>/dev/null && break
+      sleep 0.25
+    done
+    LENS_URL=""; LENS_PORT=""; LENS_PID=""
+    if [ -s "$LENS_ANNOUNCE" ]; then
+      read -r LENS_URL LENS_PORT LENS_PID <<<"$(python3 -c '
+import json, sys
+a = json.load(open(sys.argv[1]))
+print(a["url"], a["port"], a["pid"])' "$LENS_ANNOUNCE" 2>/dev/null)" || true
+    fi
+    # Never bound at all: the refusal below is the old one, and still right.
+    [ -n "$LENS_PORT" ] || break
+    # THE SEEING GATE. 20 s is ~240 scans at the measured 12-15 Hz, so a lens
+    # that is merely slow to subscribe clears it inside the first second and
+    # only a deaf one runs the deadline out.
+    for _ in $(seq 1 40); do
+      if curl -sf --max-time 2 "http://127.0.0.1:$LENS_PORT/healthz" 2>/dev/null \
+         | python3 -c '
+import sys, json
+rates = (json.load(sys.stdin).get("rates") or {})
+sys.exit(0 if (rates.get("scan") or 0.0) > 0 else 1)' 2>/dev/null; then
+        LENS_SEEN=1; break
+      fi
+      sleep 0.5
+    done
+    [ "$LENS_SEEN" = 1 ] && break
+    if [ "$attempt" = 1 ]; then
+      echo "  the lens bound port $LENS_PORT but heard no scans in 20 s;" \
+           "restarting it once" >&2
+      # Attempt 1's log is the only artifact of the failure. Keep it.
+      cp "$RUN_DIR/lens.log" "$RUN_DIR/lens-attempt1.log" 2>/dev/null || true
+    fi
+    # By the ANNOUNCED pid: $! is the setsid wrapper and would survive.
+    [ -n "$LENS_PID" ] && kill -TERM "$LENS_PID" 2>/dev/null || true
+  done
+  # The banner lives in this branch and nowhere else: it is now a claim that
+  # something was seen, not that a socket answered.
+  if [ "$LENS_SEEN" = 1 ]; then
+    lens_pid="$LENS_PID"
+    echo "  lens: $LENS_URL  (map, scan, 3 pose ghosts, landmark)"
+    manifest --set "lens_url=$LENS_URL" --set "lens_pid=$LENS_PID"
+  elif [ -n "$LENS_PORT" ]; then
+    tail -5 "$RUN_DIR/lens.log" 2>/dev/null | sed 's/^/    /' >&2
+    manifest_error "the lens never SAW the session; see lens-attempt1.log, lens.log"
+    rerun "the lens never SAW the session -- it served, twice, and heard no scans. Fix it, or pass --no-lens with a reason"
+  else
+    tail -5 "$RUN_DIR/lens.log" 2>/dev/null | sed 's/^/    /' >&2
+    manifest_error "the lens never served; see lens.log"
+    rerun "the lens never served -- nothing is watching this run. Fix it, or pass --no-lens with a reason"
+  fi
+else
+  echo "  **--no-lens: this run is NOT watched (CLAUDE.md asks for a reason)**" >&2
+fi
 
 # Contract numbers are PER-ROBOT and do not transfer. robot2 is checked with
 # --imu-hz 60; robot1's checker carries its own WANT_HZ (scan 12 / odom_raw 11

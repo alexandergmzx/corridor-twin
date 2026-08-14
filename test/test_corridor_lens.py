@@ -336,3 +336,54 @@ def test_the_page_remembers_at_least_as_much() -> None:
     assert cap >= lens.HISTORY_LEN, (
         f"the page caps history at {cap} against the server's {lens.HISTORY_LEN}"
     )
+
+
+def test_healthz_reports_seeing_not_only_serving() -> None:
+    """**ADR 0037.** `/healthz` answered a flat `ok`, which is the most a bound
+    socket can honestly claim -- and 2 of 6 runs on 2026-08-14 were watched by
+    a lens that answered it for their whole length while resolving nothing.
+
+    The payload therefore carries the rates, and a caller can tell a deaf lens
+    from a busy one without opening the page.
+    """
+
+    lens = _lens_module()
+    state = {'t': 12.0, 'frozen': False,
+             'rates': {'scan': 14.3, 'map': 0.4, 'odom': 11.0}}
+
+    health = lens.healthz_payload(state)
+
+    assert health['ok'] is True
+    assert health['rates']['scan'] == 14.3, "the seeing signal is not reported"
+    assert health['t'] == 12.0, "a caller cannot tell a young lens from a deaf one"
+    assert health['frozen'] is False
+
+
+def test_healthz_before_the_first_sample_reports_absent_not_zero() -> None:
+    """`latest['state']` is None until the sampler's first tick. Absent rates
+    and zero rates are different facts -- only one of them is a fault -- and
+    reporting zeros here would make a lens look deaf for its first 200 ms."""
+
+    lens = _lens_module()
+
+    health = lens.healthz_payload(None)
+
+    assert health['ok'] is True, "a lens that has bound is serving, and says so"
+    assert health['rates'] is None, "no sample yet was reported as zero traffic"
+    assert health['t'] is None
+
+
+def test_healthz_reads_the_same_keys_build_state_writes() -> None:
+    """The payload is a projection of the sampler's state, so a rename in
+    `build_state` must not leave `/healthz` quietly reporting None forever.
+    Asserted against the real dict literal rather than a copy of it."""
+
+    source = LENS.read_text(encoding="utf-8")
+    body = source[source.index("def healthz_payload"):source.index("def yaw_of")]
+    projected = set(re.findall(r"state\.get\('(\w+)'\)", body))
+
+    assert projected == {'t', 'frozen', 'rates'}, projected
+    for key in projected:
+        assert re.search(rf"^\s+'{key}':", source, re.M), (
+            f"/healthz projects state[{key!r}], which build_state no longer writes"
+        )

@@ -191,6 +191,44 @@ def write_announcement(path, host, port, args):
         return False
 
 
+def healthz_payload(state):
+    """What `/healthz` answers: serving, and whether it is SEEING. -> dict.
+
+    `/healthz` used to answer a flat `ok`, which is exactly as much as a
+    process that has bound a socket can honestly claim. On 2026-08-14 two runs
+    of six were watched by a lens that answered `ok` for their whole length and
+    resolved nothing: `lens.json` held 500 rows over 100 s with every metric
+    column null, because no message ever arrived. The banner was true and the
+    run was unwatched. The operator called it a faux launch, and it is one --
+    a second class of it, and a worse one, because the first class at least
+    failed loudly.
+
+    Serving is not seeing. So the endpoint reports both, and the caller decides
+    which it needs:
+
+    - `ok`      the socket is answering. What the old endpoint meant.
+    - `rates`   per-topic Hz over the trailing window. **This is the seeing
+                signal**: a lens that is deaf reports 0.0 for every topic.
+    - `frozen`  data HAS been seen and then stopped for FREEZE_IDLE_S. A frozen
+                lens is a correct post-run state (ADR 0035), not a fault.
+    - `t`       seconds since the lens started, so a caller can tell a lens
+                that is young from one that is deaf.
+
+    Pure, and separate from the handler, so the runner's gate can be tested
+    against every shape this returns without a socket or a ROS graph. `state`
+    is None before the sampler's first tick -- that is the young case, and it
+    reports rates absent rather than rates zero, because the two are different
+    and only one of them is a fault.
+    """
+
+    if state is None:
+        return {'ok': True, 't': None, 'frozen': None, 'rates': None}
+    return {'ok': True,
+            't': state.get('t'),
+            'frozen': state.get('frozen'),
+            'rates': state.get('rates')}
+
+
 def yaw_of(q):
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                       1.0 - 2.0 * (q.y * q.y + q.z * q.z))
@@ -567,7 +605,11 @@ async def serve(node: LensNode, args):
                     [('Content-Type', 'text/html; charset=utf-8'),
                      ('Cache-Control', 'no-store')], body)
         if path == '/healthz':
-            return (http.HTTPStatus.OK, [('Content-Type', 'text/plain')], b'ok\n')
+            # Read locklessly: `latest` is mutated only by the sampler task on
+            # this same event loop, so a handler cannot observe a torn dict.
+            body = json.dumps(healthz_payload(latest['state'])).encode() + b'\n'
+            return (http.HTTPStatus.OK,
+                    [('Content-Type', 'application/json')], body)
         return None      # anything else: proceed with the WebSocket handshake
 
     asyncio.create_task(sampler())

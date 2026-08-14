@@ -1,16 +1,26 @@
-"""The lens comes up before the simulator, and the banner is a verified port.
+"""The lens is up before the run, and the banner means it is SEEING.
 
-ADR 0035. Two failures are pinned here, both measured on 2026-08-14.
+ADRs 0035 and 0037. Three failures are pinned here, all measured on 2026-08-14.
+The file keeps its name: the lens is still up before the *run* -- before SLAM,
+Nav2, the mission and every `rerun()` exit that used to be invisible. What
+moved is that it now starts after the simulator, for a measured reason.
 
-**Invisible bring-up.** The lens started after SLAM and Nav2, and ten of the
-twelve `rerun()` exits precede that point, so a run that died in bring-up wrote
-no `lens.log` at all -- runs 20260814-022725, -023029 and -025555 did exactly
-that. The operator called them "faux launches".
+**Invisible bring-up** (0035). The lens started after SLAM and Nav2, and ten of
+the twelve `rerun()` exits precede that point, so a run that died in bring-up
+wrote no `lens.log` at all -- runs 20260814-022725, -023029 and -025555 did
+exactly that. The operator called them "faux launches".
 
-**A banner that could lie.** The old block printed `http://127.0.0.1:8765/`
-from a literal, unconditionally, after a poll that broke on success *or* on the
-lens dying -- while the lens walks to 8766-8770 when 8765 is taken. So it could
-announce a dead lens, or somebody else's stub.
+**A banner that could lie** (0035). The old block printed
+`http://127.0.0.1:8765/` from a literal, unconditionally, after a poll that
+broke on success *or* on the lens dying -- while the lens walks to 8766-8770
+when 8765 is taken. So it could announce a dead lens, or somebody else's stub.
+
+**A banner that told the truth about the wrong thing** (0037). Two of six runs
+were watched by a lens that answered `/healthz` for their whole length and
+resolved nothing: 500 history rows, every metric column null. Serving is not
+seeing. The banner is now gated on a non-zero scan rate, which is only askable
+after `simctl start` -- hence the move, and hence the inverted ordering
+assertion below.
 
 These are source-level assertions on purpose: the alternative is a six-minute
 Isaac run to watch a URL appear in the right order.
@@ -29,6 +39,10 @@ ROOT = Path(__file__).parent.parent
 RUNNER = ROOT / "tools/corridor_profile_run.sh"
 LENS = ROOT / "tools/lens/corridor_lens.py"
 
+#: The phase the lens must precede. Spelled out in full rather than as
+#: `phase "precondition` so a future second precondition cannot satisfy it.
+CONTRACT_PHASE = 'phase "precondition: $ROBOT contract'
+
 
 def _runner() -> str:
     return RUNNER.read_text(encoding="utf-8")
@@ -40,15 +54,31 @@ def _index(code: str, needle: str) -> int:
     return at
 
 
-def test_the_lens_starts_before_the_simulator() -> None:
-    """**The whole point.** Ten of twelve rerun() exits are after this line."""
+def test_the_lens_starts_after_the_simulator_and_before_the_run() -> None:
+    """**The whole point, in its 0037 form.**
+
+    After `simctl start`, because the seeing gate cannot be asked before /scan
+    exists -- and because 2 of 6 lenses created before Isaac went deaf against
+    0 of ~90 created after it.
+
+    Still before the contract precondition, and therefore before SLAM, Nav2,
+    the mission, and every `rerun()` exit that made bring-up invisible. That
+    half of ADR 0035 is not loosened by 0037; it is the reason the block did
+    not simply go back where it came from.
+    """
 
     code = _runner()
-    lens_at = _index(code, 'phase "lens"')
     sim_at = _index(code, '"$SIMCTL" start')
+    lens_at = _index(code, 'phase "lens"')
+    contract_at = _index(code, CONTRACT_PHASE)
 
-    assert lens_at < sim_at, (
-        "the lens starts after simctl again: every bring-up death is invisible"
+    assert sim_at < lens_at, (
+        "the lens is created before the simulator again: 2 of 6 such lenses "
+        "served for a whole run and heard nothing (ADR 0037)"
+    )
+    assert lens_at < contract_at, (
+        "the lens starts after the preconditions again: bring-up deaths go "
+        "back to being invisible (ADR 0035)"
     )
 
 
@@ -73,27 +103,72 @@ def test_no_port_literal_survives_in_the_runner() -> None:
 
 
 def test_a_lens_that_never_served_refuses_the_run() -> None:
-    """CLAUDE.md makes the lens mandatory equipment. Nothing has been spent at
-    this point, so refusing is free -- and an unwatchable run is the bug."""
+    """CLAUDE.md makes the lens mandatory equipment, and an unwatchable run is
+    the bug. Since 0037 the refusal costs an Isaac load -- deliberately: a
+    blind run does not merely fail to help, it poisons the evidence."""
 
     code = _runner()
     lens_at = _index(code, 'phase "lens"')
     refusal = code.find("the lens never served", lens_at)
 
     assert refusal > 0, "a lens that never served no longer refuses"
-    assert code.find('"$SIMCTL" start') > refusal, (
-        "the refusal must precede simctl, or it throws away an Isaac load"
+    assert code.find(CONTRACT_PHASE) > refusal, (
+        "the refusal must precede the mission, or the run is spent unwatched"
     )
     assert "--no-lens" in code[lens_at:refusal + 400], (
         "the refusal must name its own override"
     )
 
 
-def test_the_lens_log_is_quotable_evidence_for_that_refusal() -> None:
+def test_a_lens_that_never_saw_anything_also_refuses_the_run() -> None:
+    """**The 0037 refusal.** A lens serving `ok` while resolving nothing is the
+    faux launch that survived the first fix, and it is the worse of the two:
+    the earlier class at least failed loudly."""
+
     code = _runner()
-    start = _index(code, "diagnosis_log() {")
-    assert 'lens.log' in code[start:start + 600], (
-        "a lens refusal cannot quote its own log"
+    lens_at = _index(code, 'phase "lens"')
+    refusal = code.find("the lens never SAW the session", lens_at)
+
+    assert refusal > 0, "a deaf lens no longer refuses the run"
+    assert code.find(CONTRACT_PHASE) > refusal, (
+        "the deaf-lens refusal must precede the mission"
+    )
+    assert "--no-lens" in code[lens_at:refusal + 400], (
+        "the refusal must name its own override"
+    )
+
+
+def test_the_deaf_lens_is_restarted_once_and_its_log_is_kept() -> None:
+    """One restart, because the deafness has no identified mechanism and a
+    retry is cheaper than a lost Isaac load. Attempt 1's log is the only
+    artifact the failure leaves, so it is copied aside before the retry
+    overwrites it."""
+
+    code = _runner()
+    lens_at = _index(code, 'phase "lens"')
+    block = code[lens_at:code.find(CONTRACT_PHASE)]
+
+    assert "for attempt in 1 2" in block, "the deaf lens is no longer retried"
+    assert "lens-attempt1.log" in block, (
+        "the retry overwrites the only evidence of the first failure"
+    )
+    assert 'kill -TERM "$LENS_PID"' in block, (
+        "the deaf lens is reaped by $! again, which is the setsid wrapper"
+    )
+
+
+def test_the_banner_is_printed_only_where_the_lens_was_seen() -> None:
+    """A banner outside the seen branch is the old bug with extra steps."""
+
+    code = _runner()
+    lens_at = _index(code, 'phase "lens"')
+    block = code[lens_at:code.find(CONTRACT_PHASE)]
+
+    banner = "echo \"  lens: $LENS_URL"
+    assert block.count(banner) == 1, "the banner is printed in more than one place"
+    seen_at = block.index('if [ "$LENS_SEEN" = 1 ]; then')
+    assert block.index(banner) > seen_at, (
+        "the banner is printed outside the branch that proved the lens sees"
     )
 
 
@@ -143,6 +218,43 @@ def test_the_runner_and_the_lens_agree_on_the_announcement(tmp_path) -> None:
     assert url == written["url"] == "http://127.0.0.1:8767/"
     assert int(port) == 8767, "the runner would verify the wrong port"
     assert int(pid) == written["pid"]
+
+
+def test_the_runner_and_the_lens_agree_on_what_seeing_means() -> None:
+    """**The second seam test**, and the one that matters most today.
+
+    The lens decides what `/healthz` says; the runner decides what counts as
+    seeing. They are a shell/Python pair again, and getting them out of step
+    means either refusing every healthy run or accepting every deaf one.
+
+    So: run the lens's own `healthz_payload` over the three shapes it can
+    produce, and judge each with the runner's own extracted snippet.
+    """
+
+    sys.path.insert(0, str(ROOT / "tools/lens"))
+    try:
+        import corridor_lens
+    except ImportError as exc:  # pragma: no cover - environment, not logic
+        pytest.skip(f"the lens is not importable here: {exc}")
+
+    code = _runner()
+    start = code.index("python3 -c '\nimport sys, json")
+    end = code.index("'", code.index("rates.get(\"scan\")", start))
+    snippet = code[start + len("python3 -c '"):end]
+
+    def verdict(state) -> int:
+        payload = json.dumps(corridor_lens.healthz_payload(state))
+        return subprocess.run([sys.executable, "-c", snippet], input=payload,
+                              capture_output=True, text=True).returncode
+
+    seeing = {"t": 12.0, "frozen": False, "rates": {"scan": 14.3, "map": 0.4}}
+    deaf = {"t": 12.0, "frozen": False, "rates": {"scan": 0.0, "map": 0.0}}
+    frozen = {"t": 300.0, "frozen": True, "rates": {"scan": 0.0}}
+
+    assert verdict(seeing) == 0, "the runner would refuse a healthy lens"
+    assert verdict(deaf) == 1, "the runner would accept a deaf lens -- the bug"
+    assert verdict(frozen) == 1, "a lens whose data stopped is not seeing either"
+    assert verdict(None) == 1, "a lens with no sample yet has not seen anything"
 
 
 def test_the_announcement_carries_the_pid_for_a_setsid_launch() -> None:
