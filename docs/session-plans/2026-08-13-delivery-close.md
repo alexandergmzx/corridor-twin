@@ -343,9 +343,21 @@ this one waits for the decision below.
 
 W4 follows W3.
 
-## Morning decisions
+## Morning decisions — SUPERSEDED, written midday
 
-1. **The decoy: scene or arming?** Either `EastWallStub` loses its free west
+> **This block is stale and is kept only as the record of what was believed at
+> the time it was written.** It predates the afternoon's work by several hours,
+> and the current decisions are in the Handback's own "Morning decisions"
+> section below. A reader who stops here gets the wrong answer to both items,
+> and on 2026-08-13 a subsequent session's brief did exactly that.
+>
+> | this block says | what actually happened |
+> |---|---|
+> | the decoy is an open scene-vs-arming decision | **closed by `2a4e706`** — convexity separates B from the stub; the scene is untouched and `EastWallStub` stays |
+> | it "unblocks W3 and W4" | W3 and W4 were unblocked the same afternoon |
+> | deleting the stub's free west end is arguable | **wrong** — the stub is drawing-derived (ADR 0018) and defines the drivable lane centre, 4.083 m against a 4.500 m geometric mid |
+
+1. ~~**The decoy: scene or arming?**~~ Either `EastWallStub` loses its free west
    end — arguably a modelling artefact rather than an intended feature, since
    nothing in the scenario calls for a wall that stops in mid-air — or arming
    stops being first-past-the-post and accumulates evidence across the whole
@@ -354,7 +366,8 @@ W4 follows W3.
    **This is the decision that unblocks W3 and W4.**
 2. **W6's footage is not of a delivery** (deviation 3). If footage of a real
    Nav2 delivery is the actual requirement, that needs the fleet edit and a
-   different session.
+   different session. *(Still true. Granted as a scoped fleet edit for the
+   2026-08-13 estimator session.)*
 
 ---
 
