@@ -291,3 +291,28 @@ def test_arming_still_unlocks_before_the_earliest_measured_arming() -> None:
             f"{profile}: min_travel {machine.min_travel_m:.3f} no longer excludes "
             f"the spawn region"
         )
+
+
+def test_the_governor_topics_are_absolute_and_match_the_governor() -> None:
+    """**A silent topic mismatch looks exactly like a mask that never applied.**
+
+    The safety governor is not namespaced: `safety_launch.py` declares the node
+    with no `namespace=`, and the node subscribes to a literal `/scan` and
+    `/cmd_vel_raw`. So it lives at `/cmd_vel_governor` whatever robot it governs.
+
+    Building these names from the gate's own namespace was correct for robot1
+    only by coincidence -- robot1's namespace is the empty string -- and would
+    have published into the void for robot2. Pinned as absolute so the
+    coincidence cannot be mistaken for a derivation.
+    """
+
+    assert nav_gate.GOVERNOR_CMD_TOPIC == "/cmd_vel_raw"
+    assert nav_gate.GOVERNOR_DOCKING_TOPIC == "/cmd_vel_governor/docking_approach"
+    for topic in (nav_gate.GOVERNOR_CMD_TOPIC, nav_gate.GOVERNOR_DOCKING_TOPIC):
+        assert topic.startswith("/"), "the governor is not namespaced"
+        assert "{" not in topic and "robot" not in topic
+
+    # And the creep must never reach the firmware without passing the filter.
+    assert nav_gate.GOVERNOR_CMD_TOPIC != "/cmd_vel", (
+        "publishing to /cmd_vel bypasses the governor -- the one thing it warns about"
+    )

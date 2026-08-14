@@ -79,6 +79,18 @@ from corridor_dock import DELIVERY_STANDOFF_M  # noqa: E402
 STATUS_NAMES = {2: "EXECUTING", 4: "SUCCEEDED", 5: "CANCELED", 6: "ABORTED"}
 STATUS_SUCCEEDED = 4
 
+#: The safety governor's two topics, ABSOLUTE because the governor is not
+#: namespaced: `safety_launch.py` declares it with no `namespace=`, and the node
+#: subscribes to a literal `/scan` and `/cmd_vel_raw`.
+#:
+#: The creep drives through `/cmd_vel_raw` like every other motion in this
+#: project. Publishing to `/cmd_vel` would bypass the governor entirely, which
+#: is the failure the governor logs a warning about on every startup.
+GOVERNOR_CMD_TOPIC = "/cmd_vel_raw"
+#: `~/docking_approach` on the governor node, resolved. ADR 0033: the governor
+#: is informed of the terminal approach, never bypassed for it.
+GOVERNOR_DOCKING_TOPIC = "/cmd_vel_governor/docking_approach"
+
 
 def route_to_delivery_m(manifest: dict, profile: str) -> float:
     """Path length from A's spawn to the delivery, from the manifest's own legs.
@@ -227,11 +239,22 @@ class NavGate(Node):
         # would bypass the safety filter -- the thing it warns about on startup.
         self.measured_vx: float | None = None
         self.creeping = False
-        self.cmd_pub = self.create_publisher(Twist, f"{namespace}/cmd_vel_raw", 10)
-        # The governor's own docking topic. `~/docking_approach` on the governor
-        # node resolves here to an absolute name, because this node is not it.
+        # BOTH TOPICS ARE ABSOLUTE, and deliberately not built from `namespace`.
+        #
+        # The governor is not namespaced. `safety_launch.py` declares the node
+        # with no `namespace=`, and the node itself subscribes to a literal
+        # `/scan` and `/cmd_vel_raw`, so it lives at `/cmd_vel_governor` whatever
+        # robot it is governing. Deriving these from this gate's namespace was
+        # correct for robot1 only by coincidence -- robot1's namespace is the
+        # empty string -- and would have published into the void for robot2,
+        # which looks exactly like "the mask never applied".
+        #
+        # `~/docking_approach` on the governor resolves to the absolute name
+        # below. If the governor ever gains a namespace, these two constants and
+        # that launch file move together or the creep silently loses its mask.
+        self.cmd_pub = self.create_publisher(Twist, GOVERNOR_CMD_TOPIC, 10)
         self.approach_pub = self.create_publisher(
-            Vector3Stamped, f"{namespace}/cmd_vel_governor/docking_approach", 10
+            Vector3Stamped, GOVERNOR_DOCKING_TOPIC, 10
         )
         if True:
             from rclpy.qos import QoSProfile, ReliabilityPolicy
