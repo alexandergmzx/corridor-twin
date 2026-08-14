@@ -1,0 +1,52 @@
+{
+  "label": "f3.2-compliant",
+  "stations": "out/evidence/ship-day/f3.2-compliant/stations.json",
+  "schedule": "out/evidence/ship-day/f3.2-compliant/commanded-pose-schedule.json",
+  "commanded_mps": 0.08,
+  "probes": [
+    {
+      "station_m": 0.5,
+      "schedule_t_s": 6.533,
+      "pixels_t_s": 11.205,
+      "lag_s": 4.672,
+      "lag_m": 0.3737
+    },
+    {
+      "station_m": 1.0,
+      "schedule_t_s": 12.833,
+      "pixels_t_s": 21.422,
+      "lag_s": 8.589,
+      "lag_m": 0.6871
+    },
+    {
+      "station_m": 1.5,
+      "schedule_t_s": 19.133,
+      "pixels_t_s": 29.363,
+      "lag_s": 10.229,
+      "lag_m": 0.8183
+    },
+    {
+      "station_m": 2.0,
+      "schedule_t_s": 25.433,
+      "pixels_t_s": 38.858,
+      "lag_s": 13.425,
+      "lag_m": 1.074
+    },
+    {
+      "station_m": 2.5,
+      "schedule_t_s": 31.733,
+      "pixels_t_s": 46.738,
+      "lag_s": 15.005,
+      "lag_m": 1.2004
+    },
+    {
+      "station_m": 3.0,
+      "schedule_t_s": 38.033,
+      "pixels_t_s": 50.894,
+      "lag_s": 12.861,
+      "lag_m": 1.0289
+    }
+  ],
+  "lag_growth_s_per_s": 0.28748,
+  "content_rate_vs_clock": 0.71252
+}
