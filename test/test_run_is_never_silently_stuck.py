@@ -181,3 +181,75 @@ def test_a_missing_log_is_recorded_rather_than_raising(tmp_path: Path) -> None:
     entry = json.loads(manifest.read_text(encoding="utf-8"))["diagnosis"][0]
     assert "absent" in entry["log"]
     assert "log_tail" not in entry
+
+
+# ------------------------------------------- the phase is the one it died in
+#
+# Run 20260814-025555 died in SLAM bring-up. Its run.json records
+# `diagnosis[0].phase` as "precondition: robot1 contract (--domain 67 ...)",
+# because that stage had no phase() of its own and inherited the previous one.
+# The watchdog and the completion check both stamp ${PHASE} into the verdict,
+# so a misattributed phase is a misattributed post-mortem.
+
+
+def _phase_labels_with_positions(code: str) -> list[tuple[int, str]]:
+    return [(m.start(), m.group(1))
+            for m in re.finditer(r'^\s*phase "([^"]+)"', code, re.M)]
+
+
+def _phase_covering(code: str, needle: str) -> str:
+    """The phase in force where `needle` executes."""
+
+    at = code.index(needle)
+    before = [(pos, label) for pos, label in _phase_labels_with_positions(code)
+              if pos < at]
+    assert before, f"nothing sets a phase before {needle!r}"
+    return before[-1][1]
+
+
+def test_the_slam_bringup_is_labelled_slam() -> None:
+    """The one with measured evidence: 025555's SLAM death, filed under the
+    contract precondition."""
+
+    code = _code()
+    label = _phase_covering(code, "ros2 launch yahboomcar_config slam_launch.py")
+
+    assert "slam" in label.lower(), (
+        f"a SLAM death would be recorded as {label!r}, which is where 025555's "
+        f"post-mortem sent the last reader"
+    )
+
+
+def test_the_map_save_is_labelled_for_its_own_timeout() -> None:
+    """It carries a `timeout 60` and is watchdog-exposed."""
+
+    code = _code()
+    label = _phase_covering(code, "map_saver_cli")
+
+    assert "map" in label.lower(), f"a map-save kill would be recorded as {label!r}"
+
+
+def test_the_lock_wait_is_not_filed_under_the_arena_check() -> None:
+    """The Isaac lock may legitimately poll for 45 minutes. An operator reading
+    `.phase` during it must not be told the arena is being checked."""
+
+    code = _code()
+    label = _phase_covering(code, "isaac_lock_acquire")
+
+    assert "arena" not in label.lower(), (
+        f"a 45-minute lock wait reports {label!r}"
+    )
+
+
+def test_no_phase_is_set_inside_teardown() -> None:
+    """`on_signal` tears down FIRST and then reads ${PHASE}. A phase set inside
+    teardown would overwrite the very phase the signal handler exists to report.
+    """
+
+    code = _code()
+    start = code.index("teardown() {")
+    body = code[start:code.index("\n}\n", start)]
+
+    assert not re.search(r'^\s*phase "', body, re.M), (
+        "teardown sets a phase; it would erase the phase the run died in"
+    )

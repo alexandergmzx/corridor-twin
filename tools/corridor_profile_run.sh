@@ -333,6 +333,8 @@ if ! "$REPO/.venv/bin/python" "$REPO/tools/check_arena_matches_manifest.py" \
   rerun "the arena and the manifest are different scenarios (see $RUN_DIR/arena-check.json)"
 fi
 
+phase "precondition: the host and the domain are clean"
+
 occupants() {
   local ancestry=" $$ " walk=$PPID
   while [ -n "$walk" ] && [ "$walk" -gt 1 ] 2>/dev/null; do
@@ -820,7 +822,11 @@ if [ -n "$SLAM_PARAMS" ]; then
   slam_ready=0
   while [ "$slam_attempt" -lt 2 ] && [ "$slam_ready" != 1 ]; do
     slam_attempt=$((slam_attempt + 1))
-    echo "=== slam_toolbox (corridor params: $(basename "$SLAM_PARAMS"), attempt $slam_attempt) ==="
+    # Per attempt, and a real phase: run 20260814-025555 died in SLAM and its
+    # run.json recorded the phase as "precondition: robot1 contract", because
+    # this stage had no phase() of its own and inherited the previous one. The
+    # watchdog and the completion check both stamp ${PHASE} into the verdict.
+    phase "slam bring-up attempt $slam_attempt (params: $(basename "$SLAM_PARAMS"))"
     ros2 launch yahboomcar_config slam_launch.py "params_file:=$SLAM_PARAMS" \
       >"$RUN_DIR/slam-attempt$slam_attempt.log" 2>&1 &
     slam_pid=$!
@@ -1167,7 +1173,9 @@ sed 's/^/    /' "$RUN_DIR/gate.log" | tail -20
 # then correctly reports that this session produced no map -- which would leave
 # every corridor-params run unscoreable.
 if [ -n "$SLAM_PARAMS" ]; then
-  echo "=== saving the map (we own SLAM) ==="
+  # Its own phase: this carries a `timeout 60` and is watchdog-exposed, and
+  # without one a kill here is stamped "transit recorder verdict".
+  phase "saving the map (we own SLAM)"
   OWN_MAP="$RUN_DIR/map"
   timeout 60 ros2 run nav2_map_server map_saver_cli -f "$OWN_MAP" \
     --ros-args -p save_map_timeout:=20.0 \
