@@ -813,8 +813,13 @@ manifest --set "shm_fastrtps_pre=$(shm_fastrtps_count)"
 # the corridor supplies corridor params without editing a single fleet file.
 SLAM_FLAG=""
 [ -n "$SLAM_PARAMS" ] && SLAM_FLAG="--no-slam"
+# --trust-clean: the attestation is real, not a shortcut -- this runner has
+# ALREADY refused on live occupants (exit 2) and resident nodes (exit 3)
+# above. simctl then runs its discovery dwell with a 4 s silence budget
+# instead of 14 s; hardware/simulator EVIDENCE still ends the dwell exactly
+# as before (fleet commit cfa1220, under the 2026-08-14 conditional grant).
 "$SIMCTL" start --robot "$ROBOT" --backend isaac --domain "$DOMAIN" \
-  --no-patrol $RVIZ_FLAG $SLAM_FLAG || {
+  --no-patrol --trust-clean $RVIZ_FLAG $SLAM_FLAG || {
   rerun "simctl start failed for $PROFILE"; }
 manifest --set "shm_fastrtps_post_simctl=$(shm_fastrtps_count)"
 
