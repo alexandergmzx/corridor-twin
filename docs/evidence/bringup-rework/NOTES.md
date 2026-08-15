@@ -144,3 +144,14 @@ wait carried a ≥5 s floor), clean teardown
   descriptive `phase_typical_s`/header numbers deliberately still say
   ~63 s / ~100 s (the corridor-only shape) until the fleet branch passes
   review and a full batch re-measures.
+
+## Cold-start demonstration, six hours later (22:50 CST)
+
+Two more runs on operator request, first Isaac start since 16:31 — a cold
+box, not a warmed batch tail: lens frac **0.969 / 0.976** (no restart, no
+refusal → **0 deaf of 18** on 2026-08-14), `simctl start` **40 s** both,
+goal at **80 / 75 s**, first motion **+1.47 / +1.41 s**, and **zero
+`gate.json` failures on both** — run `225029` is the first `nav SUCCEEDED`
+with a fully green gate file in the record; its remaining red is the
+docking criterion alone (closest approach 0.1671 m vs the 0.15 m bound,
+the ADR 0033 family). The ≈76–81 s command→motion shape reproduces cold.
