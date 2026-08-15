@@ -6,10 +6,10 @@ increments without requiring a reader to reconstruct status from commit history.
 
 | Field | Value |
 |---|---|
-| Map version | 1.9.0 |
-| Last updated | 2026-08-12 |
+| Map version | 1.10.0 |
+| Last updated | 2026-08-14 |
 | Scenario source | [`ROBO_TASK.pdf`](ROBO_TASK.pdf) |
-| Current milestone | **A delivers autonomously and perceives B, and the instruments now agree with the world.** Governed Nav2 on a live SLAM map, no authored route, reaching **0.061–0.129 m** of the delivery standoff on three consecutive runs (world frame, from truth). The scenario the robot drives and the plan it navigates are the same scene and hash-checked before every run (ADR 0030); the startup pirouette is gone (it was the contract precondition driving, not navigation); the wheel radius is calibrated and midpoint drift is **0.159 → 0.0097**. Robot A is decided: robot1 (ADR 0027); isolation is verified (ADR 0026) |
+| Current milestone | **Bring-up is reliable, watched, and half as long.** The deaf-lens failure that cost 2 of 4 runs is gone: corridor sessions run DDS over UDP only (ADR 0040, accepted on a 10-run batch; **0 deaf of 16 runs** on 2026-08-14), the banner's gate demands scan-count *progress* so a burst cannot buy it (ADR 0041), and every fixed wait in bring-up is now its measured event — command → first motion fell **≈131 s → ≈101 s** corridor-side (≈76 s in a 2-run spot-check with the unreviewed fleet branch). Every run now records per-phase durations, DDS matching, and a `/dev/shm` census. [Evidence](evidence/bringup-rework/NOTES.md). *Prior milestone, still standing:* A delivers autonomously and perceives B — governed Nav2 on a live SLAM map, no authored route, 0.061–0.129 m of the standoff on three consecutive runs; robot A = robot1 (ADR 0027); isolation verified (ADR 0026) |
 | Next milestone | **Close the map divergence, still the one thing keeping the arrival gate red.** Duplicate-wall extent reads 1.00–1.56 m against a 0.20 m limit, now scored on a masked map whose perfect-SLAM oracle reads 0.000 (ADR 0030). The LINEAR channel is no longer a suspect — calibrated 2026-08-12, 6.3% short on straight driving across seven bags — but the fusion still reports rotation its own input does not contain (0.14×–23.4×, IMU at 0.987–0.993 of truth), and that fix is outside this repo. See [ADR 0029](adr/0029-map-divergence-at-the-corner.md), [`NOTES-fusion-anomaly.md`](evidence/robot-a-gate/NOTES-fusion-anomaly.md), [`NOTES-odometry-scale.md`](evidence/robot-a-gate/NOTES-odometry-scale.md) |
 | Phase 3 opener | **P cannot see the corridor from P's own height** — ADR 0019's screen blocks all five enforcement stations. A 1.5 m mast on P's own footprint clears all five in 3-D. Awaiting Alexander's choice: [decision memo](evidence/p_cam_candidates/NOTES.md) |
 
@@ -63,10 +63,12 @@ flowchart LR
     V4["10. Autonomous delivery<br/>emergent route to B&apos;s standoff<br/>0.244 m, world frame from truth<br/><b>WORKING</b>"]
     V5["11. A perceives B<br/>geometric landmark, laser frame<br/>2.4&ndash;2.8 m, 3 frames to confirm<br/><b>WORKING</b>"]
     V6["12. Map divergence<br/>fusion reports 0.14&ndash;23.4x its input<br/>arrival gate RED until fixed<br/><b>BLOCKER</b>"]
+    V6b["12b. Bring-up rework<br/>0 deaf of 16 (UDP-only, ADR 0040)<br/>command&rarr;motion 131&rarr;~101 s<br/><b>DONE</b>"]
     V7["13. Learned enforcement detector<br/>ADR 0024, synthetic-first<br/><b>NEXT</b>"]
 
     P1 --> P2 --> P3 --> P3b --> P4 --> P5 --> P6 --> P3c
     P6 --> V2 --> V3 --> V4 --> V5 --> V6 --> V7
+    V6 --> V6b --> V7
     P3c -.-> P7
 
     classDef blocked fill:#5c1f1f,color:#ffffff,stroke:#ff6b6b,stroke-width:2px;
@@ -99,6 +101,7 @@ Linux Mint as an unsupported operating system. Ubuntu 24.04 remains the fallback
 | **SLAM map at the far end** | **BROKEN — the one open blocker** | Duplicate wall extent **0.740–2.680 m** against an authored "perfect SLAM" reference that scores **0.000 m**. Seven causes eliminated by measurement (motion sources, calibration, rate, sign, simulator slowdown, system load, corridor shape); loop closure **falsified** by test. What remains: `robot_localization` reports **0.14×–23.4×** its own input's rotation, from an IMU measuring 0.987–0.993 of truth, and it never jumps — continuous over-integration. [ADR 0029](adr/0029-map-divergence-at-the-corner.md) | A fleet-side fix: IMU covariances or the filter's config. Not reachable from this repo |
 | Local controller | DWB, on numbers | MPPI arm built and tested to differ in exactly one block; it aborted after ~0.5 m with its control loop at **4.8–11.8 Hz against a configured 20 Hz**. DWB reached B on five transits of five. [Evidence](evidence/robot-a-gate/NOTES-u3-controllers.md) | Retry MPPI at a smaller batch before drawing an algorithmic conclusion |
 | Communication-domain isolation | **Working** | A on ROS domain 42, P on 43, crossed only by a three-topic one-way allowlist. Proved with no GPU and no Isaac: the police domain cannot discover A's camera topic, no message crosses unbridged, and every negative is paired with a positive control that skips rather than passes. Forcing both probes onto one domain fails 2 of 3 DDS tests. [ADR 0020](adr/0020-communication-domain-isolation.md) | Confirm on the live Isaac path, which this branch does not requalify |
+| **Reliable, watched bring-up** | **Working** | Deafness **0 of 16 runs** under UDP-only (ADR 0040; baseline 2 of 4), the seeing gate demands count **progress** across two reads (ADR 0041 — the old rate gate passed a burst-then-dead lens), and every run records per-phase durations, per-topic DDS matching, and a `/dev/shm` census. Fixed waits replaced by their events: contract sampled in parallel, settle on first-map, Nav2's manager on `get_state` discoverability (0.1 s measured vs the 5 s timer). Command → first motion **≈131 → ≈101 s** corridor-side; **≈76 s** with the fleet simctl branch (2-run spot-check, unreviewed). The synthetic churn repro did **not** reproduce the deafness — mechanism bounded, fix empirical. [Evidence](evidence/bringup-rework/NOTES.md) | Merge review of fleet `simctl-events-2026-08-14`, then an 8-run batch before quoting ≈76 s; lens∥simctl overlap decision |
 
 ## Evidence boundary
 
