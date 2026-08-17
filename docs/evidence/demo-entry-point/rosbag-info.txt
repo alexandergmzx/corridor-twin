@@ -1,0 +1,16 @@
+
+Files:             rosbag_0.mcap
+Bag size:          245.0 MiB
+Storage id:        mcap
+ROS Distro:        jazzy
+Duration:          37.298563284s
+Start:             Aug 17 2026 06:16:57.156818775 (1786969017.156818775)
+End:               Aug 17 2026 06:17:34.455382059 (1786969054.455382059)
+Messages:          2926
+Topic information: Topic: /clock | Type: rosgraph_msgs/msg/Clock | Count: 2058 | Serialization Format: cdr
+                   Topic: /p_cam/camera_info | Type: sensor_msgs/msg/CameraInfo | Count: 497 | Serialization Format: cdr
+                   Topic: /p_cam/image_raw | Type: sensor_msgs/msg/Image | Count: 371 | Serialization Format: cdr
+                   Topic: /police/speed_estimate | Type: corridor_interfaces/msg/SpeedEstimate | Count: 0 | Serialization Format: cdr
+                   Topic: /police/speed_violation | Type: corridor_interfaces/msg/SpeedViolation | Count: 0 | Serialization Format: cdr
+Service:           0
+Service information: 
