@@ -175,9 +175,70 @@ counterexample the same day**: run `20260814-125254`'s lens was created after
 `simctl start`, passed the gate, and went deaf within seconds while delivering
 normally. The placement keeps its conclusion and loses its reason.
 
+[ADR 0041](docs/adr/0041-seeing-means-progress.md) then amends the gate itself.
+Run `20260814-133559` heard its last message at t≈0.25 s and still cleared the
+gate at t≈6 s, because a rate measured over a 10 s trailing window echoes a
+burst from a lens that has already gone deaf. `lens_is_seeing` now reads the
+monotonic scan **count** twice, 0.6 s apart, and passes only if it moved. Both
+0037's and 0039's conclusions stand; the discriminator changed.
+
 Every run now records `lens_resolved_frac` in `run.json`. Over the six morning
 runs it separates them completely: 0.604, 0.633, 0.632, 0.776 for the four that
 saw, and exactly 0.000 twice.
+
+---
+
+## The bring-up became reliable, and then shorter by nearly a quarter
+
+Each deafness above costs a full Isaac load: run `20260814-133559` spent its
+whole 136 s bring-up before the second check refused it. (The day this project
+lost to a phantom detection at 0.910 m was 2026-08-12 and a stale arena —
+[ADR 0031](docs/adr/0031-b-is-the-cylinder.md) — which is why the lens is
+mandatory equipment at all, not an instance of it going deaf.) It is now fixed,
+and the fix is empirical rather than explained.
+
+[ADR 0040](docs/adr/0040-corridor-sessions-are-udp-only.md) puts corridor
+sessions on **DDS over UDP only**. The synthetic churn repro built to confirm the
+shared-memory mechanism **did not reproduce it** — three arms, all clean — and
+that negative result is recorded against the hypothesis in
+[`docs/evidence/lens-deafness/`](docs/evidence/lens-deafness/NOTES.md) rather
+than quietly dropped. The decision therefore rests on the fleet's OI-13 precedent
+and on the batch:
+
+| | baseline | UDP-only |
+|---|---|---|
+| Deaf lenses | 2 of 4 | **0 of 18** (2026-08-14) |
+| `lens_resolved_frac` | 0.000 twice | 0.843–0.983 |
+| `/dev/shm` fastrtps entries | swept 85 stale segments at teardown | **none created** — `pre` = `post` on all 18; fully 0/0/0 on 13 of 18, the rest pre-existing host residue |
+| `odom_laser` | 10.57 / 10.61 Hz | **13.51–13.95 Hz** — *faster* |
+| EKF output | 9.95–9.99 Hz | 9.98–10.0 Hz — unchanged |
+
+Then every fixed wait in bring-up was replaced by the event it was standing in
+for, or made to carry its measured ceiling:
+
+| | command → first motion | basis |
+|---|---|---|
+| Baseline | ≈131 s | 2026-08-14 pre-UDP baseline (no batch size recorded) |
+| Corridor-side (ADR 0040 + events) | **≈101 s** | 4-run confirm batch |
+| With the fleet `simctl` edits | ≈76 s | **2-run spot-check, not a batch** |
+
+The ≈76 s figure is deliberately **not** quoted as a standing number: two runs is
+a spot-check, and gate discipline reserves that claim for a full batch under the
+reviewed fleet branch. The corridor's own `phase_typical_s` and header still
+state the corridor-only shape for the same reason.
+
+Two cold-start runs six hours later reproduce it off a cold box — `lens_frac`
+0.969 / 0.976, `simctl start` 40 s, first motion +1.47 / +1.41 s — and run
+`20260814-225029` is the first `nav SUCCEEDED` in the record with a fully green
+`gate.json`, its only remaining red the ADR 0033 docking criterion (0.1671 m
+against a 0.15 m bound). Evidence:
+[`docs/evidence/bringup-rework/`](docs/evidence/bringup-rework/NOTES.md).
+
+**0-deaf-of-18 is a lens verdict, not a mission verdict.** On the ten-run
+acceptance batch every run still carried a red mission-level criterion — six the
+EKF-output-gap family, the rest unproven contact — and gate-green runs were 4 of
+10, against 0 of 5 at baseline. The mission-level reds are untouched and listed
+below.
 
 ---
 
@@ -267,7 +328,9 @@ nothing from either — set `ROS_DOMAIN_ID` to the side you mean to inspect.
 | [`docs/evidence/speed-profile/`](docs/evidence/speed-profile/NOTES.md) | A's measured profile and the policy pinned from it |
 | [`docs/evidence/lens/first-instrument/`](docs/evidence/lens/first-instrument/NOTES.md) | the six-run series, and two withdrawn claims |
 | [`docs/evidence/bump-live/`](docs/evidence/bump-live/NOTES.md) | A touching B, truth-measured |
-| [`docs/adr/`](docs/adr/README.md) | 38 decision records with a decision map |
+| [`docs/evidence/bringup-rework/`](docs/evidence/bringup-rework/NOTES.md) | the UDP-only batch, the T2 timings, and the cold-start runs |
+| [`docs/evidence/lens-deafness/`](docs/evidence/lens-deafness/NOTES.md) | the churn repro that did **not** reproduce, filed against its hypothesis |
+| [`docs/adr/`](docs/adr/README.md) | 40 decision records with a decision map |
 | [`docs/REVIEW-LOG.md`](docs/REVIEW-LOG.md) | every finding raised and how it was dispositioned |
 
 The commit history is part of the deliverable. Each behaviour commit carries

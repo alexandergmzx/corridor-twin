@@ -53,9 +53,14 @@ resolved fractions sit in the healthy band (0.843–0.887; the deaf shape is
 | first motion after goal | 1.37–2.72 s (18-run baseline) | 1.49 s (spot-read, 152508) | ≤30 |
 
 Consistent with fleet OI-13's measurement ("worst-case inter-arrival gaps
-BETTER under UDP-only"). `/dev/shm` carries **zero** fastrtps entries for
-the whole session — the census columns are the structural proof that no
-corridor participant touches shared memory any more.
+BETTER under UDP-only"). The census columns are the structural proof that no
+corridor participant touches shared memory any more: `pre` equals `post` on
+every run, so the session **creates zero** fastrtps entries. Nine of these ten
+read 0/0/0 throughout; run `151747` inherited two pre-existing entries and
+swept them at teardown. (Across all 18 UDP-only runs of the day the same holds
+— `pre` = `post` on all 18, fully 0/0/0 on 13; the non-zero counts are
+host-wide residue from processes outside the corridor session, which is not
+switched on the P plane.)
 
 ## What stayed red, named so nobody reads 10/10 as a mission verdict
 
