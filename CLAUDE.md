@@ -451,7 +451,7 @@ that way): two of six runs on 2026-08-14 were watched by a lens that answered
 proof. A lens that cannot serve, or that hears nothing twice, **refuses the
 run**; `--no-lens` opts out and needs a reason. Since ADR 0040, corridor
 sessions run DDS over UDP only — the deafness measured 2-of-4 before it and
-0-of-14 after.
+0-of-18 after.
 
 This is a rule because ignoring it cost most of a day. A phantom landmark
 detection at 0.910 m re-aimed an entire mission while B's real post stood five

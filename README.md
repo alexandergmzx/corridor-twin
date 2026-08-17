@@ -1,11 +1,18 @@
 # corridor-twin
 
 An interview-sized digital-twin scenario for OpenUSD, ROS 2 Jazzy, and NVIDIA
-Isaac Sim. Robot A delivers a package to person B through a tapered corridor.
-Police observer P runs on a **separate ROS communication domain** from A and has
-no direct line of sight to it, but is permitted to consume A's front-camera feed
-through one allowlisted gateway and detect speed violations from surveyed ArUco
-markers.
+Isaac Sim. Robot A navigates **autonomously** on its own lidar to deliver a
+package to person B through a tapered corridor and around a corner onto the next
+street. Traffic police P runs on a **separate ROS communication domain** from A
+and measures A's speed from **P's own roadside camera** — a learned detector,
+with a classical ArUco baseline — crossing the domain boundary through one
+allowlisted, one-way gateway. A carries no camera, and P stays out of A's
+sightline.
+
+> The paragraph above describes v2, the delivered system (ADRs 0021–0024). In
+> v1 the camera was A's and the fiducials were surveyed wall markers; the v1
+> figures in the milestone table below are true of the runs they describe and
+> are quotable only as v1 (ADR 0022).
 
 ## Current status
 
