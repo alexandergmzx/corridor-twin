@@ -154,14 +154,17 @@ cmd_enforce() {
 
   if [ ! -f "$abs_stage" ]; then
     echo "  arena missing, composing it: $stage"
-    require_isaac_python
     local -a build=(
       "$ISAAC_PYTHON" "$REPO/tools/build_corridor_arena.py"
       --robot "$ROBOT" --profile "$PROFILE"
     )
+    # A dry run must be hermetic: it composes and prints, and touches neither
+    # Isaac nor the arena. That is what lets CI -- which has no GPU, no Isaac
+    # interpreter and no out/ -- test the composition at all.
     if [ "$DRY_RUN" = 1 ]; then
       printf 'DRY RUN would build: %s\n' "${build[*]}"
     else
+      require_isaac_python
       ( cd "$REPO" && "${build[@]}" ) || die "arena build failed for $PROFILE"
       [ -f "$abs_stage" ] || die "arena build reported success but $stage is absent"
     fi

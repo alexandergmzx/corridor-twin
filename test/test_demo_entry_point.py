@@ -139,6 +139,30 @@ def test_enforce_writes_bulk_output_under_out_and_never_into_committed_evidence(
     assert "docs/evidence" not in path
 
 
+def test_a_dry_run_needs_neither_isaac_nor_a_built_arena() -> None:
+    """The dry run must be hermetic, or it cannot do its job.
+
+    CI has no GPU, no Isaac interpreter, and no `out/` -- the arena is generated
+    and gitignored. The first version of this script called its Isaac-Python
+    guard before the dry-run branch, so `enforce` died on CI while passing on a
+    developer host that happened to have both. That is the same
+    local-has-state-CI-lacks failure this repository has now hit three times.
+    """
+    env = dict(os.environ)
+    env["CORRIDOR_DEMO_DRY_RUN"] = "1"
+    env["ISAAC_PYTHON"] = "/nonexistent/isaac/python"
+    result = subprocess.run(
+        ["bash", str(DEMO), "enforce"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=ROOT,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "SPEED_MPS=0.22" in result.stdout, "the composition must still be printed"
+
+
 def _enforce_body() -> str:
     text = DEMO.read_text(encoding="utf-8")
     return text[text.index("cmd_enforce()") : text.index("subcommand=")]
