@@ -52,6 +52,14 @@ usage() {
   cat <<'USAGE'
 Usage: bash tools/demo.sh <deliver|enforce> [options]
 
+This runs the DEMONSTRATION, and the demonstration is robot1: A is robot1 by
+ADR 0027, so the robot is fixed here and there is no --robot option.
+
+For a MEASUREMENT whose subject is the robot -- re-running ADR 0027's gate on
+robot2 after a matcher retune, say -- call the runner directly and name it:
+
+    bash tools/corridor_profile_run.sh --robot robot2 --profile <name> --gated
+
   deliver   A navigates autonomously to B and docks onto contact.
             Governed Nav2 on a live SLAM map, no authored route.
             Runs on A's plane only. Watched by the lens, which refuses
@@ -220,6 +228,15 @@ while [ $# -gt 0 ]; do
     --profile) PROFILE="${2:?--profile needs a name}"; shift 2 ;;
     --as-recorded) AS_RECORDED=1; shift ;;
     -h|--help) usage; exit 0 ;;
+    # Passthrough forwards unknown flags to the runner, and the runner's parser
+    # is last-wins -- so `--robot robot2` here would emit
+    # "--robot robot1 ... --robot robot2" and quietly run robot2 while the line
+    # above printed "robot: robot1". A banner contradicting the run is the exact
+    # failure this script exists to prevent, so the flag is refused, not honoured.
+    --robot)
+      die "--robot is not an option here: the demonstration is robot1 (ADR 0027).
+  For a gate re-run on another twin, name it on the runner instead:
+    bash tools/corridor_profile_run.sh --robot ${2:-robot2} --profile $PROFILE --gated" ;;
     *) passthrough+=("$1"); shift ;;
   esac
 done

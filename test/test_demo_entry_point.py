@@ -236,6 +236,45 @@ def test_the_profile_list_matches_the_arena_builders_own() -> None:
     assert set(known.group(1).split()) == expected
 
 
+def test_robot_cannot_be_overridden_into_contradicting_the_banner() -> None:
+    """Passthrough forwards unknown flags, and the runner's parser is last-wins.
+
+    So `--robot robot2` would emit "--robot robot1 ... --robot robot2" and
+    quietly run robot2, while demo.sh printed "robot: robot1 (ADR 0027)" one
+    line above. A banner that contradicts the run is the precise failure this
+    script exists to prevent, so the flag is refused rather than honoured.
+
+    Found because a teammate read the script as the way to re-run ADR 0027's
+    gate on robot2, which is a measurement, not this demonstration.
+    """
+    for subcommand in ("deliver", "enforce"):
+        result = _run(subcommand, "--robot", "robot2")
+        assert result.returncode != 0, f"{subcommand} accepted --robot"
+        combined = result.stdout + result.stderr
+        assert "robot2" not in _dry_run_line(result.stdout), (
+            "a refused override must never reach the composed command"
+        )
+        assert "corridor_profile_run.sh" in combined, (
+            "the refusal must point at the tool that does take --robot"
+        )
+
+
+def _dry_run_line(stdout: str) -> str:
+    for line in stdout.splitlines():
+        if line.startswith("DRY RUN"):
+            return line
+    return ""
+
+
+def test_the_usage_says_the_demonstration_is_robot1_and_where_to_go_otherwise() -> None:
+    result = subprocess.run(
+        ["bash", str(DEMO), "--help"], capture_output=True, text=True, cwd=ROOT, timeout=30
+    )
+    assert result.returncode == 0
+    assert "robot1" in result.stdout
+    assert "corridor_profile_run.sh" in result.stdout
+
+
 def test_unrecognised_flags_reach_the_underlying_runner() -> None:
     """The entry point must not become a wall between the operator and the
     runner's own options."""
