@@ -261,7 +261,22 @@ python -m scene.build --m 6.0 --n 3.0 --out out/corridor.usda
 python -m scene.occlusion --stage out/corridor.usda \
   --manifest out/corridor.manifest.json --out out/occlusion-certificate.json
 bash tools/check_workspace.sh   # ruff, pytest, colcon build, colcon test
+
+bash tools/demo.sh deliver      # autonomous delivery, A's plane
+bash tools/demo.sh enforce      # F3.1 enforcement, P's camera, both planes
 ```
+
+**Run the demonstration through `tools/demo.sh`, not the engines underneath.**
+Three defaults below it are wrong and fail *quietly* — a complete run of the
+wrong scenario, with plausible artifacts and no error:
+`corridor_profile_run.sh` defaults `--robot` to **robot2** (ADR 0027 rejected
+it); `run_demo.sh` defaults to the **v1 stage at 1.0 m/s** and says so in its
+own header; `build_corridor_arena.py` defaults `--robot` to **rasptank**,
+writing an arena the enforcement pass never opens. `demo.sh` overrides all
+three explicitly rather than editing them, so recorded invocations stay
+reproducible. It also takes the machine-wide Isaac lock on the `enforce` path,
+which `run_demo.sh` does not. `CORRIDOR_DEMO_DRY_RUN=1` prints the resolved
+command without starting Isaac.
 
 `ros-jazzy-domain-bridge` is a runtime prerequisite since ADR 0020; `rosdep`
 installs it on Ubuntu but refuses this Mint host, so `sudo apt install

@@ -307,13 +307,20 @@ source .venv/bin/activate
 python -m scene.build --m 6.0 --n 3.0 --out out/corridor.usda
 bash tools/check_workspace.sh          # ruff, pytest, colcon build, colcon test
 
-# the autonomous delivery, on A's plane, watched
-bash tools/corridor_profile_run.sh --robot robot1 --profile nominal_m6_n3 \
-  --allow-contract-fail --corridor-slam
-
-# P's camera across the gateway, both planes
-bash tools/run_demo.sh --headless --record
+bash tools/demo.sh deliver             # autonomous delivery, A's plane
+bash tools/demo.sh enforce             # F3.1 enforcement, P's camera, both planes
 ```
+
+[`tools/demo.sh`](tools/demo.sh) is the entry point; it holds no simulation
+logic and calls `corridor_profile_run.sh` and `run_demo.sh`. It exists because
+three defaults underneath it are wrong and **fail quietly** — the profile runner
+defaults to robot2 (the twin ADR 0027 rejected), `run_demo.sh` defaults to the
+v1 stage at 1.0 m/s and says so in its own header, and the arena builder
+defaults to the rasptank chassis, writing a file the enforcement pass never
+opens. Each produces a complete run of the wrong scenario. `enforce` composes
+the arena if it is missing, sets the recorded F3.1 environment, and takes the
+machine-wide Isaac lock that `run_demo.sh` does not.
+`CORRIDOR_DEMO_DRY_RUN=1` prints the resolved command without starting Isaac.
 
 `ros-jazzy-domain-bridge` is a runtime prerequisite. The two halves run on
 separate domains, so a bare `ros2 topic list` in an unconfigured shell shows

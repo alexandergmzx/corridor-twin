@@ -340,16 +340,37 @@ station and the camera is now a static mast, and the fleet's `sim_runner.py`
 carries no camera. This is listed among the things
 [`DELIVERY.md`](DELIVERY.md) does not claim.
 
+One command each:
+
+```bash
+bash tools/demo.sh deliver     # autonomous delivery, A's plane
+bash tools/demo.sh enforce     # F3.1 enforcement pass, P's camera, both planes
+```
+
+[`tools/demo.sh`](tools/demo.sh) is the entry point and holds no simulation
+logic — it exists because **three of the defaults underneath it are wrong, and
+each one runs to completion and writes plausible artifacts rather than
+erroring**: the profile runner defaults to robot2 (the twin ADR 0027 rejected),
+`run_demo.sh` defaults to the v1 stage at 1.0 m/s, and the arena builder
+defaults to the rasptank chassis, writing a file the enforcement pass never
+opens. `--profile` selects among the three authored profiles;
+`CORRIDOR_DEMO_DRY_RUN=1` prints the resolved command without starting Isaac.
+
+The rest of this section is what those two commands run, and why each override
+is there.
+
 **The autonomous delivery** — governed Nav2 on a live SLAM map, no authored
 route, watched by the lens:
 
 ```bash
 bash tools/corridor_profile_run.sh --robot robot1 --profile nominal_m6_n3 \
-  --allow-contract-fail --corridor-slam
+  --allow-contract-fail
 ```
 
-**Both flags are disclosed rather than quietly carried, because both fire on
-every run behind the evidence above.**
+**Both flags below are disclosed rather than quietly carried.**
+`--allow-contract-fail` fires on every run behind the evidence above;
+`--corridor-slam` is what those runs used but is **not** what `demo.sh deliver`
+passes, for the reason given.
 
 `--allow-contract-fail` is an **override of a pre-existing twin defect**, not a
 lowered threshold. robot1's Isaac twin publishes `/scan` off the 12.0 Hz its
@@ -358,12 +379,14 @@ up at 8.6 Hz — so without the flag the runner classifies the precondition as
 INFRASTRUCTURE and refuses to start. With it the check still runs, still fails,
 and every artifact carries `PRECONDITION FAILED (recorded, overridden)`.
 
-`--corridor-slam` is **not** the shipped SLAM configuration. It selects
-`config/robot1/slam_robot1_corridor.yaml`, whose own header opens "NOT IN USE,
-kept as a record" — it differs from the fleet canonical by turning loop closing
-off, that hypothesis was falsified by measurement, and the runner defaults back
-to the canonical. The flag stays in the printed command only because it is the
-arm every run cited above actually used.
+`--corridor-slam` is **not** the shipped SLAM configuration. It does not turn
+SLAM on or off — it swaps which params file the corridor's own SLAM uses,
+selecting `config/robot1/slam_robot1_corridor.yaml`, whose own header opens "NOT
+IN USE, kept as a record". It differs from the fleet canonical by turning loop
+closing off, that hypothesis was falsified by measurement, and the runner
+defaults back to the canonical. So `demo.sh deliver` **omits it** and runs the
+better configuration; `bash tools/demo.sh deliver --as-recorded` opts back into
+the arm the committed 2026-08-14 artifacts used.
 
 The lens comes up immediately **after `simctl start`, before every
 precondition** — [ADR 0035](docs/adr/0035-the-lens-is-the-first-instrument.md)
@@ -386,8 +409,14 @@ from. It needs the composed robot-scale arena, built from step 4's stage in
 
 ```bash
 ~/isaac/env_isaaclab/bin/python tools/build_corridor_arena.py \
-  --profile nominal_m6_n3
+  --robot robot1 --profile nominal_m6_n3
 ```
+
+> `--robot robot1` is **not optional**: the builder defaults to `rasptank`, which
+> writes `arena_corridor_rasptank_<profile>.usd` while the pass below opens
+> `arena_corridor_robot1_<profile>.usd`. Omitting it leaves you running a stale
+> arena, or none. `bash tools/demo.sh enforce` builds it correctly and only when
+> it is missing.
 
 The pass itself is recorded **from domain 43**, so every frame in the speed
 table crossed the gateway:
