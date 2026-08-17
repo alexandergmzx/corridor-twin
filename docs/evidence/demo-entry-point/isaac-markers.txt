@@ -1,0 +1,4 @@
+ISAAC_ROS_CAMERA_RENDER_READY warmup_updates=12 reset_events=0 stable_updates=12 active_render_mode='RaytracedLighting' default_render_mode='RaytracedLighting' active_anti_aliasing=3 default_anti_aliasing=3
+ISAAC_ROS_CAMERA_DRIVE speed_mps=0.22 route_s_m=7.380 route_length_m=7.380 reached_end=True updates=2014 sim_span_s=33.550
+ISAAC_ROS_CAMERA_GPU name=NVIDIA GeForce RTX 5070 Ti used_mib=3254 total_mib=16303
+ISAAC_ROS_CAMERA_PASS updates=2014 profile=nominal_m6_n3 static_probe=False drive=True render_products=1
