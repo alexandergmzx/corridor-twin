@@ -40,7 +40,20 @@ jobs:
           #   nav2_msgs  <- tools/corridor_nav_gate.py (NavigateToPose)
           #   tf2_ros    <- tools/corridor_nav_gate.py, tools/wait_for_tf.py
           sudo apt-get install -y --no-install-recommends \
-            ros-jazzy-nav2-msgs ros-jazzy-tf2-ros-py
+            ros-jazzy-nav2-msgs ros-jazzy-tf2-ros-py python3-opencv
+
+      - name: Author the scene the tests read
+        shell: bash
+        run: |
+          # The documented first command of every session (README, DELIVERY.md).
+          # out/ is generated and gitignored, so CI has to author it before the
+          # suite runs: two nav-gate tests read out/corridor.manifest.json and
+          # fail with FileNotFoundError on a bare checkout.
+          source /opt/ros/jazzy/setup.bash
+          export PYTHONNOUSERSITE=1
+          export PYTHONPATH="$PWD/src/corridor_scene:$PWD/.venv/lib/python3.12/site-packages"
+          .venv/bin/python -m scene.build --m 6.0 --n 3.0 --out out/corridor.usda
+          test -f out/corridor.manifest.json
 
       - name: Lint, test, and build workspace
         run: bash tools/check_workspace.sh
