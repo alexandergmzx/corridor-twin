@@ -30,9 +30,12 @@ deliberately not adopted; see "Proportions" below.
 | Camera resolution / rate | **Not applicable** — no camera; this is not a render probe |
 
 The author field is the PDF's own metadata and it names a real person, so this
-repository records the role rather than the name. Nothing is lost: the digest
-above pins the exact file, and `pdfinfo docs/ROBO_TASK.pdf` reads the field back
-for anyone who holds it.
+repository records the role rather than the name. The digest above pins the
+exact file, and `pdfinfo docs/ROBO_TASK.pdf` reads the field back for anyone who
+holds it — **so this redaction reduces casual discoverability and does not
+remove the name from the repository.** Leaving the PDF unmodified is a
+deliberate choice: rewriting it would break the digest this documentation is
+pinned to.
 
 Commands:
 
