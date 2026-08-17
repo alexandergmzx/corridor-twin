@@ -33,6 +33,14 @@ jobs:
           fi
           rosdep update --rosdistro jazzy
           rosdep install --from-paths src --ignore-src -r -y --rosdistro jazzy
+          # rosdep only scans src/. The root-level tests import tools/, which is
+          # not a colcon package, so nothing declares what it needs -- and a
+          # missing module there fails pytest at COLLECTION, taking the whole
+          # suite down rather than one test. Declared explicitly:
+          #   nav2_msgs  <- tools/corridor_nav_gate.py (NavigateToPose)
+          #   tf2_ros    <- tools/corridor_nav_gate.py, tools/wait_for_tf.py
+          sudo apt-get install -y --no-install-recommends \
+            ros-jazzy-nav2-msgs ros-jazzy-tf2-ros-py
 
       - name: Lint, test, and build workspace
         run: bash tools/check_workspace.sh
