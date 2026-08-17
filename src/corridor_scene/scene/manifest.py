@@ -18,6 +18,7 @@ from .geometry import (
     all_surveys,
     building_footprints,
     occluders,
+    p_cam_pose,
     person_b_xyz,
     police_bounds,
 )
@@ -52,6 +53,12 @@ def manifest_data(
                 for name, footprint in building_footprints(scenario, profile).items()
             },
             "occluders": [asdict(slab) for slab in occluders(scenario, profile)],
+            # P's enforcement camera pose, per profile because P's own bounds
+            # are per profile. The adapter targets this prim, the occlusion
+            # certificate proves the composed stage agrees with it, and the
+            # Replicator dataset renders from it -- one derivation
+            # (`geometry.p_cam_pose`), three consumers, no second opinion.
+            "p_cam": p_cam_pose(scenario, profile),
             "delivery_trajectory": asdict(delivery_trajectory(scenario, profile)),
             "markers": [
                 {
@@ -101,6 +108,23 @@ def manifest_data(
         },
         "actors": {
             "b_xyz_m": person_b_xyz(scenario),
+            # B's footprint, not decoration: the RTX lidar sees render geometry,
+            # so B is an obstacle in the costmap and a delivery goal has to
+            # stand off from it. A consumer cannot derive that from b_xyz_m
+            # alone, so the size travels with the position.
+            #
+            # Since ADR 0031 this is also the landmark detector's ONLY source
+            # for the radius it fits. A second literal in the detector would
+            # silently keep matching an old prop after a scenario rescale, and
+            # a second PRIM -- which is what a post beside B was -- gave the
+            # scene two places to say where B is.
+            "b_radius_m": scenario.actors.b_radius_m,
+            "b_height_m": scenario.actors.b_height_m,
+            # A's extent, because ADR 0031's final-approach distance is derived
+            # from A's half-length as well as B's radius. A consumer that had to
+            # look A's size up somewhere else would be looking it up in a second
+            # place, which is the failure this manifest exists to prevent.
+            "a_size_xyz_m": scenario.actors.a_size_xyz_m,
         },
         "fiducials": {
             "dictionary": scenario.fiducials.dictionary,

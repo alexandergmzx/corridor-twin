@@ -16,7 +16,7 @@ from scene.geometry import (
     police_bounds,
     street_drive_center_x_m,
 )
-from scene.model import load_scenario
+from scene.model import authored_config_path, load_scenario
 from scene.occlusion import (
     _camera_source_vertices,
     _frustum_excluded,
@@ -35,7 +35,7 @@ from scene.trajectory import (
 
 
 def _profiles():
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     return [(scenario, profile) for profile in scenario.profiles]
 
 
@@ -90,7 +90,7 @@ def test_manifest_route_round_trip_preserves_coordinate_semantics(scenario, prof
 
 
 def test_world_x_to_route_station_rejects_non_approach_values() -> None:
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     trajectory = delivery_trajectory(scenario, scenario.profile(scenario.default_profile))
     with pytest.raises(ValueError, match="outside the approach"):
         trajectory.approach_s_at_x(100.0)
@@ -294,7 +294,7 @@ def test_curved_source_interval_cannot_be_replaced_by_its_chord(monkeypatch) -> 
 def test_turn_radius_that_cannot_fit_is_rejected(tmp_path) -> None:
     import dataclasses
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     profile = scenario.profile(scenario.default_profile)
     oversized = dataclasses.replace(
         scenario,
@@ -314,7 +314,7 @@ def test_the_old_street_centreline_would_drive_through_the_stub() -> None:
     directly rather than trusting the arithmetic.
     """
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     profile = scenario.profile("nominal_m6_n3")
     stub_west, _, _, _ = east_wall_stub_bounds(scenario)
     # A's visual body is 0.45 m wide, so its half-width is 0.225 m. The stub's
@@ -358,7 +358,7 @@ def test_route_legs_are_pinned() -> None:
     it -- which is the coupling that was missing when the route last moved.
     """
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     trajectory = delivery_trajectory(scenario, scenario.profile("nominal_m6_n3"))
     lengths = {
         segment.kind: segment.end_s_m - segment.start_s_m for segment in trajectory.segments()
@@ -374,7 +374,7 @@ def test_route_legs_are_pinned() -> None:
 def test_manifest_round_trip_preserves_all_five_pieces() -> None:
     """Isaac drives the route from the manifest, so the parse must be lossless."""
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     profile = scenario.profile("nominal_m6_n3")
     original = delivery_trajectory(scenario, profile)
     restored = trajectory_from_manifest(asdict(original))

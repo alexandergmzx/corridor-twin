@@ -11,6 +11,7 @@ from .geometry import (
     all_surveys,
     building_footprints,
     corridor_faces,
+    p_cam_pose,
     person_b_xyz,
     plate_backing_corners,
     police_bounds,
@@ -52,6 +53,49 @@ def _marker_material(stage: Usd.Stage, marker_id: int) -> UsdShade.Material:
     surface.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(1.0)
     material.CreateSurfaceOutput().ConnectToSource(surface.ConnectableAPI(), "surface")
     return material
+
+
+def _cylinder(
+    stage: Usd.Stage,
+    path: str,
+    radius: float,
+    height: float,
+    center_xyz: tuple[float, float, float],
+    material: UsdShade.Material,
+) -> UsdGeom.Cylinder:
+    """A vertical post. Circular in section, which is the whole point.
+
+    A cylinder returns an arc of KNOWN RADIUS from every bearing, which is what
+    makes it separable from a flat wall and from a convex corner in a single
+    scan -- and separable without ever consulting return intensity, whose
+    sim-to-real fidelity nobody in this project owns.
+    """
+
+    cylinder = UsdGeom.Cylinder.Define(stage, path)
+    cylinder.CreateRadiusAttr(radius)
+    cylinder.CreateHeightAttr(height)
+    cylinder.CreateAxisAttr("Z")
+    cylinder.CreateExtentAttr(
+        [(-radius, -radius, -height / 2.0), (radius, radius, height / 2.0)]
+    )
+    UsdGeom.Xformable(cylinder).AddTranslateOp().Set(Gf.Vec3d(*center_xyz))
+    UsdShade.MaterialBindingAPI(cylinder).Bind(material)
+    # SOLID, because the delivery is now a contact.
+    #
+    # Every wall in this scene has carried a collider since the beginning
+    # (`_cube(..., collision=True)`), and B never did. It did not matter while
+    # arrival was a distance: A's lidar sees B either way, because the RTX lidar
+    # traces RENDER geometry rather than physics, and Nav2 kept clear of B
+    # because the scan made it a lethal costmap cell. So B was visible,
+    # avoidable, and utterly intangible -- A would have driven straight through
+    # it, and nothing in the scenario would have noticed.
+    #
+    # ADR 0033 makes the bump the arrival, and a bump needs something to bump.
+    # Static, like the walls: no `RigidBodyAPI`, so B does not move, topple or
+    # get pushed down the street when a 0.2 m robot leans on it. A stalls
+    # against it, and the stall is what the encoders report.
+    UsdPhysics.CollisionAPI.Apply(cylinder.GetPrim()).CreateCollisionEnabledAttr(True)
+    return cylinder
 
 
 def _cube(
@@ -272,8 +316,20 @@ def _author_shared_actors(
     """Author the actors whose placement does not depend on the profile."""
 
     UsdGeom.Xform.Define(stage, "/World/Actors")
+
+    # B IS THE CYLINDER (ADR 0031). One prim: the thing the viewer sees and the
+    # thing A's lidar fits a circle to are the same object, so there is no
+    # second place for them to disagree about where B is.
     bx, by, bz = person_b_xyz(scenario)
-    _cube(stage, "/World/Actors/B", (0.45, 0.45, 1.7), (bx, by, bz + 0.85), actor_material)
+    actors = scenario.actors
+    _cylinder(
+        stage,
+        "/World/Actors/B",
+        actors.b_radius_m,
+        actors.b_height_m,
+        (bx, by, bz + actors.b_height_m / 2.0),
+        actor_material,
+    )
 
 
 def _author_profile_actors(
@@ -296,38 +352,45 @@ def _author_profile_actors(
     actor_a = UsdGeom.Xform.Define(stage, "/World/Actors/A")
     actor_a.AddTranslateOp().Set(Gf.Vec3d(start.x_m, start.y_m, start.z_m))
     actor_a.AddRotateZOp().Set(math.degrees(start.yaw_rad))
-    _cube(stage, "/World/Actors/A/Visual", (0.65, 0.45, 0.5), (0.0, 0.0, 0.25), actor_material)
+    a_size = scenario.actors.a_size_xyz_m
+    _cube(stage, "/World/Actors/A/Visual", a_size, (0.0, 0.0, a_size[2] / 2.0), actor_material)
+    # A's v1 eye point, and NOT a camera. ADR 0021 moved the render product to
+    # P and ADR 0024 made A camera-less; this Xform survives because the
+    # geometric visibility gate -- "does an opaque wall block the segment from
+    # A's eye to P's body" -- is scenario realism this project does not disavow
+    # (CLAUDE.md invariant 2). It carries no UsdGeom.Camera, so the stage holds
+    # exactly one camera and it is P's.
     mount = UsdGeom.Xform.Define(stage, "/World/Actors/A/CameraMount")
     mount.AddTranslateOp().Set(Gf.Vec3d(0.0, 0.0, scenario.camera.mount_height_m))
-    camera = UsdGeom.Camera.Define(stage, "/World/Actors/A/CameraMount/FrontCamera")
-    # USD cameras look down local -Z with +Y up. This maps forward to world +X
-    # and image-up to world +Z at A's initial corridor pose.
-    camera.AddTransformOp().Set(
-        Gf.Matrix4d(
-            0.0,
-            -1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-            0.0,
-            -1.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-        )
-    )
-    _camera_aperture(camera, scenario)
 
     pmin, pmax = police_bounds(scenario, profile)
     psize = tuple(high - low for low, high in zip(pmin, pmax, strict=True))
     pcenter = tuple((low + high) / 2.0 for low, high in zip(pmin, pmax, strict=True))
     _cube(stage, "/World/Actors/P", psize, pcenter, actor_material)
+
+    # P's enforcement camera: the stage's ONE UsdGeom.Camera, and the one render
+    # product the adapter attaches (CLAUDE.md invariant 3, as ADR 0021 recast
+    # it). A sibling of P rather than a child, because `_cube` scales P's prim
+    # and a child would inherit that scale into the camera's basis.
+    pose = p_cam_pose(scenario, profile)
+    mast = UsdGeom.Xform.Define(stage, "/World/Actors/PCameraMast")
+    mast.AddTranslateOp().Set(Gf.Vec3d(*pose["eye_xyz_m"]))
+    p_cam = UsdGeom.Camera.Define(stage, "/World/Actors/PCameraMast/PCam")
+    right, up, forward = pose["right_xyz"], pose["up_xyz"], pose["forward_xyz"]
+    # Rows are the camera's local axes in world: (right, image-up, -forward),
+    # because a USD camera looks down local -Z with +Y up. Derived in
+    # `geometry.p_cam_pose` rather than written as a literal matrix, so a mast
+    # that moves takes its orientation with it.
+    p_cam.AddTransformOp().Set(
+        Gf.Matrix4d(
+            right[0], right[1], right[2], 0.0,
+            up[0], up[1], up[2], 0.0,
+            -forward[0], -forward[1], -forward[2], 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        )
+    )
+    _camera_aperture(p_cam, scenario)
+
     _author_path(stage, trajectory)
 
 

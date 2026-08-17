@@ -21,7 +21,7 @@ from scene.geometry import (
     is_clear,
     police_bounds,
 )
-from scene.model import CorridorProfile, load_scenario
+from scene.model import CorridorProfile, authored_config_path, load_scenario
 from scene.occlusion import (
     CAMERA_PRIM_PATH,
     Occluder,
@@ -45,7 +45,7 @@ BUILDINGS = (
 
 @pytest.fixture()
 def generated(tmp_path: Path) -> tuple[Path, Path]:
-    return build_scene(None, tmp_path / "corridor.usda", 6.0, 3.0)
+    return build_scene(authored_config_path(), tmp_path / "corridor.usda", 6.0, 3.0)
 
 
 def _points(stage: Usd.Stage, building: str) -> list[tuple[float, float]]:
@@ -85,7 +85,7 @@ def test_stage_contract_and_every_variant_width(generated: tuple[Path, Path]) ->
         "/World/PhysicsScene",
         "/World/Environment/Ground",
         *[f"/World/Environment/Corridor/{name}" for name in BUILDINGS],
-        "/World/Actors/A/CameraMount/FrontCamera",
+        "/World/Actors/PCameraMast/PCam",
         "/World/Actors/B",
         "/World/Actors/P",
         "/World/Paths/DeliveryPath",
@@ -173,7 +173,7 @@ def test_p_is_derived_from_the_geometry_and_not_frozen(tmp_path: Path) -> None:
     so this varies the thing it actually depends on.
     """
 
-    stage_path, _ = build_scene(None, tmp_path / "six.usda", 6.0, 3.0)
+    stage_path, _ = build_scene(authored_config_path(), tmp_path / "six.usda", 6.0, 3.0)
     stage = Usd.Stage.Open(str(stage_path))
     variants = _variants(stage)
     configured = {}
@@ -185,7 +185,7 @@ def test_p_is_derived_from_the_geometry_and_not_frozen(tmp_path: Path) -> None:
     )
 
     # Change the one dimension P is anchored to, and it must follow.
-    wider_path, _ = build_scene(None, tmp_path / "eight.usda", 8.0, 4.5)
+    wider_path, _ = build_scene(authored_config_path(), tmp_path / "eight.usda", 8.0, 4.5)
     wider = Usd.Stage.Open(str(wider_path))
     _variants(wider).SetVariantSelection("requested_m8_n4_5")
     assert _police_y(wider) - next(iter(configured.values())) == pytest.approx(1.0, abs=1e-6), (
@@ -202,7 +202,7 @@ def test_actor_topology_matches_the_supplied_diagram() -> None:
     beyond the wall's far face.
     """
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     length = scenario.corridor_length_m
     for profile in scenario.profiles:
         police_min, police_max = police_bounds(scenario, profile)
@@ -243,7 +243,7 @@ def test_p_stands_on_the_source_drawing_side_of_the_east_wall() -> None:
     source-faithful side.
     """
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     for profile in scenario.profiles:
         _, police_max = police_bounds(scenario, profile)
         assert police_max[0] <= scenario.street_east_m, (
@@ -255,7 +255,9 @@ def test_p_stands_on_the_source_drawing_side_of_the_east_wall() -> None:
 
 
 def test_requested_dimensions_become_selected_variant(tmp_path: Path) -> None:
-    stage_path, manifest_path = build_scene(None, tmp_path / "custom.usda", 5.5, 3.2)
+    stage_path, manifest_path = build_scene(
+        authored_config_path(), tmp_path / "custom.usda", 5.5, 3.2)
+    
     stage = Usd.Stage.Open(str(stage_path))
     variants = _variants(stage)
     assert variants.GetVariantSelection() == "requested_m5_5_n3_2"
@@ -280,10 +282,10 @@ def test_reference_backings_stay_inside_their_host_face(tmp_path: Path, m: float
     north over the east face, which the separate envelope test below covers.
     """
 
-    stage_path, manifest_path = build_scene(None, tmp_path / f"m{m}.usda", m, n)
+    stage_path, manifest_path = build_scene(authored_config_path(), tmp_path / f"m{m}.usda", m, n)
     stage = Usd.Stage.Open(str(stage_path))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     variants = _variants(stage)
 
     checked = 0
@@ -322,7 +324,7 @@ def test_a_profile_too_narrow_for_its_reference_plates_is_rejected(tmp_path: Pat
     """
 
     with pytest.raises(ValueError, match="leaves the east face"):
-        build_scene(None, tmp_path / "narrow.usda", 2.0, 1.0)
+        build_scene(authored_config_path(), tmp_path / "narrow.usda", 2.0, 1.0)
 
 
 def test_east_face_plates_must_clear_the_corner_mass(tmp_path: Path) -> None:
@@ -338,13 +340,15 @@ def test_east_face_plates_must_clear_the_corner_mass(tmp_path: Path) -> None:
     plane and a single comparison decides it.
     """
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     profile = scenario.profile("nominal_m6_n3")
     length = scenario.corridor_length_m
     _, corner_south_face = corridor_faces(profile, length, length)
     assert corner_south_face == pytest.approx(0.0), "the default profile is the sharpest case"
 
-    stage_path, manifest_path = build_scene(None, tmp_path / "corridor.usda", 6.0, 3.0)
+    stage_path, manifest_path = build_scene(
+        authored_config_path(), tmp_path / "corridor.usda", 6.0, 3.0)
+    
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     stage = Usd.Stage.Open(str(stage_path))
     variants = _variants(stage)
@@ -385,7 +389,7 @@ def test_east_face_plates_follow_the_visible_band(tmp_path: Path) -> None:
     when the floor rises above the configured coordinate.
     """
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     length = scenario.corridor_length_m
 
     # The band is n tall wherever it sits, which is why the old refusal could
@@ -396,7 +400,9 @@ def test_east_face_plates_follow_the_visible_band(tmp_path: Path) -> None:
         assert profile.entry_width_m / 2.0 - corner_edge == pytest.approx(corner)
 
     # m = 8.0, n = 3.0 was refused before the clamp and builds now.
-    stage_path, manifest_path = build_scene(None, tmp_path / "wide_entry.usda", 8.0, 3.0)
+    stage_path, manifest_path = build_scene(
+        authored_config_path(), tmp_path / "wide_entry.usda", 8.0, 3.0)
+    
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     block = manifest["profiles"]["requested_m8_n3"]
     profile = CorridorProfile(name="requested_m8_n3", entry_width_m=8.0, corner_width_m=3.0)
@@ -420,7 +426,7 @@ def test_east_face_plates_follow_the_visible_band(tmp_path: Path) -> None:
     # The clamp is a floor, not a free pass: a band too short for the plate is
     # still refused rather than squeezed in.
     with pytest.raises(ValueError, match="leaves the east face"):
-        build_scene(None, tmp_path / "too_short.usda", 6.0, 1.0)
+        build_scene(authored_config_path(), tmp_path / "too_short.usda", 6.0, 1.0)
 
 
 def test_output_is_readable_usda_and_has_marker_assets(generated: tuple[Path, Path]) -> None:
@@ -444,7 +450,7 @@ def test_marker_plates_stay_on_the_corridor_side_of_actual_walls(
     stage_path, manifest_path = generated
     stage = Usd.Stage.Open(str(stage_path))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     variants = _variants(stage)
     for name, block in manifest["profiles"].items():
         assert variants.SetVariantSelection(name)
@@ -528,7 +534,7 @@ def test_walls_manifest_and_checker_share_one_geometry_source(
     stage_path, manifest_path = generated
     stage = Usd.Stage.Open(str(stage_path))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     length = scenario.corridor_length_m
     variants = _variants(stage)
 
@@ -909,9 +915,11 @@ def test_corner_coverage_uses_unoccluded_non_coplanar_references(
     expected to reject those frames rather than emit an ambiguous pose.
     """
 
-    stage_path, manifest_path = build_scene(None, tmp_path / "corridor.usda", *widths)
+    stage_path, manifest_path = build_scene(
+        authored_config_path(), tmp_path / "corridor.usda", *widths)
+    
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     profile = scenario.profile(manifest["selected_profile"])
     trajectory = delivery_trajectory(scenario, profile)
     stage = Usd.Stage.Open(str(stage_path))
@@ -1113,7 +1121,7 @@ def test_manifest_publishes_every_authored_wall(generated: tuple[Path, Path]) ->
 
     stage_path, manifest_path = generated
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     stage = Usd.Stage.Open(str(stage_path))
     variants = _variants(stage)
 
@@ -1133,3 +1141,38 @@ def test_manifest_publishes_every_authored_wall(generated: tuple[Path, Path]) ->
             assert mesh, f"{name}: {wall} is published but not authored"
             authored = {(round(p[0], 6), round(p[1], 6)) for p in mesh.GetPointsAttr().Get()}
             assert {(round(x, 6), round(y, 6)) for x, y in footprint} <= authored
+
+
+def test_the_stage_holds_exactly_one_camera_and_it_is_Ps(tmp_path) -> None:
+    """The render-product budget, checked on the composed stage.
+
+    CLAUDE.md invariant 3 as ADR 0021 recast it: one render product, and it is
+    P's enforcement instrument. The budget is about render products, but the
+    honest place to enforce it is here -- a stage with two authored cameras is
+    a stage where someone can attach a second product without noticing.
+
+    A is camera-less (ADR 0024). Its `CameraMount` survives as a plain Xform
+    because the geometric visibility gate is cast from A's eye and this project
+    does not disavow its geometric proofs.
+    """
+
+    stage_path = tmp_path / "corridor.usda"
+    _, manifest_path = build_scene(None, stage_path, 1.8, 0.9)
+    stage = Usd.Stage.Open(str(stage_path))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    cameras = [str(p.GetPath()) for p in stage.Traverse() if p.IsA(UsdGeom.Camera)]
+    assert cameras == ["/World/Actors/PCameraMast/PCam"], cameras
+
+    mount = stage.GetPrimAtPath("/World/Actors/A/CameraMount")
+    assert mount, "A's eye point must survive: the geometric gate casts from it"
+    assert mount.GetTypeName() == "Xform", "A is camera-less since ADR 0024"
+
+    # The composed prim and the manifest pose are one derivation, not two.
+    matrix = UsdGeom.XformCache().GetLocalToWorldTransform(
+        stage.GetPrimAtPath(cameras[0])
+    )
+    placed = matrix.ExtractTranslation()
+    declared = manifest["profiles"][manifest["selected_profile"]]["p_cam"]["eye_xyz_m"]
+    for got, want in zip(placed, declared, strict=True):
+        assert got == pytest.approx(want, abs=1e-6)

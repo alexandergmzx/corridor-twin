@@ -18,9 +18,15 @@ Commit as the repository's configured git identity and nothing else.
 ## What this project is
 
 An interview-sized digital twin: robot A delivers a package to person B through a
-tapered corridor and around a corner onto the next street. Robot A cannot see
-traffic police P, but P receives A's front-camera feed over ROS 2 and estimates
-A's speed from surveyed ArUco wall fiducials.
+tapered corridor and around a corner onto the next street. A and P live on
+separate ROS communication domains — the assignment's "cannot see" constraint
+(ADR 0020/0021). In v2, A — robot1, the fleet's Yahboom twin, per ADR 0027 —
+navigates autonomously on its lidar with no camera of its own, and traffic
+police P measures A's speed from P's own roadside enforcement camera: a learned
+detector with an ArUco-on-A baseline (ADRs 0021–0024). The implemented v1
+pipeline — A's front camera bridged to P, speed from surveyed ArUco wall
+fiducials — remains what runs today, quotable only as v1, until the v2 plan's
+phases land.
 
 The supplied scenario source is `docs/ROBO_TASK.pdf`. Its prose and topology are
 authoritative. Its unlabelled drawing has no scale bar, so metric dimensions in
@@ -35,15 +41,19 @@ not to become a production traffic-enforcement platform. The primary deliverable
 is a short, reliable, visually understandable demonstration backed by enough
 evidence to defend its engineering decisions.
 
-An interviewer should understand in one run:
+An interviewer should understand in one run (v2 reading; the v1 equivalents
+live in the historical sections below):
 
-1. A travels from the tapered corridor toward B on the next street.
+1. A travels from the tapered corridor toward B on the next street,
+   autonomously — governed Nav2 building its map live, no scripted route.
 2. The corridor narrows toward the corner and the local demonstration speed limit
    becomes stricter.
-3. P is physically hidden behind the corner wall and cannot be seen by A's camera.
-4. P nevertheless receives A's one permitted RGB camera stream over ROS 2.
-5. Surveyed fiducials let P estimate station and speed without pose, odometry, TF,
-   depth, or simulator truth.
+3. A's plane and P's plane are separate ROS domains; the isolation certificate
+   proves P's graph equals the declared allowlist exactly, mutation test red.
+4. P's own roadside camera is the single render product, its feed transported
+   one way through the gateway; A is camera-less.
+5. A learned detector (with an ArUco-on-A classical baseline) lets P estimate
+   station and speed without pose, odometry, TF, depth, or simulator truth.
 6. The UI makes measured speed, uncertainty, local width, limit, and violation
    state obvious.
 7. Changing the corridor-width USD variant visibly changes the geometry and policy
@@ -52,12 +62,13 @@ An interviewer should understand in one run:
 Interview-ready means:
 
 - one documented command starts the demonstration;
-- A moves continuously on the authored route;
-- the camera-only observer demonstrates a compliant run and one continuous
-  speeding episode;
-- P's concealment is visible and backed by the geometric certificate;
-- one camera remains the only simulated sensor;
-- the RTX 5070 Ti stays within the recorded memory budget;
+- A delivers autonomously and the violation arises from A's own profile;
+- P's camera-only enforcement demonstrates a compliant stretch and a speeding
+  episode, learned and baseline pipelines reported side by side;
+- the isolation certificate is green with its mutation control red;
+- exactly one render product remains the only rendered sensor (P's camera;
+  A's navigation lidar is the twin's contract sensor, never evidence);
+- the RTX 5070 Ti stays within the re-measured v2 memory budget;
 - a recorded fallback is available if the live run fails.
 
 Use this decision filter for new work:
@@ -80,29 +91,41 @@ Claude is currently the implementation/planning agent. Codex independently
 reviews completed milestone commits. Claude should not repeatedly restart the
 independent audit unless the user explicitly assigns that role.
 
-Steps 1–5 of the original sequence produced an end-to-end demonstration. A new
-independent audit on 2026-07-29 found that P is on the opposite side of the east
-wall from the supplied drawing and that the occlusion verifier is not bound to
-the P actor in the composed USD. Release work and GPU requalification are paused.
-The active sequence is defined by
-[`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md):
+Steps 1–5 of the original sequence produced an end-to-end demonstration. The
+2026-07-29 police-placement audit was then implemented and merged (PR #2, with
+its five review fixes), and the domain split landed as ADR 0020 (PR #4).
 
-1. bind and bound the visibility verifier, with substitution regressions;
-2. supersede ADR 0017 and author a source-faithful, visibly defensible P layout;
-3. correct observer/display and calibration contract drift;
-4. reconcile stale status and release documentation; and
-5. obtain fresh GPU evidence only after independent review of the correction.
+**The active sequence is now the v2 correction plan,
+[`docs/v2-plan.md`](docs/v2-plan.md).** The 2026-08-04 interview feedback
+carried three corrections — communication-domain isolation (answered by ADR
+0020), autonomous navigation, and active AI/ML use — and ADRs 0021–0025 record
+the v2 decisions: the camera becomes P's enforcement instrument, robot A is
+selected by a measured fleet-twin gate (run and closed: ADR 0027, robot A =
+robot1), autonomy is governed Nav2 on a live SLAM map with the speed policy
+re-pinned to robot scale, enforcement perception is a synthetic-data-trained
+detector with an ArUco baseline, and the repo joins the fleet workspace by
+symlink and pin. v1's GPU requalification is moot: no v1 certificate number is
+quotable for v2 (ADR 0022), so the paused requalification stays closed rather
+than resumed. The police-placement handoff document remains as the record of
+its own, completed audit.
 
 ## Architectural invariants
 
 1. **Truth isolation.** Simulator pose, odometry, TF, and synthetic ground truth
    are evaluation inputs only, never observer inputs.
-2. **A cannot see P.** This is a hard geometric/camera acceptance gate, proved by
-   `scene.occlusion`, not an assertion. Software input rules are additive and
-   never a substitute — P could be plainly visible in A's pixels even if A's
-   controller chooses to ignore them.
-3. **One camera.** One 640x360 RGB render product at 15 Hz. No depth, LiDAR,
-   segmentation, second render product, or police-side sensor.
+2. **A cannot see P.** For the authored scene this remains a geometric
+   acceptance gate proved by `scene.occlusion`, not an assertion. Since ADR
+   0021 it is scenario realism rather than the assignment's constraint: the
+   requirement gate is the **isolation certificate** (P's observed graph
+   equals the declared allowlist exactly, mutation test red), and A is
+   camera-less in v2, which makes the camera clause vacuous going forward.
+   P's body stays concealed; do not delete or disavow the geometric proofs.
+3. **One render product = P's enforcement instrument.** Since ADR 0021 the
+   single RGB render product is P's roadside camera; A carries no camera.
+   A's navigation lidar is the fleet twin's contract sensor on A's plane and
+   never an enforcement evidence source. No depth, segmentation, or second
+   render product. Resolution and rate are re-measured for v2 (ADR 0024);
+   the v1 contract was 640x360 at 15 Hz.
 4. **Interface first.** The observer consumes standard camera messages and does
    not know whether the publisher is synthetic, Isaac Sim, or hardware.
 5. **Deterministic authoring.** The USDA and manifest are generated from
@@ -117,17 +140,21 @@ Do not conflate these in code, tests, docs, or the demo UI:
 | Concept | Question | Directional? | Enforced by |
 |---|---|---|---|
 | Physical line of sight | Does an opaque wall intersect the segment between A's camera and P's body? | No; normally reciprocal | `scene.occlusion`, reported separately |
-| A-camera visibility | Is any part of P inside the camera frustum *and* unoccluded? | Yes | `scene.occlusion` — the gate that must pass |
+| A-camera visibility | Is any part of P inside the camera frustum *and* unoccluded? | Yes | `scene.occlusion` — computed, reported, and asserted for the authored scene; scenario realism since ADR 0021, no longer the requirement gate |
 | A software awareness | Does A detect, model, or react to P, or consume police topics? | Yes | `test_robot_side_sources_are_unaware_of_the_police` |
 | **Communication-domain isolation** | Can P discover or subscribe to *any* topic A publishes, other than through the gateway? | Yes | Separate `ROS_DOMAIN_ID`s; `test/test_domain_isolation.py`. **ADR 0020** |
 | P data access | Does P **receive a bridged copy** of A's Image/CameraInfo, and hold surveyed scenario data? | Yes | The gateway allowlist; permitted by design, but P cannot subscribe to A directly |
 
-The fourth row is the newest and the one the assignment actually meant. Interview
-feedback on 2026-08-04 clarified that "the robot cannot see the traffic police"
-was about ROS communication domains, not sightlines. The geometric rows are not
-retracted — they are true of the scene and their gate still passes — but they are
-scenario realism, not the constraint. See
-[`docs/adr/0020-communication-domain-isolation.md`](docs/adr/0020-communication-domain-isolation.md).
+The fourth row is the one the assignment actually meant. Interview feedback on
+2026-08-04 clarified that "the robot cannot see the traffic police" was about
+ROS communication domains, not sightlines. The geometric rows are not
+retracted — they are true of the scene and still asserted — but they are
+scenario realism, not the constraint. The fifth row describes the implemented
+v1 crossing; under ADR 0021 the bridged topics become P's own camera feed
+(`/p_cam/*`), and the requirement gate is the isolation certificate. See
+[`docs/adr/0020-communication-domain-isolation.md`](docs/adr/0020-communication-domain-isolation.md)
+and
+[`docs/adr/0021-police-owned-sensing-and-isolation-gate.md`](docs/adr/0021-police-owned-sensing-and-isolation-gate.md).
 
 ```mermaid
 flowchart LR
@@ -135,7 +162,7 @@ flowchart LR
         A["A's camera"] -. "wall intersects<br/>the segment" .- P["P's body"]
     end
 
-    A ==> |"one RGB stream"| GW["<b>corridor_gateway</b><br/>allowlist &middot; one way<br/>domain 42 &rarr; 43"]
+    A ==> |"one RGB stream<br/><i>v1: A's camera; v2: p_cam,<br/>P's instrument in transit</i>"| GW["<b>corridor_gateway</b><br/>allowlist &middot; one way<br/>domain 42 &rarr; 43"]
     GW ==> P
 
     P -. "cannot discover" .-x Truth["Pose &middot; odometry &middot; TF<br/>simulator truth<br/><i>robot domain only</i>"]:::blocked
@@ -196,6 +223,36 @@ caller's shell.
 - `PYTHONNOUSERSITE=1` is required for ROS runs: a user-local NumPy 2.2 wheel
   conflicts with Jazzy's NumPy 1.x OpenCV/cv_bridge ABI.
 
+## Fleet membership and path resolution
+
+This repo is a member of the `robot-fleet` workspace (ADR 0025):
+symlinked at `robot-fleet/src/corridor-twin` → `~/Development/omniverse_twin`
+(Flow-A precedent), four package links in the ground_station farm, pinned
+in `fleet.repos`. Run fleet-facing tooling from the **symlinked** path;
+`pwd` and `pwd -P` differing there is expected, not a broken link.
+
+**Resolver law (D5).** Sibling-repo paths resolve env-override-first,
+then by walking the LOGICAL path (textual `..` / `os.path.abspath`-style
+joins). NEVER `os.path.realpath` on checkout paths — it escapes the
+symlink into `~/Development` and silently breaks `../yahboomcar-ros2`
+imports. Resolver code carries a unit test that fails a realpath-based
+implementation.
+
+**Boundaries.** Sibling repos are read-only imports through the resolver.
+Writes outside this repo happen only under explicit, narrow, per-session
+delegation from Alexander (precedents: the fleet D-20 ledger commit; the
+rasptank hand-tape measurement commit), committed separately for separate
+review. Scenario decisions are ADRs here; fleet-wide allocations are
+D-nn/OI rows in robot-fleet — cross-reference by ID, never duplicate.
+
+**Domains.** A = 42, P = 43, 44 reserved for corridor replays, 70 dirty.
+Scratch domains per the 67/69 convention; the full deny-list for any
+corridor session is **20/42/43/44/66/68**.
+
+**Contract numbers are per-robot.** `--imu-hz 60` is robot2's Isaac
+number; robot1's rates come from robot1's own measured entries. Never
+carry one robot's contract figures to another.
+
 ## Commands
 
 ```bash
@@ -219,14 +276,35 @@ The two halves run on separate ROS domains — A on 42, P on 43 — so a bare
 unmatched `(m,n)` is appended as a new profile by `resolve_profiles()`.
 `scene.occlusion` does take `--profile`, meaning the corridor profile.
 
-## Active handoff: correct police placement before requalification
+## Active handoff: the v2 correction plan
 
-The operative checklist is
-[`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md).
-It overrides the historical milestone narrative below wherever they conflict.
-Do not requalify or release the current geometry as source-faithful.
+The operative checklist is [`docs/v2-plan.md`](docs/v2-plan.md) — its Day 0–3
+task DAG, the isolation verification protocol, and the robot-A gate protocol.
+Both protocol outcomes are now Accepted: **ADR 0026** (isolation verified
+live — producer 0.9995, image crossing 0.954 at the pinned 640×360,
+certificate green with mutation red; 720p image-crossing 0.926 against
+CameraInfo 0.998 records the transport ceiling) and **ADR 0027** (**robot A =
+robot1**, the yahboom twin, per ADR 0022's fallback clause: robot2's
+encoder-less odometry published nothing until ~5 m in on every profile —
+first `odom_laser` at 4.77–5.83 m, midpoint drift 1.0 against the 0.05 bound.
+Not a chassis verdict: the matcher is fleet-tuned for a 4×4 room, and a
+retune justifies re-running the same thresholds as a new, superseding ADR.
+The three-profile covariance-vs-station traces are the degeneracy study's
+data). Selection is closed; robot1 runs are v2 evidence, not candidates.
+
+The plan overrides the historical narratives below wherever they conflict.
+The police-placement handoff
+([`docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md`](docs/HANDOFF-2026-07-29-POLICE-PLACEMENT-AUDIT.md))
+is the completed record of the 2026-07-29 audit; its GPU-requalification exit
+item is retired by ADR 0022's retirement of all v1 certificate numbers, not
+fulfilled.
 
 ## Historical handoff: end-to-end demonstration milestone
+
+> Every Isaac, VRAM, and estimator figure in this section is the pre-ADR-0021
+> architecture — A's camera as the evidence source — and is **not quotable for
+> v2** (ADR 0022 retires all v1 certificate numbers). The figures stay
+> recorded here because they are true of the v1 run they describe.
 
 Read [`docs/REVIEW-LOG.md`](docs/REVIEW-LOG.md) first. It records every finding
 raised so far and how each was dispositioned, including the ones deliberately
@@ -276,8 +354,11 @@ Two limits remain open and must not be claimed closed:
   source used; do not reconstruct APIs from memory.
 - Reuse the authored trajectory, camera contract, marker manifest, and observer.
   Do not introduce a parallel geometry model or a simulator-only observer path.
-- Preserve the one-camera budget: one 640x360 RGB render product at 15 Hz, no
-  path tracing, depth, segmentation, LiDAR, police camera, or extra sensor.
+- Preserve the render-product budget: exactly one RGB render product — since
+  ADR 0021 it is P's enforcement camera, with resolution and rate re-measured
+  per ADR 0024 (the v1 contract was 640x360 at 15 Hz). No path tracing,
+  depth, segmentation, or second render product. A's navigation lidar is the
+  fleet twin's contract sensor on A's plane, never an evidence source.
 - Use ROS `/clock` and message header stamps consistently when running in
   simulation. Wall time may measure external latency but must not enter speed
   differentiation.
@@ -353,9 +434,113 @@ a decision after the fact.
 - Curate artifacts. A frame without provenance is decoration, and an unbounded
   log dump is not a reviewable result.
 
+### Watch the run, do not autopsy it
+
+**Always debug with the lens up, before reasoning about a run from its
+artifacts.** `tools/corridor_profile_run.sh` starts it **immediately after
+`simctl start` and before every precondition** (ADRs 0035 + 0037), so bring-up
+is watched, and prints the URL the lens itself reported binding — never a
+literal, because the lens walks to the next free port and the old unconditional
+banner announced dead ones.
+
+**The banner means the lens is SEEING.** It is printed only after `/healthz`
+shows scan-count PROGRESS across two reads (ADR 0041; a windowed rate can
+echo a burst from a lens already deaf — run 133559 passed the old rate gate
+that way): two of six runs on 2026-08-14 were watched by a lens that answered
+`ok` all run and resolved nothing, which is why serving is not accepted as
+proof. A lens that cannot serve, or that hears nothing twice, **refuses the
+run**; `--no-lens` opts out and needs a reason. Since ADR 0040, corridor
+sessions run DDS over UDP only — the deafness measured 2-of-4 before it and
+0-of-18 after.
+
+This is a rule because ignoring it cost most of a day. A phantom landmark
+detection at 0.910 m re-aimed an entire mission while B's real post stood five
+metres away; Nav2 drove half a metre, correctly reported "Reached the goal!",
+and every number in the JSON looked defensible. On the lens it is two circles
+far apart — the manifest's yellow marker for where B actually is, and the pink
+crosshair for what the detector confirmed. The same session also lost runs to a
+circle at the start, an EKF reporting rotation its own IMU never measured, and a
+post buried inside a wall, and in each case the artifact showed a plausible
+number while the canvas would have shown the fault immediately.
+
+The corollary: when a run surprises you, look at it live before theorising. Two
+hypotheses were built and committed here on numbers that a glance would have
+falsified.
+
+Two of the lens's stock tiles do not apply to this scene and are gone or
+unquotable: duplicate-scans does not catch Isaac (0/3330 bit-identical
+measured), and content-lag scored against the fleet's 4x4 m room rather than the
+corridor.
+
+### Gate discipline
+
+- Every gate run writes a machine-readable JSON artifact; a gate number
+  that exists only in prose is not evidence (the F15 lesson).
+- A pinned threshold is printed and enforced from one constant, and the
+  enforced value matches the ADR that pinned it.
+- No mid-gate parameter tuning to reach green. A red run against pinned
+  thresholds is a committed artifact and a finding, in bold.
+- Infrastructure failures (session death, arena load failure, contract-
+  rate precondition miss) are reruns — twice at most — never results.
+  Classify every non-green run explicitly as one or the other.
+
 ## Commit conventions
 
 - Conventional Commits: `feat(scope):`, `test:`, `docs:`, `ci:`, `chore:`.
 - Each behaviour commit carries its own direct tests.
 - Documentation commits record measured evidence, not promised outcomes.
 - Additive history only. Do not rewrite published commits.
+
+## Unattended sessions (operator asleep/away) — hard rules
+
+These bind ANY session running without an operator who can answer. If unsure
+whether a rule applies: it applies. They rank above task completion — a task
+finished by breaking one of these is a failed task.
+
+- **git is local-only tonight. `git push` does not exist.** No pushes, no PRs,
+  no remote branch creation, no fetching-and-merging. Remotes are
+  human-reviewed surfaces; nothing unreviewed leaves this machine. Morning
+  review decides what publishes.
+- **History is append-only.** New branch per session (`<purpose>-<date>`),
+  one concern per commit, finding/OI IDs in messages. Never amend, rebase,
+  `reset --hard`, `clean -fd`, or delete branches. A wrong commit is repaired
+  by a new commit that says it repairs it.
+- **A commit is a reliable checkpoint or it doesn't happen.**
+  `colcon build --packages-select <touched>` plus the touched packages' tests
+  green BEFORE each commit. Work that can't reach green stays uncommitted in
+  the tree and is reported in the handoff doc — never committed "to save it".
+  Session ends with a clean tree or a documented dirty one, nothing silent.
+- **Isaac Sim is single-occupancy, machine-wide.** Two instances can take
+  down the whole PC — killing every other session's work, not just yours.
+  Before any `simctl start --backend isaac`: acquire `/tmp/fleet-isaac.lock`
+  (write PID + session name; a lock whose PID is dead is stale and may be
+  removed) AND verify no kit/isaac process is running. If busy: poll every
+  5 min for max 45 min, then PARK every isaac-dependent task and continue
+  with what doesn't need the GPU. Never launch a second instance to "check".
+  On session end and on EVERY failure path: `simctl stop`, verify the
+  process actually died, release the lock. Orphaned kit processes hold GPU
+  memory for the next victim.
+- **Domain hygiene**: scratch ROS_DOMAIN_ID per concurrent session (67/69
+  convention). Domain 20 is the hardware fleet domain — never used unattended.
+- **No hardware while unattended.** No flashing, no serial, no GPIO, nothing
+  past `--dry-run`. Hardware requires the operator's hands within reach of
+  the power switch (floor rules, D-08 consequence).
+- **Resource check before long jobs.** Free disk before bag recording (cap
+  and split bags — an unbounded bag fills the disk by 4am); free RAM before
+  sim bringup (the 3-robot stack is ~1.75 GB [measured]).
+- **Bounded retries.** The same command failing twice for the same reason
+  closes that path: record it, move on. No retry loops.
+- **Park, don't decide.** Judgment calls (safety semantics, OI status,
+  anything touching D-nn/R-nn, preference questions) go to the handoff doc's
+  "morning decisions" list. Evidence tags and OI-close rules apply at
+  3am exactly as at 3pm.
+- **Long sessions plan on disk first.** Any session expected to run
+  autonomously past ~1 hour writes `docs/session-plans/<date>-<purpose>.md`
+  BEFORE implementation: inventory with file:line, unit queue with
+  timeboxes and skip-edges, delegated/not-delegated. Binding once
+  written; status updated after every unit; the first action after any
+  context compaction is re-reading it; the handoff is its final section.
+- **Declare the wall-clock budget up front.** Run `date` between units;
+  stop starting new units at budget-minus-30-minutes and go to handoff.
+- **The handoff doc is the one mandatory deliverable** — written even when,
+  especially when, the session fails early.

@@ -1,0 +1,41 @@
+{
+  "label": "640x360-mutated",
+  "domains": {
+    "robot": 42,
+    "police": 43
+  },
+  "police_plane": {
+    "observed": [
+      "/clock",
+      "/p_cam/camera_info",
+      "/p_cam/image_raw",
+      "/test/ground_truth/speed"
+    ],
+    "declared": [
+      "/clock",
+      "/p_cam/camera_info",
+      "/p_cam/image_raw"
+    ],
+    "unexpected": [
+      "/test/ground_truth/speed"
+    ],
+    "missing": [],
+    "matches_exactly": false
+  },
+  "clock": {
+    "messages": 0,
+    "distinct_values": 0,
+    "advancing": false
+  },
+  "positive_control": {
+    "robot_plane_topics": [
+      "/clock",
+      "/p_cam/camera_info",
+      "/p_cam/image_raw",
+      "/test/ground_truth/speed"
+    ],
+    "robot_plane_shows_more_than_allowlist": true
+  },
+  "verdict": "RED",
+  "reason": "unexpected=['/test/ground_truth/speed'] missing=[] clock_advancing=False"
+}

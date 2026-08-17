@@ -99,7 +99,7 @@ def main() -> int:
             "/World/PhysicsScene",
             "/World/Environment/Ground",
             *[f"/World/Environment/Corridor/{name}" for name in wall_names],
-            "/World/Actors/A/CameraMount/FrontCamera",
+            "/World/Actors/PCameraMast/PCam",
         )
         missing = [path for path in required if not stage.GetPrimAtPath(path)]
         if missing:
@@ -108,7 +108,7 @@ def main() -> int:
         camera_paths = [
             prim.GetPath().pathString for prim in stage.Traverse() if prim.IsA(UsdGeom.Camera)
         ]
-        sensor_path = "/World/Actors/A/CameraMount/FrontCamera"
+        sensor_path = "/World/Actors/PCameraMast/PCam"
         authored_camera_count = camera_paths.count(sensor_path)
         if authored_camera_count != 1:
             raise RuntimeError(f"expected authored camera {sensor_path}; found {camera_paths}")

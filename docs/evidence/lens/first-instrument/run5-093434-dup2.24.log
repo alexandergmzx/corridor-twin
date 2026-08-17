@@ -1,0 +1,271 @@
+
+=== [09:34:34 +0s] corridor profile run: nominal_m6_n3 (reported only) ===
+  domain : 67
+  robot  : robot1
+  arena  : /home/alexmint/Development/robot-fleet/src/corridor-twin/out/arena_corridor_robot1_nominal_m6_n3.usd
+  run    : /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3
+
+=== [09:34:34 +0s] precondition: the arena is the scenario ===
+  ok   B: manifest [5.038, -2.4] arena [5.038, -2.4] (err 0.0 m)
+  ok   corridor east/south extent: manifest [5.4, -6.0] arena [5.4, -6.0] (err 0.0 m)
+arena and manifest agree within 0.05 m
+
+=== [09:34:34 +0s] precondition: the host and the domain are clean ===
+  isaac lock: acquired by pid 3131422 (corridor-profile-run nominal_m6_n3 (domain 67))
+  watchdog armed: 600s cap covers bring-up AND the transit
+
+=== [09:34:34 +0s] lens ===
+  replacing the previous run's lens (pid 2318657 )
+  lens: http://127.0.0.1:8765/  (map, scan, 3 pose ghosts, landmark)
+  24 wall segments from 6 buildings (nominal_m6_n3) -> /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3/scan-walls.json
+
+=== [09:34:43 +9s] simctl start ===
+=== simctl start  (backend isaac, ROS_DOMAIN_ID=67) ===
+  checking who is on this domain (up to ~15 s)...
+  session: 20260814-093458-isaac-d67
+  [1/7] real bringup stack (idles until the robot exists)...
+        EKF: pn-fix (ekf_sim_pnfix.yaml)
+  [2/7] safety governor + deadman...
+  [3/7] lidar odometry...
+  [5/7] Isaac Sim (~90 s to start; a window will open)...
+        NOTE /scan lands on 12 Hz by CALIBRATION against a measured but
+        unexplained 72-messages-per-render-second emission rate, not by
+        the sensor honouring its configured rate. Verify any session with
+        ./tools/check_isaac_contract.py before trusting a timing result.
+        waiting for Isaac to publish (budget 420 s; GUI runs are the slow end)...
+        /scan: 42, /odom_raw: 38 msgs in 4 s   (21 s)
+        waiting for /scan and /odom...
+        /scan: 49, /odom: 40 msgs in 4 s   (10 s)
+        session bag: /home/alexmint/Development/robot-fleet/src/MicroROS/MicroROS-assets/bags/20260814-093458-isaac-d67
+  [6/7] RViz (slam_debug.rviz)...
+
+  up. ./tools/simctl status   to inspect,   ./tools/simctl stop   to tear down
+
+=== [09:35:44 +70s] precondition: robot1 contract (--domain 67 --speed 0.0 --turn 0.0 --seconds 8) ===
+**contract check failed for robot1/nominal_m6_n3; twin not fit to gate**
+    odom_raw         93    11.5   11.0
+    imu             205    25.5   25.0
+    battery          13     1.6    1.0  <-- OFF
+    
+    scan: 360 beams, 1.0000 deg, -180.0..179.0 deg, 0.120-8.000 m, frame 'laser_frame'
+    imu:  orientation_covariance[0]=-1.0 (-1 means "not provided"), accel_z mean 9.799 std 0.0126
+    odom: travelled 0.000 m during the run
+    odom: no motion was commanded (--speed 0 --turn 0), so movement is not asserted; this run is a rate report
+    batt: raw 83 -> 8.3 V
+    
+    === 1 CONTRACT FAILURES ===
+      - battery at 1.6 Hz, want ~1.0
+  **proceeding under --allow-contract-fail; every artifact carries the caveat**
+
+=== [09:36:01 +87s] slam bring-up attempt 1 (params: slam_toolbox.yaml) ===
+  slam_toolbox active (attempt 1, from its own log)
+
+=== [09:36:04 +90s] waiting for the TF chain ===
+  TF map -> base_footprint available after 1.5s
+
+=== [09:36:14 +100s] nav stack ===
+  controller: dwb (nav2_robot1_corridor.yaml)
+  waiting for bt_navigator to reach ACTIVE (deadline 110s)...
+  bt_navigator bonded to the manager (attempt 1)
+  nav window: 465s (cap 600s, bring-up took 115s)
+  transit window: 200s (nav window 465s is longer than the transit needs)
+
+=== [09:36:29 +115s] T3.3a transit recorder (observe-only, 210s) ===
+
+=== [09:36:29 +115s] T3.3b governed Nav2 goal A->B ===
+  dock: armed, expecting a landmark of radius 0.12 m
+goal (4.106, -2.932) yaw -7.13 deg [map] for nominal_m6_n3
+  dock: containment -- route 7.380 m, window 2.531 m, arm after 4.849 m of A's OWN travel, detection within 100 deg of A's nose, 3-of-5 scans, radius unambiguous against the runner-up. No map-frame test.
+  dock: final approach 0.470 m from B's centre, derived -- the governor's floor and geometric contact, larger wins
+  dock: handoff at 0.620 m, then CREEP to contact at 0.217 m. B goes invisible at 0.240 m, so the last 0.022 m is blind and the encoders are the bumper.
+  dock: refine 1 -> (2.263, -2.525) [map], landmark seen at 0.800 m
+  dock: HANDOFF at 0.508 m -- cancelling the Nav2 goal, creeping to contact at 0.217 m
+  dock: ARRIVED_UNPROVEN -- creep timed out
+status CANCELED; final map pose (2.527, -2.453); error 274 mm against a 150 mm tolerance
+{
+  "robot": "robot1",
+  "profile": "nominal_m6_n3",
+  "caveat": "PRECONDITION FAILED (recorded, overridden): see contract.txt",
+  "gated": false,
+  "goal_map_frame": [
+    4.1061,
+    -2.9319
+  ],
+  "goal_map_yaw_deg": -7.125,
+  "tolerance_m": 0.15,
+  "goal_send_attempts": 1,
+  "goal_accepted": true,
+  "docking": {
+    "enabled": true,
+    "creep_ticks": 3395,
+    "approach_publishes": 3394,
+    "state": "ARRIVED_UNPROVEN",
+    "refinements": 1,
+    "creep": {
+      "last_seen_range_m": 0.2429,
+      "last_sighting_ceiling_m": 0.39,
+      "contact_range_m": 0.2175,
+      "commanded_speed_mps": 0.05
+    },
+    "containment": {
+      "route_length_m": 7.3804,
+      "window_m": 2.5315,
+      "min_travel_m": 4.8489,
+      "max_bearing_error_deg": 100.0,
+      "rejections": {
+        "not yet persistent across scans": 32
+      }
+    },
+    "landmark_map_frame": [
+      2.3685,
+      -2.2014
+    ],
+    "final_goal_map_frame": [
+      2.2629,
+      -2.5245
+    ],
+    "history": [
+      {
+        "event": "refine",
+        "n": 1,
+        "detected_range_m": 0.8001,
+        "landmark_map": [
+          2.6656,
+          -2.7669
+        ],
+        "goal_map": [
+          2.2629,
+          -2.5245
+        ]
+      },
+      {
+        "event": "handoff_to_docking",
+        "range_m": 0.5084,
+        "trigger": "range",
+        "landmark_map": [
+          2.3685,
+          -2.2014
+        ]
+      },
+      {
+        "event": "creep_begin",
+        "at_s": 393606.914
+      },
+      {
+        "event": "creep_timeout",
+        "elapsed_s": 25.0,
+        "last_seen_range_m": 0.2429,
+        "last_seen_bearing_deg": -0.0
+      }
+    ],
+    "handoff": {
+      "fired": true,
+      "creep_ticks": 3395
+    }
+  },
+  "action_status": "CANCELED",
+  "docked_and_cancelled": true,
+  "travelled_m": 5.346,
+  "final_pose_map_frame": [
+    2.5273,
+    -2.4529
+  ],
+  "goal_error_m": 0.274,
+  "failures": [
+    "map-frame goal error 274 mm exceeds 150 mm (ADR 0022)"
+  ],
+  "pass": false
+}
+
+written: /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3/nav.json
+
+=== [09:37:48 +194s] transit recorder verdict ===
+  nav gate returned; letting the recorder settle 15s, then closing it
+=== startup: what was commanded before the goal ===
+      },
+      "midpoint_covariance": {
+        "station_m": 3.5498,
+        "cov_xx": 3.7924428300551016e-05,
+        "cov_yy": 2.6023936344070382e-05,
+        "cov_yawyaw": 0.0001,
+        "trace": 0.0001639483646446214
+      },
+      "failures": [
+        "EKF output gap 1.001 s exceeds 0.4 s (0.35 m/s governor cap x that gap must stay under the 0.15 m tolerance)",
+        "midpoint longitudinal drift 0.090 exceeds 0.05 (ADR 0022)"
+      ],
+      "pass": false
+    }
+    
+    written: /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3/gate.json
+    
+    GATE FAILURES:
+      FAIL EKF output gap 1.001 s exceeds 0.4 s (0.35 m/s governor cap x that gap must stay under the 0.15 m tolerance)
+      FAIL midpoint longitudinal drift 0.090 exceeds 0.05 (ADR 0022)
+
+=== [09:38:07 +213s] saving the map (we own SLAM) ===
+  saved /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3/map.yaml
+=== stopping nominal_m6_n3 on domain 67 ===
+=== simctl stop ===
+  [1/7] silencing command sources (they would republish over the zeros)
+        0 command source(s) stopped
+  [2/7] stopping the robots, and verifying they are at rest
+        domain 67 (simulation): vx = -4.0274562989361586e-05  -> at rest (observed)
+        domain 20 (real car): vx = nodata  -> nothing on this domain answered -- UNKNOWN, not verified at rest
+        (the car gets ZEROS ONLY -- its agent and nodes are never killed)
+        every kill below is filtered to ROS_DOMAIN_ID=67, so a governor
+        or deadman running on 20 is left alone)
+  [3/7] closing the session bag
+        bag closed: /home/alexmint/Development/robot-fleet/src/MicroROS/MicroROS-assets/bags/20260814-093458-isaac-d67
+  [4/7] saving the session map
+        skipped (session ran --no-slam)
+  [5/7] killing simulation processes
+        15 terminated, 0 remaining (domain 67 only)
+  [6/7] clearing stale DDS shared memory
+        87 segments removed, 0 left
+  [7/7] resetting the ros2 daemon (it caches a stale node list)
+  session record: /home/alexmint/Development/MicroROS/MicroROS-assets/logs/sessions/20260814-093458-isaac-d67/session.json
+
+  stopped.
+  verified dead
+  reaped 1 stale Isaac semaphores from /dev/shm
+  isaac lock: released by pid 3131422
+
+=== [09:38:29 +235s] map quality ===
+  masked 1 cells (0.001% of the map) over CornerScreen, EastWallStub in the robot_start frame -> /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3/map-masked.yaml
+  scoring /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3/map-masked.yaml
+=== score_slam_map: /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3/map-masked.yaml ===
+
+  metric                       measured                    required                    verdict
+  -----------------------------------------------------------------------------------------
+  map artifact                 map-masked.yaml             YAML + PGM resolve          PASS
+  occupied pixels              3757                        >= 100                      PASS
+  known cells                  23.5%                       >= 5%                       PASS
+  bounding box (context only)  7.32 x 7.36 m               not a criterion             PASS (info)
+  median wall thickness        0.020 m                     <= 0.12 m                   PASS
+  duplicate wall extent        2.240 m                     <= 0.20 m                   FAIL
+
+  VERDICT: FAIL
+
+  json: /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3/map-score.json
+  map score recorded in run.json: map_score_passed=false map_median_wall_thickness_m=0.02 map_duplicate_wall_extent_m=2.24
+=== startup criterion (ground truth, 20260814-093458-isaac-d67) ===
+    {
+      "bag": "20260814-093458-isaac-d67",
+      "measured": {
+        "available": true,
+        "truth_samples": 1818,
+        "progress_threshold_m": 0.3,
+        "goal_send_s_into_bag": 52.96,
+        "pre_goal_rotation_deg": 0.01,
+        "seconds_to_progress_after_goal": 1.73,
+        "pre_transit_rotation_deg": 3.0,
+        "seconds_to_progress": 54.51,
+        "never_moved": false
+      },
+      "closest_approach_m": 0.0254,
+      "pass": true,
+      "failures": []
+    }
+=== nominal_m6_n3: **FAIL** (artifacts kept under /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3) ===
+  run record: /home/alexmint/Development/robot-fleet/src/corridor-twin/out/evidence/robot-a-gate/20260814-093434-robot1-nominal_m6_n3/run.json

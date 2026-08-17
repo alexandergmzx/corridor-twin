@@ -1,0 +1,116 @@
+{
+  "available": true,
+  "samples": {
+    "ekf": 3156,
+    "truth": 3479,
+    "wheel": 3479,
+    "imu": 7908
+  },
+  "arc": {
+    "corner": {
+      "centre_xy_m": [
+        3.48267,
+        -0.38350385782055235
+      ],
+      "radius_m": 0.6,
+      "sweep_rad": 1.6332151367908536,
+      "sweep_deg": 93.57633437499733,
+      "arc_length_m": 0.9799290820745121,
+      "station_start_m": 3.4519654601202556,
+      "station_end_m": 4.431894542194768
+    },
+    "delivery": {
+      "centre_xy_m": [
+        4.68267,
+        -1.7999999999999998
+      ],
+      "radius_m": 0.6,
+      "sweep_rad": 1.5707963267948966,
+      "sweep_deg": 90.0
+    }
+  },
+  "labels": {
+    "corner_arc_samples": 160,
+    "delivery_arc_samples": 174,
+    "straight_samples": 3145,
+    "kinematic_turning_samples": 226,
+    "agreement_fraction": 0.889,
+    "corner_seconds": 14.56,
+    "transit_span_s": [
+      88.36,
+      260.62
+    ]
+  },
+  "whole_bag": {
+    "truth_deg": -74.032,
+    "imu_deg": -75.331,
+    "ekf_deg": -75.952,
+    "wheel_deg": -216.381,
+    "imu_over_truth": 1.0176,
+    "ekf_over_truth": 1.0259,
+    "wheel_over_truth": 2.9228,
+    "ekf_over_imu": 1.0082
+  },
+  "transit_only": {
+    "truth_deg": -69.508,
+    "imu_deg": -70.739,
+    "ekf_deg": -69.598,
+    "wheel_deg": -209.146,
+    "imu_over_truth": 1.0177,
+    "ekf_over_truth": 1.0013,
+    "wheel_over_truth": 3.0089,
+    "ekf_over_imu": 0.9839
+  },
+  "corner_arc_only": {
+    "truth_deg": -81.274,
+    "imu_deg": -80.996,
+    "ekf_deg": -82.785,
+    "wheel_deg": -246.871,
+    "imu_over_truth": 0.9966,
+    "ekf_over_truth": 1.0186,
+    "wheel_over_truth": 3.0375,
+    "ekf_over_imu": 1.0221
+  },
+  "delivery_arc_only": {
+    "truth_deg": 24.644,
+    "imu_deg": 25.46,
+    "ekf_deg": 22.742,
+    "wheel_deg": 86.095,
+    "imu_over_truth": 1.0331,
+    "ekf_over_truth": 0.9228,
+    "wheel_over_truth": 3.4936,
+    "ekf_over_imu": 0.8933
+  },
+  "straight_only": {
+    "truth_deg": -17.625,
+    "imu_deg": -19.795,
+    "ekf_deg": -15.909,
+    "wheel_deg": -55.606,
+    "imu_over_truth": 1.1231,
+    "ekf_over_truth": 0.9027,
+    "wheel_over_truth": 3.155,
+    "ekf_over_imu": 0.8037
+  },
+  "turning_only_kinematic": {
+    "truth_deg": -66.797,
+    "imu_deg": -57.33,
+    "ekf_deg": -52.794,
+    "wheel_deg": -159.989,
+    "imu_over_truth": 0.8583,
+    "ekf_over_truth": 0.7904,
+    "wheel_over_truth": 2.3952,
+    "ekf_over_imu": 0.9209
+  },
+  "bag": "/home/alexmint/Development/MicroROS/MicroROS-assets/bags/20260812-185923-isaac-d67",
+  "profile": "wide_corner_m6_n4_5",
+  "live_reconciliation": {
+    "available": true,
+    "live_yaw_chain_deg": {
+      "imu_raw": -68.69,
+      "imu_filtered": -75.07
+    },
+    "bag_imu_deg": -70.739,
+    "bag_vs_live_imu_ratio": null,
+    "madgwick_step_verdict": null
+  }
+}

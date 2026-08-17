@@ -1,5 +1,16 @@
 # corridor-twin system design
 
+> **v2 transition (2026-08-11).** The design below describes the implemented
+> **v1** system: A's camera as the evidence source, a scripted route, a
+> classical estimator. ADRs
+> [0021](adr/0021-police-owned-sensing-and-isolation-gate.md)–[0025](adr/0025-fleet-workspace-membership.md)
+> decide the v2 system — P-owned enforcement camera, governed Nav2 autonomy on
+> a fleet twin, a learned detector with an ArUco baseline, fleet-workspace
+> membership — per the corrections of 2026-08-04. The design version bumps
+> with a v2 history row as each piece is implemented; see
+> [`docs/v2-plan.md`](v2-plan.md). Until then every figure and boundary below
+> is quotable only as v1.
+
 | Field | Value |
 |---|---|
 | Design version | 0.8.1 |

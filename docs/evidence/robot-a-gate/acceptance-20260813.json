@@ -1,0 +1,38 @@
+{
+  "session": "phase3-launch-2026-08-12",
+  "date": "2026-08-13",
+  "scene": "merged-B (ADR 0031), P mast camera authored",
+  "docking": "off in both",
+  "runs": [
+    {
+      "run": "20260813-015009-robot1-nominal_m6_n3",
+      "profile": "nominal_m6_n3",
+      "yaw_scale": 0.9454,
+      "yaw_window_s": 212.086,
+      "duplicate_wall": "0.340 m",
+      "worst_ekf_gap_s": 1.0285,
+      "travelled_m": 7.738,
+      "goal_accepted": true,
+      "nav_failure": "no action result within 200.0 s",
+      "gate_pass": false,
+      "gate_failures": [
+        "EKF output gap 1.028 s exceeds 0.4 s (0.35 m/s governor cap x that gap must stay under the 0.15 m tolerance)"
+      ]
+    },
+    {
+      "run": "20260813-020522-robot1-wide_corner_m6_n4_5",
+      "profile": "wide_corner_m6_n4_5",
+      "yaw_scale": 1.3011,
+      "yaw_window_s": 213.973,
+      "duplicate_wall": "0.540 m",
+      "worst_ekf_gap_s": 0.2,
+      "travelled_m": 7.683,
+      "goal_accepted": true,
+      "nav_failure": "no action result within 200.0 s",
+      "gate_pass": false,
+      "gate_failures": [
+        "yaw scale 1.3011 (estimated -67.72 deg vs truth -52.05 deg) exceeds 1.0 +/- 0.1"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,891 @@
+"""The docking state machine, and the bounds that keep it from being a loop.
+
+The whole point of docking is that it works while the map is wrong, so the
+tests put the robot at map poses that are wrong and check that the goal still
+lands beside the landmark. The other half is boundedness: a refiner that can
+re-issue forever is a control loop wearing a state machine's clothes.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+
+import corridor_dock  # noqa: E402
+from corridor_dock import (  # noqa: E402
+    DockingMachine,
+    dock_goal,
+    final_approach_m,
+    landmark_in_map,
+)
+
+#: The committed scenario's derived final approach: B's radius 0.12 and A's
+#: length 0.195 through `final_approach_m`. Computed, never written down, so a
+#: rescale that moves it moves these tests with it.
+STANDOFF_M = final_approach_m(0.12, 0.195)
+
+
+def _verdict(x, y, confirmed=True):
+    return {
+        "confirmed": confirmed,
+        "candidate": {"x": x, "y": y, "range_m": math.hypot(x, y)},
+    }
+
+
+# --- geometry ----------------------------------------------------------------
+
+
+def test_a_detection_dead_ahead_lands_in_front_of_the_robot() -> None:
+    assert landmark_in_map({"x": 2.0, "y": 0.0}, (5.0, 1.0), 0.0) == pytest.approx((7.0, 1.0))
+
+
+def test_the_robots_heading_rotates_the_detection() -> None:
+    """A detection is laser-relative; forgetting the yaw puts B at 90 degrees."""
+
+    got = landmark_in_map({"x": 2.0, "y": 0.0}, (5.0, 1.0), math.pi / 2.0)
+
+    assert got == pytest.approx((5.0, 3.0), abs=1e-9)
+
+
+def test_the_final_approach_is_the_governors_floor_not_a_chosen_number() -> None:
+    """ADR 0031's contact semantics, and the ordering they must not assume.
+
+    At the committed scenario the governor's hard stop decides: 0.35 m of laser
+    range plus B's 0.12 m radius is 0.470 m, against a geometric-contact term of
+    0.0975 + 0.12 + 0.15 = 0.3675 m. **The governor is never bypassed** -- the
+    demo win is declared at a distance the safety envelope permits.
+
+    The second case is what the `max` is FOR, and it is worth stating exactly
+    because the obvious guess is wrong: a bigger B does not flip the ordering.
+    B's radius enters both terms identically, so it cancels. What flips it is a
+    longer ROBOT -- contact overtakes the governor once A's half-length exceeds
+    0.20 m, which is `stop_distance - tolerance`.
+    """
+
+    assert final_approach_m(0.12, 0.195) == pytest.approx(0.470)
+    assert final_approach_m(0.12, 0.195) > 0.195 / 2 + 0.12 + 0.15
+
+    # A B of half a metre radius: the governor still decides, because the
+    # radius is in both terms.
+    assert final_approach_m(0.5, 0.195) == pytest.approx(0.35 + 0.5)
+
+    # A robot a metre long: geometric contact takes over, and the derivation
+    # follows it rather than reporting a distance that would clip B.
+    assert final_approach_m(0.12, 1.0) == pytest.approx(0.5 + 0.12 + 0.15)
+
+
+def test_the_goal_stops_short_of_the_landmark_on_the_approach_side() -> None:
+    goal = dock_goal((10.0, 0.0), (0.0, 0.0), STANDOFF_M)
+
+    assert goal == pytest.approx((10.0 - STANDOFF_M, 0.0))
+    assert math.dist(goal, (10.0, 0.0)) == pytest.approx(STANDOFF_M)
+
+
+def test_the_approach_side_comes_from_where_the_robot_IS() -> None:
+    """Approaching from the far side must stop on the far side, not overshoot."""
+
+    goal = dock_goal((10.0, 0.0), (20.0, 0.0), STANDOFF_M)
+
+    assert goal == pytest.approx((10.0 + STANDOFF_M, 0.0))
+
+
+def test_already_inside_the_standoff_holds_position() -> None:
+    """Never reverse into space the robot has not sensed."""
+
+    assert dock_goal((10.0, 0.0), (9.8, 0.0), STANDOFF_M) == (9.8, 0.0)
+
+
+# --- the property that matters: a wrong map does not move the goal -----------
+
+
+def test_the_goal_tracks_the_landmark_even_when_the_map_pose_is_wrong() -> None:
+    """The reason docking exists.
+
+    The same physical situation -- B two metres dead ahead -- is presented at
+    three wildly different map poses, as a drifting map would report. The goal
+    must land 0.6 m short of B *relative to the robot* every time, because it is
+    computed from the current transform and never from the map's history.
+    """
+
+    for robot_xy in [(0.0, 0.0), (5.0, -3.0), (-40.0, 12.0)]:
+        machine = DockingMachine(nominal_goal=robot_xy, standoff_m=STANDOFF_M)
+        goal = machine.step(robot_xy, 0.0, _verdict(2.0, 0.0))
+
+        assert goal is not None
+        assert math.dist(goal, robot_xy) == pytest.approx(2.0 - STANDOFF_M)
+
+
+# --- arming ------------------------------------------------------------------
+
+
+def test_a_far_detection_does_not_arm() -> None:
+    """Range-gated, in the LASER frame."""
+
+    machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M)
+
+    assert machine.step((0.0, 0.0), 0.0, _verdict(9.0, 0.0)) is None
+    assert machine.state == DockingMachine.TRANSIT
+
+
+def test_arming_does_NOT_depend_on_the_map_pose() -> None:
+    """The bug that made docking never fire on a real run.
+
+    Arming used to compare the robot's MAP pose against the MAP goal. On a run
+    where A came within 0.49 m of B physically, its drifted map pose never came
+    within 3 m of the map goal, so the machine sat in TRANSIT with zero
+    refinements while the detector was confirming B the whole time.
+
+    Here the map pose is absurdly far from the nominal goal and docking must
+    still arm, because the LASER says B is two metres away.
+    """
+
+    machine = DockingMachine(nominal_goal=(500.0, -500.0), standoff_m=STANDOFF_M)
+
+    goal = machine.step((0.0, 0.0), 0.0, _verdict(2.0, 0.0))
+
+    assert goal is not None
+    assert machine.refinements == 1
+
+
+def test_an_unconfirmed_verdict_never_moves_the_goal() -> None:
+    machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M)
+
+    assert machine.step((0.0, 0.0), 0.0, _verdict(2.0, 0.0, confirmed=False)) is None
+    assert machine.refinements == 0
+
+
+# --- boundedness -------------------------------------------------------------
+
+
+def test_refinement_is_bounded_and_then_stops() -> None:
+    """A refiner that never stops is a control loop, not a state machine."""
+
+    machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M, max_refinements=2)
+    issued = []
+    # Ranges stay inside the arm radius and outside the docked band, and each
+    # moves the estimate 0.3 m -- past the 0.20 m re-issue threshold -- so every
+    # step would re-issue if nothing bounded it.
+    for step in range(6):
+        goal = machine.step((0.0, 0.0), 0.0, _verdict(2.9 - step * 0.3, 0.0))
+        if goal is not None:
+            issued.append(goal)
+
+    assert len(issued) == 2
+    assert machine.refinements == 2
+    assert machine.state == DockingMachine.UNREFINED
+
+
+def test_a_landmark_that_has_not_moved_does_not_re_issue() -> None:
+    """Re-sending the same goal interrupts an approach that is already working."""
+
+    machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M)
+
+    first = machine.step((0.0, 0.0), 0.0, _verdict(3.0, 0.0))
+    second = machine.step((0.0, 0.0), 0.0, _verdict(3.02, 0.0))
+
+    assert first is not None
+    assert second is None
+    assert machine.refinements == 1
+
+
+def test_the_handoff_is_decided_by_the_sensor_not_the_map() -> None:
+    """Renamed with ADR 0033: reaching this band is a HANDOFF, not an arrival.
+
+    It is still decided on the detected range and still never on a map-frame
+    number. What changed is what happens next -- Nav2's part of the delivery
+    ends here and the creep begins, because the delivery is a contact and Nav2
+    will not plan into an inflated lethal cell to make one.
+    """
+
+    machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M)
+
+    goal = machine.step((0.0, 0.0), 0.0, _verdict(STANDOFF_M, 0.0))
+
+    assert goal is None
+    assert machine.state == DockingMachine.DOCKING
+
+
+def test_arriving_is_one_sided__too_far_out_is_not_arrival() -> None:
+    """**The live 2026-08-13 delivery, pinned.**
+
+    A saw B at 0.6655 m against a 0.470 m standoff. The old symmetric band
+    admitted it -- |0.6655 - 0.470| = 0.196 < 0.25 -- so the machine declared
+    arrival a fifth of a metre too far out, cancelled the goal and stopped. It
+    missed by 0.2472 m against a 0.15 m criterion, and 0.196 m of that was this
+    one comparison. `refinements: 0`: the mechanism for closing that distance
+    never ran, because the tolerance was wider than the step it was a tolerance
+    on.
+    """
+
+    from corridor_dock import docked_max_range_m
+
+    machine = DockingMachine(nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M)
+    assert round(STANDOFF_M, 3) == 0.470
+    assert round(docked_max_range_m(STANDOFF_M), 3) == 0.620
+
+    goal = machine.step((0.0, 0.0), 0.0, _verdict(0.6655, 0.0))
+
+    assert machine.state != DockingMachine.DOCKING, (
+        "0.6655 m is 0.196 m too far out; that is what refinement is for"
+    )
+    assert goal is not None and machine.refinements == 1
+
+
+def test_arriving_is_one_sided__nearer_than_the_standoff_is_arrival() -> None:
+    """The other side has no bound, and should not.
+
+    Closer than the standoff means A is beside B and the governor's floor is
+    what stopped it. There is nothing left to refine, and the old symmetric
+    band called this "not arrived" and issued a hold goal instead.
+    """
+
+    machine = DockingMachine(nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M)
+
+    assert machine.step((0.0, 0.0), 0.0, _verdict(0.15, 0.0)) is None
+    assert machine.state == DockingMachine.DOCKING
+
+
+def test_a_machine_in_docking_stops_issuing_nav_goals() -> None:
+    """Once the creep owns the robot, Nav2 must not be sent anywhere else."""
+
+    machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M)
+    machine.step((0.0, 0.0), 0.0, _verdict(STANDOFF_M, 0.0))
+
+    assert machine.step((0.0, 0.0), 0.0, _verdict(5.0, 0.0)) is None
+    assert machine.state == DockingMachine.DOCKING
+
+
+def test_the_report_records_every_refinement() -> None:
+    machine = DockingMachine(nominal_goal=(0.0, 0.0), standoff_m=STANDOFF_M)
+    machine.step((0.0, 0.0), 0.0, _verdict(3.0, 0.0))
+    machine.step((0.0, 0.0), 0.0, _verdict(1.5, 0.0))
+
+    report = machine.report()
+
+    assert report["refinements"] == 2
+    assert [entry["event"] for entry in report["history"]] == ["refine", "refine"]
+    assert report["landmark_map_frame"] is not None
+
+
+# --- containment: the phantom near spawn -------------------------------------
+# Numbers from the run that made this necessary (20260812-131600) and from the
+# committed scale: route-to-delivery 5.750 m, window 0.900 m, goal (4.106,
+# -2.932), phantom "confirmed" at 1.06 m while the robot stood near (0, 0).
+
+#: The route-to-delivery at the committed scale, CORRECTED on 2026-08-13: the
+#: previous 5.7497 dropped `departure_length_m` on the false premise that the
+#: departure leg runs past B. It is the third of five legs and lies before the
+#: delivery; the route ends AT B.
+ROUTE_M = 7.3804
+#: 0.343 of it. See ARM_WINDOW_ROUTE_FRACTION for the two measured bounds.
+WINDOW_M = 2.5315
+GOAL = (4.1061, -2.9319)
+
+
+def _contained(**kwargs):
+    from corridor_dock import DockingMachine
+
+    return DockingMachine(GOAL, standoff_m=STANDOFF_M, route_length_m=ROUTE_M, **kwargs)
+
+
+def test_the_window_is_bounded_at_both_ends_by_measurement() -> None:
+    """**Rewritten 2026-08-13.** It used to assert a window of 0.900 m derived
+    as 15.653% of a route that was short by a whole leg. Both numbers changed
+    in the same commit, and the window is now bounded rather than copied.
+
+    A does not drive the authored route -- Nav2 plans its own -- so the window
+    exists to absorb that shortfall. Measured over seven bags, first arming on
+    the real B happens at 5.699-6.695 m of odometry against an authored
+    7.380 m. That fixes the band from both sides.
+    """
+
+    #: Measured, tools/diagnostics/arming_replay.py, 2026-08-13.
+    EARLIEST_MEASURED_ARMING_M = 5.699
+    #: The 2026-08-12 13:16 spawn phantom: confirmed at 1.06 m after 0.58 m.
+    SPAWN_CONTROL_TRAVEL_M = 0.58
+
+    machine = _contained()
+    assert machine.window_m == pytest.approx(WINDOW_M, abs=0.005)
+    assert machine.min_travel_m == pytest.approx(ROUTE_M - WINDOW_M, abs=0.005)
+
+    # Too small a window refuses a good arming; too large re-admits the spawn.
+    assert machine.window_m > ROUTE_M - EARLIEST_MEASURED_ARMING_M
+    assert machine.window_m < ROUTE_M - SPAWN_CONTROL_TRAVEL_M
+
+    # And it holds min_travel at the value 8 of 8 post-convexity docked runs
+    # armed under, so correcting the derivation did not move the behaviour.
+    assert machine.min_travel_m == pytest.approx(4.849, abs=0.01)
+
+
+def _scan(verdict: dict, frame: int) -> dict:
+    """Stamp a verdict as a distinct SCAN, which is what persistence counts."""
+
+    return {**verdict, "frame": frame}
+
+
+def _arm_over_scans(machine, verdict, travelled_m, scans: int = 5):
+    """Feed the same detection over consecutive scans, returning the last answer."""
+
+    answer = False
+    for frame in range(1, scans + 1):
+        answer = machine.armed(_scan(verdict, frame), travelled_m=travelled_m)
+    return answer
+
+
+def test_the_spawn_phantom_is_refused() -> None:
+    """**The negative control.** The exact shape of the 13:16 failure.
+
+    A confirmed detection, a plausible laser range, and a robot that has barely
+    moved. Shape and 3-of-5 agreement both pass -- they are about the object,
+    not the place.
+
+    Asserted against the TRAVEL test by name. When the map-frame proximity test
+    was deleted on 2026-08-13, travel became the only containment that excludes
+    the spawn region, so this control is now the whole of that guarantee.
+    """
+
+    machine = _contained()
+    verdict = _verdict(0.3, 1.0)           # confirmed, 1.06 m away
+    assert not _arm_over_scans(machine, verdict, travelled_m=0.58)
+    assert machine.step((0.0, 0.0), 0.0, verdict, travelled_m=0.58) is None
+    assert "too early in the route" in machine.rejections
+
+
+def test_the_real_post_at_the_end_of_the_route_still_arms() -> None:
+    """The guard must not reject the thing it guards.
+
+    A control that only ever says no is indistinguishable from docking being
+    switched off. Note what is NOT passed any more: a robot pose. Arming cannot
+    read one.
+    """
+
+    machine = _contained()
+    verdict = _verdict(0.6, 0.0)            # 0.6 m dead ahead
+    verdict["candidate"]["bearing_rad"] = 0.0
+    verdict["candidate"]["fitted_radius_m"] = 0.1244
+
+    assert _arm_over_scans(machine, verdict, travelled_m=5.2)
+    # The persistence ramp is not a refusal: the first two scans of any real
+    # detection are "seen, not yet confirmed", and they are counted so that a
+    # run which never arms says which. What must be absent is every reason that
+    # means "this is the wrong thing, or the wrong place".
+    assert set(machine.rejections) <= {"not yet persistent across scans"}
+    assert machine.rejections["not yet persistent across scans"] == 2
+
+
+def test_arming_reads_no_robot_pose_at_all() -> None:
+    """The property, pinned at the signature rather than at a value.
+
+    `armed` used to take `robot_xy` and `robot_yaw` and use them for two of its
+    three containment tests. Passing a pose is now a TypeError, so no future
+    edit can quietly reintroduce a map-frame condition inside it without this
+    failing first.
+    """
+
+    import inspect
+
+    from corridor_dock import DockingMachine as Machine
+
+    parameters = set(inspect.signature(Machine.armed).parameters)
+    assert parameters == {"self", "verdict", "travelled_m"}
+
+
+def test_each_containment_test_can_refuse_on_its_own() -> None:
+    """Four conditions, four separable reasons, so a rejection is diagnosable.
+
+    Rewritten on 2026-08-13. The map-frame proximity test it used to check --
+    "too far from the goal in the map frame" -- is deleted, and the bearing test
+    it checked against the goal direction is now against A's nose.
+    """
+
+    def at(travelled, bearing_rad, *, runner_up=None, scans=5):
+        machine = _contained(expected_radius_m=0.12)
+        verdict = _verdict(0.6, 0.0)
+        verdict["candidate"]["range_m"] = 0.6
+        verdict["candidate"]["bearing_rad"] = bearing_rad
+        verdict["candidate"]["fitted_radius_m"] = 0.1244
+        if runner_up is not None:
+            verdict["runner_up"] = {"fitted_radius_m": runner_up}
+        _arm_over_scans(machine, verdict, travelled_m=travelled, scans=scans)
+        return machine.rejections
+
+    assert "too early in the route" in at(1.0, 0.0)
+    # Behind the robot: 180 deg off the nose, which is what the cone excludes.
+    assert "detection is behind the robot" in at(5.2, math.pi)
+    # A second cluster fitting B's radius just as well: a coin flip, refused.
+    assert "two candidates fit B's radius equally well" in at(5.2, 0.0, runner_up=0.1250)
+    # One scan is not persistence, however good the detection is.
+    assert "not yet persistent across scans" in at(5.2, 0.0, scans=1)
+
+
+def test_the_cone_admits_b_abeam_because_that_is_what_closest_approach_means() -> None:
+    """The cone's floor is geometry, not a tuned number.
+
+    At the instant of closest approach the range derivative is zero, which puts
+    B exactly 90 deg off the nose. A cone narrower than abeam would refuse the
+    real B at the one moment docking most needs it. Measured across seven bags:
+    85.2 to 91.6 deg, straddling 90 as predicted.
+    """
+
+    from corridor_dock import ABEAM_DEG, MAX_BEARING_ERROR_DEG
+
+    assert MAX_BEARING_ERROR_DEG > ABEAM_DEG
+    for measured_deg in (85.2, 89.9, 90.1, 90.4, 90.8, 90.9, 91.6):
+        machine = _contained()
+        verdict = _verdict(0.6, 0.0)
+        verdict["candidate"]["range_m"] = 0.6
+        verdict["candidate"]["bearing_rad"] = math.radians(measured_deg)
+        assert _arm_over_scans(machine, verdict, travelled_m=5.2), (
+            f"{measured_deg} deg was measured on a real approach and must arm"
+        )
+
+
+def test_persistence_counts_scans_not_calls() -> None:
+    """The 2.7x over-count: 8119 `step()` calls against 3031 scan frames.
+
+    A caller spinning faster than the lidar must not confirm one measurement
+    many times. Same frame token twenty times over is one scan, not twenty.
+    """
+
+    machine = _contained()
+    verdict = _verdict(0.6, 0.0)
+    verdict["candidate"]["bearing_rad"] = 0.0
+
+    for _ in range(20):
+        answer = machine.armed(_scan(verdict, 7), travelled_m=5.2)
+
+    assert not answer
+    assert "not yet persistent across scans" in machine.rejections
+
+
+def test_containment_fails_closed_when_it_is_not_supplied() -> None:
+    """Configured but unsupplied is a caller bug, and arming anyway restores the
+    exact failure this exists to prevent."""
+
+    machine = _contained()
+    verdict = _verdict(GOAL[0], GOAL[1])
+    verdict["candidate"]["range_m"] = 0.6
+
+    assert not machine.armed(verdict)
+    assert "containment configured but not supplied" in machine.rejections
+
+
+def test_an_unconfigured_machine_keeps_its_old_behaviour() -> None:
+    """Transit-only callers -- and every existing test above -- are unchanged."""
+
+    from corridor_dock import DockingMachine
+
+    machine = DockingMachine(GOAL, standoff_m=STANDOFF_M)
+    assert machine.min_travel_m is None
+    assert machine.armed(_verdict(0.3, 1.0))
+
+
+def test_the_bearing_gate_admits_the_REAL_B_from_the_real_manifest() -> None:
+    """The guard-must-not-reject-the-guarded test, done properly, re-derived.
+
+    `test_the_real_post_at_the_end_of_the_route_still_arms` above sets the
+    detection's bearing TO the goal bearing, so it passes by construction and
+    proves nothing about the scene.
+
+    **ADR 0031 moved this geometry and the cone is not carried across it.**
+    Before the merge the detectable post stood 0.8 m south of B while the
+    delivery standoff sat 0.6 m west of it, putting the two **1.000 m apart** --
+    comparable to the 0.9 m window itself, and the reason +/-60 deg was chosen.
+    Now the detection is B, so the separation is the standoff alone: **0.600 m**.
+    The cone is re-measured against that rather than inherited from it.
+    """
+
+    import json
+
+    manifest_path = Path(__file__).parent.parent / "out/corridor.manifest.json"
+    if not manifest_path.is_file():
+        pytest.skip("out/corridor.manifest.json is a generated artifact")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "tools"))
+    from corridor_dock import MAX_BEARING_ERROR_DEG
+    from corridor_nav_gate import DELIVERY_STANDOFF_M, delivery_standoff_world
+
+    goal = delivery_standoff_world(manifest)
+    b_position = manifest["actors"]["b_xyz_m"]
+    # One object: what the detector confirms is what the goal stands off from.
+    assert math.dist(goal[:2], b_position[:2]) == pytest.approx(
+        DELIVERY_STANDOFF_M, abs=0.05
+    )
+
+    worst = 0.0
+    for standoff in (2.0, 1.5, 1.0, 0.7, 0.5, 0.3):
+        # Approaching the goal down the street, which is how A arrives.
+        robot = (goal[0], goal[1] + standoff)
+        to_goal = math.atan2(goal[1] - robot[1], goal[0] - robot[0])
+        to_b = math.atan2(b_position[1] - robot[1], b_position[0] - robot[0])
+        error = abs(math.degrees((to_b - to_goal + math.pi) % (2 * math.pi) - math.pi))
+        worst = max(worst, error)
+        assert error <= MAX_BEARING_ERROR_DEG, (
+            f"at {standoff} m from the goal B is {error:.1f} deg off the goal "
+            f"bearing, and containment would refuse it"
+        )
+    # The merge does not make this easier in the way it first looks. B is nearer
+    # the goal than the post was, but it is nearer along the SAME side A
+    # approaches from, so the bearing swings harder at close range rather than
+    # less. Recorded so a scenario change that erodes the margin is visible
+    # rather than silent.
+    assert worst < MAX_BEARING_ERROR_DEG, f"margin has eroded to {worst:.1f} deg"
+
+
+def test_the_refined_goal_faces_what_it_was_derived_from() -> None:
+    """Every refined goal must point at the landmark that produced it.
+
+    The refine path used to overwrite only the goal's x and y, leaving the
+    TRANSIT goal's yaw in place -- an angle derived for the nominal standoff
+    rather than for the point the detector just chose. W1's defect, one level
+    down. `dock_goal` places the goal on the segment from A to the landmark, so
+    the correct facing is the bearing along that segment, and it must hold from
+    whatever direction A happens to arrive.
+    """
+
+    from corridor_dock import dock_goal, facing_yaw
+
+    landmark = (5.0, 2.0)
+    for robot in ((0.0, 0.0), (9.0, 2.0), (5.0, -4.0), (1.0, 7.0)):
+        goal = dock_goal(landmark, robot, STANDOFF_M)
+        yaw = facing_yaw(goal, landmark)
+        # Walking the standoff along that heading from the goal lands on the
+        # landmark: the goal both stands off it and looks at it.
+        assert (
+            goal[0] + STANDOFF_M * math.cos(yaw),
+            goal[1] + STANDOFF_M * math.sin(yaw),
+        ) == pytest.approx(landmark, abs=1e-9)
+
+
+def test_facing_yaw_is_not_the_identity_quaternions_zero() -> None:
+    """The failure it prevents, stated as a value rather than as a property."""
+
+    from corridor_dock import facing_yaw
+
+    assert facing_yaw((0.0, 0.0), (-1.0, 0.0)) == pytest.approx(math.pi)
+    assert facing_yaw((0.0, 0.0), (0.0, -1.0)) == pytest.approx(-math.pi / 2)
+
+
+# --- the terminal creep: the encoders are the bumper (ADR 0033, R2) ----------
+
+#: The committed scenario's two bodies. B's radius 0.12, A's length 0.195.
+B_RADIUS_M, A_LENGTH_M = 0.12, 0.195
+
+
+def _docking(**kwargs):
+    """A machine already handed off to the creep."""
+
+    machine = DockingMachine(
+        nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M,
+        expected_radius_m=B_RADIUS_M, a_length_m=A_LENGTH_M, **kwargs,
+    )
+    machine.step((0.0, 0.0), 0.0, _verdict(0.30, 0.0))
+    assert machine.state == DockingMachine.DOCKING
+    return machine
+
+
+def test_contact_and_the_blind_radius_are_derived_from_the_two_bodies() -> None:
+    """Neither number is authored, and they must move together on a rescale.
+
+    Contact is A's half-length plus B's radius. The blind radius is where B's
+    surface enters the MS200's 0.12 m minimum range -- which is FARTHER than
+    contact, so the last stretch is driven with no laser return from B at all.
+    """
+
+    from corridor_dock import contact_range_m, last_sighting_ceiling_m
+
+    assert contact_range_m(B_RADIUS_M, A_LENGTH_M) == pytest.approx(0.2175)
+    # B goes invisible at 0.240 m centre-distance, 22.5 mm before contact.
+    assert contact_range_m(B_RADIUS_M, A_LENGTH_M) < 0.12 + B_RADIUS_M
+    assert last_sighting_ceiling_m(B_RADIUS_M, A_LENGTH_M) == pytest.approx(0.39)
+
+
+def test_a_stall_with_b_last_seen_close_is_the_bump() -> None:
+    """**The delivery.** Commanded forward, encoders reporting nothing.
+
+    A has no bumper. The stall IS the bump, and the laser's job is only to
+    testify that B was closing when it could still be seen.
+    """
+
+    machine = _docking()
+    verdict = _verdict(0.26, 0.0)                    # B, just before it blinds
+
+    assert machine.creep(verdict, measured_vx=0.05, now_s=0.0)["vx"] > 0.0
+    # Now A stops dead while still being commanded forward.
+    machine.creep(verdict, measured_vx=0.0, now_s=1.0)
+    out = machine.creep(verdict, measured_vx=0.0, now_s=2.1)
+
+    assert out["vx"] == 0.0
+    assert machine.state == DockingMachine.DELIVERED_CONFIRMED
+
+
+def test_a_stall_with_b_last_seen_far_is_NOT_claimed_as_a_delivery() -> None:
+    """**The negative control.** Something else stopped A.
+
+    A wheel against a kerb, a wall, a jammed caster -- all produce exactly the
+    same encoder signature as a bump. What separates them is where B was when
+    the laser last saw it, and a metre away is not a delivery.
+    """
+
+    machine = _docking()
+    far = _verdict(1.10, 0.0)
+
+    machine.creep(far, measured_vx=0.05, now_s=0.0)
+    machine.creep(far, measured_vx=0.0, now_s=1.0)
+    out = machine.creep(far, measured_vx=0.0, now_s=2.1)
+
+    assert out["vx"] == 0.0
+    assert machine.state == DockingMachine.ARRIVED_UNPROVEN
+    assert "unproven" in out["reason"]
+
+
+def test_a_slow_start_is_not_mistaken_for_contact() -> None:
+    """The debounce. A robot that has not got going yet is not a robot that
+    has arrived, and without the window every creep would confirm instantly."""
+
+    machine = _docking()
+    verdict = _verdict(0.26, 0.0)
+
+    out = machine.creep(verdict, measured_vx=0.0, now_s=0.0)
+
+    assert out["vx"] > 0.0, "must keep commanding through the debounce"
+    assert machine.state == DockingMachine.DOCKING
+
+
+def test_the_creep_is_bounded_and_gives_up_unproven() -> None:
+    """A creep that never contacts anything must stop and say it did not."""
+
+    from corridor_dock import CREEP_TIMEOUT_S
+
+    machine = _docking()
+    verdict = _verdict(0.26, 0.0)
+
+    machine.creep(verdict, measured_vx=0.05, now_s=0.0)
+    out = machine.creep(verdict, measured_vx=0.05, now_s=CREEP_TIMEOUT_S + 0.1)
+
+    assert out["vx"] == 0.0
+    assert machine.state == DockingMachine.ARRIVED_UNPROVEN
+
+
+def test_the_creep_declares_its_approach_so_the_governor_can_be_told() -> None:
+    """The mask follows the freshest sighting, so it narrows as A closes.
+
+    The governor is INFORMED, never bypassed: this is the payload that tells it
+    which single object to stop braking for.
+    """
+
+    machine = _docking()
+
+    first = machine.creep(_verdict(0.30, 0.0), measured_vx=0.05, now_s=0.0)
+    closer = machine.creep(_verdict(0.26, 0.0), measured_vx=0.05, now_s=1.0)
+
+    assert first["approach"]["range_m"] == pytest.approx(0.30)
+    assert closer["approach"]["range_m"] == pytest.approx(0.26), (
+        "a stale mask is a wide mask"
+    )
+
+
+def test_creep_refuses_outside_docking_state() -> None:
+    """**The negative control R1 requires**, on this side of the interface.
+
+    Nothing may command a velocity unless the machine has actually handed off.
+    """
+
+    machine = DockingMachine(
+        nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M,
+        expected_radius_m=B_RADIUS_M, a_length_m=A_LENGTH_M,
+    )
+
+    assert machine.state == DockingMachine.TRANSIT
+    assert machine.creep(_verdict(0.26, 0.0), measured_vx=0.0, now_s=0.0) is None
+
+
+def test_a_confirmed_delivery_is_terminal() -> None:
+    """After the bump, neither a nav goal nor another creep tick."""
+
+    machine = _docking()
+    verdict = _verdict(0.26, 0.0)
+    machine.creep(verdict, measured_vx=0.0, now_s=0.0)
+    machine.creep(verdict, measured_vx=0.0, now_s=1.1)
+    assert machine.state == DockingMachine.DELIVERED_CONFIRMED
+
+    assert machine.creep(verdict, measured_vx=0.0, now_s=2.0) is None
+    assert machine.step((0.0, 0.0), 0.0, _verdict(0.26, 0.0)) is None
+
+
+def test_the_creep_steers_onto_b_instead_of_driving_a_tangent() -> None:
+    """**Run 20260814-003034.** The creep commanded pure forward motion.
+
+    A arrives mid-turn -- the yaw study measured 51-79 degrees off the delivery
+    heading -- so "ahead" is not where B is. That run crept its full 25 s
+    without ever stalling, and B went from 0.6133 m at handoff to 0.6335 m by
+    the timeout: a metre and a quarter driven at a tangent, with the range
+    growing the whole way.
+    """
+
+    machine = _docking()
+    off_to_the_left = _verdict(0.30, 0.0)
+    off_to_the_left["candidate"]["bearing_rad"] = 0.6      # ~34 deg
+
+    out = machine.creep(off_to_the_left, measured_vx=0.05, now_s=0.0)
+
+    assert out["wz"] > 0.0, "must turn toward B"
+    assert out["vx"] == 0.0, "must not drive forward while badly misaligned"
+    assert "turning first" in out["reason"]
+
+
+def test_forward_speed_is_scaled_by_alignment() -> None:
+    """Aligned drives at the creep speed; slightly off drives slower."""
+
+    from corridor_dock import CREEP_SPEED_MPS
+
+    aligned = _docking().creep(_verdict(0.30, 0.0), measured_vx=0.05, now_s=0.0)
+    assert aligned["vx"] == pytest.approx(CREEP_SPEED_MPS)
+    assert aligned["wz"] == pytest.approx(0.0)
+
+    slight = _verdict(0.30, 0.0)
+    slight["candidate"]["bearing_rad"] = 0.3               # ~17 deg
+    out = _docking().creep(slight, measured_vx=0.05, now_s=0.0)
+    assert 0.0 < out["vx"] < CREEP_SPEED_MPS
+    assert out["wz"] > 0.0
+
+
+def test_a_pivot_is_never_mistaken_for_contact() -> None:
+    """**The dangerous failure: a bump that never happened.**
+
+    While badly misaligned the creep pivots in place -- vx is zero by design,
+    so the encoders report zero translation. Counting that as a stall would
+    confirm a contact against thin air, and it is the one failure here that
+    looks exactly like success.
+    """
+
+    machine = _docking()
+    sideways = _verdict(0.30, 0.0)
+    sideways["candidate"]["bearing_rad"] = 0.9             # ~52 deg, pivoting
+
+    for t in (0.0, 1.0, 2.0, 3.0, 4.0):
+        out = machine.creep(sideways, measured_vx=0.0, now_s=t)
+        assert out["vx"] == 0.0
+
+    assert machine.state == DockingMachine.DOCKING, (
+        "a pivot is not an arrival, however long it lasts"
+    )
+
+
+# ------------------------- Nav2 finishing the refined goal is also a handoff
+#
+# ADR 0036. Run 20260814-031922: Nav2 SUCCEEDED at 0.6621 m from B while the
+# handoff fires only inside 0.620 m, so the machine sat in REFINE with zero
+# creep ticks and the terminal phase was skipped in silence.
+#
+# The margin is not small, it is ZERO: docked_max_range_m is
+# standoff + GOAL_TOLERANCE_M, Nav2's SUCCEEDED envelope is
+# standoff + xy_goal_tolerance, and both tolerances are 0.15.
+
+
+def _refined_machine(**kwargs):
+    """A machine past `armed()` with one refinement behind it.
+
+    Built on the file's own `_docking`-style constructor so it cannot drift
+    from the real signature, then wound forward: REFINE with refinements=1 is
+    the state run 031922 was in when Nav2 reported SUCCEEDED.
+    """
+
+    machine = DockingMachine(
+        nominal_goal=(9.0, 0.0), standoff_m=STANDOFF_M,
+        expected_radius_m=B_RADIUS_M, a_length_m=A_LENGTH_M, **kwargs,
+    )
+    machine.state = DockingMachine.REFINE
+    machine.refinements = 1
+    return machine
+
+
+def test_the_handoff_radius_and_nav2s_envelope_are_the_same_number() -> None:
+    """**The reason the second trigger exists**, asserted as arithmetic rather
+    than described in a comment. A future Nav2 param change breaks HERE, in a
+    second, instead of in a run artifact three hours later.
+    """
+
+    params = (ROOT / "config/robot1/nav2_robot1_corridor.yaml").read_text(
+        encoding="utf-8")
+    tolerances = {float(m) for m in re.findall(
+        r"^\s*xy_goal_tolerance:\s*([0-9.]+)", params, re.M)}
+
+    assert tolerances, "xy_goal_tolerance is gone from the corridor Nav2 params"
+    assert tolerances == {corridor_dock.GOAL_TOLERANCE_M}, (
+        f"Nav2 tolerates {tolerances} and the dock uses "
+        f"{corridor_dock.GOAL_TOLERANCE_M}; the zero-margin argument for ADR "
+        f"0036 no longer holds and the trigger needs re-deriving"
+    )
+
+
+def test_moving_the_goal_inward_could_not_have_worked() -> None:
+    """The alternative, rejected on measurement: B's inflated footprint leaves
+    under 42 mm before NavFn refuses to plan, against a 42 mm measured miss."""
+
+    inflated = 0.12 + 0.128 + 0.18            # B + robot_radius + inflation
+    approach = corridor_dock.final_approach_m(b_radius_m=0.12, a_length_m=0.195)
+
+    assert approach == pytest.approx(0.470, abs=1e-3)
+    assert approach - inflated < 0.045, (
+        "the room to move the goal inward is smaller than the miss it must absorb"
+    )
+
+
+def test_nav2_succeeding_hands_off_where_range_alone_would_not() -> None:
+    """**Run 031922 replayed.** 0.6621 m: outside 0.620, inside the ceiling."""
+
+    machine = _refined_machine()
+    machine.step((0.0, 0.0), 0.0, _verdict(0.6621, 0.0), nav_terminal=True)
+
+    assert machine.state == machine.DOCKING
+    assert machine.history[-1]["trigger"] == "nav_succeeded"
+
+
+def test_without_nav2_finishing_the_old_behaviour_is_unchanged() -> None:
+    """The first trigger is not loosened. Same range, no nav_terminal, no dock."""
+
+    machine = _refined_machine()
+    machine.step((0.0, 0.0), 0.0, _verdict(0.6621, 0.0))
+
+    assert machine.state != machine.DOCKING
+
+
+def test_an_unrefined_goal_never_qualifies() -> None:
+    """Guard 2: the goal Nav2 finished must have come from the CONFIRMED
+    landmark, not from the manifest."""
+
+    machine = _refined_machine()
+    machine.refinements = 0
+    machine.step((0.0, 0.0), 0.0, _verdict(0.6621, 0.0), nav_terminal=True)
+
+    assert machine.state != machine.DOCKING
+
+
+def test_a_detection_beyond_the_ceiling_never_qualifies() -> None:
+    """Guard 3: one tolerance out, not unbounded."""
+
+    machine = _refined_machine()
+    machine.step((0.0, 0.0), 0.0, _verdict(0.90, 0.0), nav_terminal=True)
+
+    assert machine.state != machine.DOCKING
+    assert machine.handoff_ceiling_m == pytest.approx(0.770, abs=1e-6)
+
+
+def test_the_creep_can_still_reach_from_the_ceiling() -> None:
+    """A trigger that hands off outside the creep's budget is not a handoff."""
+
+    budget = ((corridor_dock.handoff_ceiling_m(corridor_dock.DELIVERY_STANDOFF_M)
+               - 0.2175) / corridor_dock.CREEP_SPEED_MPS)
+
+    assert budget < corridor_dock.CREEP_TIMEOUT_S, (
+        f"{budget:.1f}s of creep against a {corridor_dock.CREEP_TIMEOUT_S}s timeout"
+    )

@@ -1,4 +1,10 @@
 # Phase 1 scene authoring. Keep this environment separate from Isaac Sim's Python.
+# The occlusion/certificate chain (scene.occlusion) needs only usd-core and
+# PyYAML; numpy is pinned <2 for the ROS-shared ABI and is used by scene.build's
+# marker generation. scene.build additionally imports OpenCV, supplied by apt's
+# python3-opencv through the --system-site-packages venv — deliberately NOT
+# pip-installed here: a pip OpenCV wheel in the ROS-shared venv risks the
+# NumPy 1.x/2.x ABI conflict the environment discipline forbids. See ADR 0025.
 usd-core==26.5
 numpy>=1.26,<2
 PyYAML>=6.0,<7

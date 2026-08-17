@@ -1,0 +1,109 @@
+{
+  "model": "PekingU/rtdetr_r18vd",
+  "licence": "Apache-2.0",
+  "licence_check": "ADR 0024 decision 2: permissive only; Ultralytics-YOLO rejected on AGPL grounds",
+  "metric_note": "detection rate at IoU >= 0.5, computed in this script; pycocotools is absent and mAP is NOT reported",
+  "dataset": "out/datasets/p_cam_v1",
+  "resolution": "lo",
+  "train_frames": 1581,
+  "val_frames": 412,
+  "epochs_requested": 8,
+  "history": [
+    {
+      "epoch": 0,
+      "train_loss": 26.17747,
+      "val_loss": 3.16892,
+      "val_detection_rate_iou0.5": 0.9927,
+      "per_profile_detection_rate": {
+        "nominal_m6_n3": 1.0,
+        "uniform_m6_n6": 0.9924,
+        "wide_corner_m6_n4_5": 0.9863
+      },
+      "elapsed_s": 61.3
+    },
+    {
+      "epoch": 1,
+      "train_loss": 5.88744,
+      "val_loss": 2.36352,
+      "val_detection_rate_iou0.5": 0.9879,
+      "per_profile_detection_rate": {
+        "nominal_m6_n3": 1.0,
+        "uniform_m6_n6": 0.9771,
+        "wide_corner_m6_n4_5": 0.9863
+      },
+      "elapsed_s": 114.7
+    },
+    {
+      "epoch": 2,
+      "train_loss": 5.5937,
+      "val_loss": 2.3699,
+      "val_detection_rate_iou0.5": 0.9927,
+      "per_profile_detection_rate": {
+        "nominal_m6_n3": 1.0,
+        "uniform_m6_n6": 0.9924,
+        "wide_corner_m6_n4_5": 0.9863
+      },
+      "elapsed_s": 168.6
+    },
+    {
+      "epoch": 3,
+      "train_loss": 5.36338,
+      "val_loss": 2.32638,
+      "val_detection_rate_iou0.5": 0.983,
+      "per_profile_detection_rate": {
+        "nominal_m6_n3": 0.9778,
+        "uniform_m6_n6": 0.9847,
+        "wide_corner_m6_n4_5": 0.9863
+      },
+      "elapsed_s": 222.7
+    },
+    {
+      "epoch": 4,
+      "train_loss": 5.2712,
+      "val_loss": 2.20332,
+      "val_detection_rate_iou0.5": 0.9903,
+      "per_profile_detection_rate": {
+        "nominal_m6_n3": 1.0,
+        "uniform_m6_n6": 0.9847,
+        "wide_corner_m6_n4_5": 0.9863
+      },
+      "elapsed_s": 276.8
+    },
+    {
+      "epoch": 5,
+      "train_loss": 5.17247,
+      "val_loss": 2.24871,
+      "val_detection_rate_iou0.5": 0.9879,
+      "per_profile_detection_rate": {
+        "nominal_m6_n3": 0.9852,
+        "uniform_m6_n6": 0.9924,
+        "wide_corner_m6_n4_5": 0.9863
+      },
+      "elapsed_s": 331.0
+    },
+    {
+      "epoch": 6,
+      "train_loss": 5.0741,
+      "val_loss": 2.44407,
+      "val_detection_rate_iou0.5": 0.9854,
+      "per_profile_detection_rate": {
+        "nominal_m6_n3": 0.9926,
+        "uniform_m6_n6": 0.9771,
+        "wide_corner_m6_n4_5": 0.9863
+      },
+      "elapsed_s": 384.8
+    },
+    {
+      "epoch": 7,
+      "train_loss": 5.10282,
+      "val_loss": 2.17444,
+      "val_detection_rate_iou0.5": 0.9927,
+      "per_profile_detection_rate": {
+        "nominal_m6_n3": 1.0,
+        "uniform_m6_n6": 0.9924,
+        "wide_corner_m6_n4_5": 0.9863
+      },
+      "elapsed_s": 438.8
+    }
+  ]
+}

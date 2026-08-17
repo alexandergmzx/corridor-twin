@@ -5,13 +5,15 @@
 # not cross a domain boundary, so by default P cannot see, list, or subscribe to
 # anything A publishes -- including topics nobody thought to forbid.
 #
-# That isolation would leave P with no data at all, and P has no camera of its
-# own: the scenario source gives P A's front-camera feed, and CLAUDE.md's
-# one-camera invariant bars a police-side sensor. So exactly three message types
-# are relayed, one way, by this file. Everything else stays unreachable because
-# it was never listed here, which is a stronger guarantee than a blocklist: a
-# topic added to A tomorrow is invisible to P without anyone remembering to
-# forbid it.
+# That isolation would leave P with no data at all. Since ADR 0021 the single
+# render product is P's OWN roadside enforcement camera and A is camera-less, so
+# what crosses here is not a robot sensor being shared: it is P's instrument in
+# transit. The simulator renders it in A's plane because that is the plane the
+# simulator runs in, and this file relays it one way to the domain its owner is
+# on. So exactly three message types cross. Everything else stays unreachable
+# because it was never listed here, which is a stronger guarantee than a
+# blocklist: a topic added to A tomorrow is invisible to P without anyone
+# remembering to forbid it.
 #
 # Why each entry is here, and not one more:
 #
@@ -37,14 +39,14 @@ name: corridor_twin_gateway
 from_domain: 42
 to_domain: 43
 topics:
-  /robot/front_camera/image_raw:
+  /p_cam/image_raw:
     type: sensor_msgs/msg/Image
     qos:
       reliability: best_effort
       durability: volatile
       history: keep_last
       depth: 5
-  /robot/front_camera/camera_info:
+  /p_cam/camera_info:
     type: sensor_msgs/msg/CameraInfo
     qos:
       reliability: best_effort

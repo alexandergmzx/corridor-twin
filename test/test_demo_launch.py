@@ -120,7 +120,7 @@ def test_display_shows_one_camera_and_no_other_sensor() -> None:
     topics = [
         display["Topic"]["Value"] for display in displays if isinstance(display.get("Topic"), dict)
     ]
-    assert topics == ["/robot/front_camera/image_raw", "/police/enforcement_view"]
+    assert topics == ["/p_cam/image_raw", "/police/enforcement_view"]
     image_displays = [d for d in displays if d["Class"] == "rviz_default_plugins/Image"]
     assert len(image_displays) == 1, "one camera means one image display"
     assert config["Visualization Manager"]["Global Options"]["Fixed Frame"] == "world"
@@ -210,7 +210,16 @@ def test_the_demonstration_refuses_to_run_both_halves_on_one_domain() -> None:
         "run_demo.sh must reject equal domains rather than silently reuniting the halves"
     )
     # Neither default may be the domain an unconfigured ROS process joins.
-    assert ":-0}" not in text
+    #
+    # Scoped to the DOMAIN defaults. It used to search the whole file for
+    # ":-0}", which caught any unrelated knob defaulting to zero -- an
+    # off-by-meaning that fails on a correct change and says nothing useful
+    # when it does.
+    domain_defaults = [line for line in text.splitlines()
+                       if "DOMAIN_ID:-" in line]
+    assert domain_defaults, "the domain defaults vanished"
+    for line in domain_defaults:
+        assert ":-0}" not in line, f"a half defaults to domain 0: {line.strip()}"
 
     # Each half is pinned, and the gateway is started to bridge them.
     assert 'export ROS_DOMAIN_ID="$police_domain"' in text

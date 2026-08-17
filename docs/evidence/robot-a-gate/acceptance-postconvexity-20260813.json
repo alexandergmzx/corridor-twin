@@ -1,0 +1,160 @@
+{
+  "promoted_utc": "2026-08-14T03:58:00+00:00",
+  "profile": "nominal_m6_n3",
+  "robot": "robot1",
+  "code_tip": "b915f81",
+  "caveat": "every run used --allow-contract-fail, the runner's intended corridor invocation; ADR 0033 was unwritten when these ran, so the criterion below is proposed, not pinned",
+  "criterion_proposed": {
+    "closest_approach_m": 0.15,
+    "walked_away_m": 0.3,
+    "dock_state": "DOCKED"
+  },
+  "dock_attribution_method": "the detected range at DOCKED is compared against the TRUE distance from A's final position to B and to the EastWallStub decoy; the nearer match wins, and must agree within 0.15 m",
+  "runs": [
+    {
+      "run_id": "20260813-184725-robot1-nominal_m6_n3",
+      "sha256": {
+        "gate.json": "1ca68590ceb8d6ed1b5e0b60909258b45713680b2aaf928fef3e600cef439765",
+        "nav.json": "056dc3d7380d748d5bb62b5d60d563c2589b923f8a76ac79a7821a2c45c40480",
+        "run.json": "2139f1dd2941c6a3d8e2892612d64c7d7adcb451d4f643905d8cde84db3ab226"
+      },
+      "git_commit": "97e757cf37646581c22ded37cccce5fa1829bae6",
+      "git_dirty": false,
+      "arena_sha256": "08345a8d1d93283a934d99e0f6679911bbd10c6822693c6fe5688a257dd58eb4",
+      "manifest_sha256": "e5b5c52540b4869edadc271c67f9de1b2b5eaf86627bece093dab74601e34055",
+      "closest_approach_m": 0.0592,
+      "walked_away_m": 0.0,
+      "final_position_m": [
+        4.4505,
+        -2.3422
+      ],
+      "standoff_world_m": [
+        4.438,
+        -2.4
+      ],
+      "dock_state": "DOCKED",
+      "refinements": 1,
+      "docked_range_m": 0.6168,
+      "truth_distance_to_b_m": 0.5904,
+      "truth_distance_to_stub_m": 0.4318,
+      "docked_on": "B",
+      "attribution_residual_m": 0.0264,
+      "map_frame_failures_ungated": [
+        "map-frame goal error 195 mm exceeds 150 mm (ADR 0022)"
+      ],
+      "ground_truth_distance_m": 6.688
+    },
+    {
+      "run_id": "20260813-185113-robot1-nominal_m6_n3",
+      "sha256": {
+        "gate.json": "26fa13b49c0210710c6b5c652d233befed84e82e6f9c3260a76ea04b1add3139",
+        "nav.json": "875767709e4fb6c1e2b2e32beeff8bf619a7a0b3f87e9d899b758d77e56bb90e",
+        "run.json": "237961dd76dfbba73dd59defcae0df97803aacab8dac86b0d21128f7530adf23"
+      },
+      "git_commit": "97e757cf37646581c22ded37cccce5fa1829bae6",
+      "git_dirty": false,
+      "arena_sha256": "08345a8d1d93283a934d99e0f6679911bbd10c6822693c6fe5688a257dd58eb4",
+      "manifest_sha256": "e5b5c52540b4869edadc271c67f9de1b2b5eaf86627bece093dab74601e34055",
+      "closest_approach_m": 0.1332,
+      "walked_away_m": 0.0,
+      "final_position_m": [
+        4.4526,
+        -2.2676
+      ],
+      "standoff_world_m": [
+        4.438,
+        -2.4
+      ],
+      "dock_state": "DOCKED",
+      "refinements": 1,
+      "docked_range_m": 0.6124,
+      "truth_distance_to_b_m": 0.6002,
+      "truth_distance_to_stub_m": 0.3597,
+      "docked_on": "B",
+      "attribution_residual_m": 0.0122,
+      "map_frame_failures_ungated": [
+        "map-frame goal error 162 mm exceeds 150 mm (ADR 0022)"
+      ],
+      "ground_truth_distance_m": 6.542
+    },
+    {
+      "run_id": "20260813-190257-robot1-nominal_m6_n3",
+      "sha256": {
+        "gate.json": "6743bf88e9f45b0b2e04789dcb92aeb93b84aa1e292b0800854e98567629d572",
+        "nav.json": "09410a414452df899abe088c80839c4d59d36e889b6407eb29978cc66125d340",
+        "run.json": "e7fe3647d5782cab751c5d6b6f28278c6a75070aa7d179ffae731375eb24ac3c"
+      },
+      "git_commit": "e351c0ce3376c0f76eec05aaf85e09666a9e5cda",
+      "git_dirty": false,
+      "arena_sha256": "08345a8d1d93283a934d99e0f6679911bbd10c6822693c6fe5688a257dd58eb4",
+      "manifest_sha256": "e5b5c52540b4869edadc271c67f9de1b2b5eaf86627bece093dab74601e34055",
+      "closest_approach_m": 0.0458,
+      "walked_away_m": 0.0,
+      "final_position_m": [
+        4.4207,
+        -2.3576
+      ],
+      "standoff_world_m": [
+        4.438,
+        -2.4
+      ],
+      "dock_state": "DOCKED",
+      "refinements": 1,
+      "docked_range_m": 0.62,
+      "truth_distance_to_b_m": 0.6188,
+      "truth_distance_to_stub_m": 0.4552,
+      "docked_on": "B",
+      "attribution_residual_m": 0.0012,
+      "map_frame_failures_ungated": [
+        "map-frame goal error 165 mm exceeds 150 mm (ADR 0022)"
+      ],
+      "ground_truth_distance_m": 6.628
+    },
+    {
+      "run_id": "20260813-190648-robot1-nominal_m6_n3",
+      "sha256": {
+        "gate.json": "45328bf75c2662422d8c1cc4ffe96ec48bb70a69e9e895f4f513f286cd3cf97c",
+        "nav.json": "29689113527f02a3fad135c5a0bd815ba4759cf90c9e2d149d3959ce5cef3805",
+        "run.json": "4f60398c157186c471c781a90aa68e6091a7007d313fecb390cfbee712fcaa80"
+      },
+      "git_commit": "5d76e970356c775f4a54b3913d5d8dc69b4275b2",
+      "git_dirty": false,
+      "arena_sha256": "08345a8d1d93283a934d99e0f6679911bbd10c6822693c6fe5688a257dd58eb4",
+      "manifest_sha256": "e5b5c52540b4869edadc271c67f9de1b2b5eaf86627bece093dab74601e34055",
+      "closest_approach_m": 0.1335,
+      "walked_away_m": 0.0,
+      "final_position_m": [
+        4.4346,
+        -2.2665
+      ],
+      "standoff_world_m": [
+        4.438,
+        -2.4
+      ],
+      "dock_state": "DOCKED",
+      "refinements": 1,
+      "docked_range_m": 0.6197,
+      "truth_distance_to_b_m": 0.618,
+      "truth_distance_to_stub_m": 0.3647,
+      "docked_on": "B",
+      "attribution_residual_m": 0.0017,
+      "map_frame_failures_ungated": [
+        "map-frame goal error 196 mm exceeds 150 mm (ADR 0022)"
+      ],
+      "ground_truth_distance_m": 6.465
+    }
+  ],
+  "aggregate": {
+    "n": 4,
+    "consecutive_nominal_runs": true,
+    "docked_on": {
+      "B": 4
+    },
+    "closest_min_m": 0.0458,
+    "closest_median_m": 0.1332,
+    "closest_max_m": 0.1335,
+    "all_within_0_15": true,
+    "walked_max_m": 0.0,
+    "all_dock_state_DOCKED": true
+  }
+}

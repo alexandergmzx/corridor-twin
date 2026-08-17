@@ -1,0 +1,6 @@
+run    lens         scanHz  sim>nav  reached        handoff  A-to-B   outcome
+--------------------------------------------------------------------------------------------------------
+run1   announced    12.9    102s     CREEP          FIRED    0.2249   FAIL
+run2   announced    12.7    92s      CREEP          FIRED    0.2263   FAIL
+run3   announced    13.5    91s      CREEP          FIRED    0.2252   FAIL
+run4   announced    13.7    101s     CREEP          FIRED    0.2262   FAIL

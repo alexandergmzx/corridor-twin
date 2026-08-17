@@ -1,0 +1,318 @@
+# Nav2 for robot1 IN THE CORRIDOR -- MPPI arm (U3). See the FollowPath block — v2 evidence night (2026-08-11).
+# Derived from ground_station/src/fleet_bringup/param/nav2_robot2.yaml; every
+# tuned value is inherited [estimate] unless tagged otherwise below.
+#
+# THE CARRIED WARNING (research-plan P6, from MicroROS, verbatim in spirit):
+# Nav2 BYPASSES the governor unless routed through it. Here the routing IS the
+# point: controller_server and behavior_server have cmd_vel remapped to
+# cmd_vel_raw in the launch, so Nav2 is just another operator upstream of the
+# governor. Do not run this on a floor before the P2 stopping numbers exist.
+#
+# FIVE SUBSTITUTIONS vs the robot2 file, all forced by robot1's architecture:
+#
+#   1. NAMESPACE. robot1 runs at ROOT, unprefixed (architecture.md:46-51,
+#      amendments A2.1/A2.2). robot2's file assumes a /robot2 namespace.
+#   2. FRAMES. odom / base_footprint, not odom / base_footprint
+#      (ekf_sim_pnfix.yaml:97-99). Nav2 does not namespace frames, so these are
+#      literal and had to change one by one.
+#   3. ODOM TOPIC -> /odom. robot1's EKF remaps odometry/filtered to /odom
+#      (bringup_corrected_launch.py:82). Leaving the robot2 value would leave
+#      the controller waiting on a topic nobody publishes.
+#   4. SCAN -> /scan. **robot1 has no scan_filtered producer at all**, and its
+#      governor judges raw /scan (cmd_vel_governor.py:82). Costmaps must see
+#      the same stream the governor sees, or Nav2 plans around obstacles the
+#      governor cannot brake for, and vice versa.
+#   5. MAP TOPIC -> /map. robot1's slam_toolbox publishes /map at root
+#      (slam_launch.py:56-63, no namespace, no remappings). The robot2 file's
+#      absolute /robot2/map exists because a RELATIVE 'map' there resolved
+#      against the costmap's nested namespace and silently produced an empty
+#      map [measured 2026-08-08]; the absolute form is kept for the same
+#      reason, pointed at root.
+#
+# Speed caps are unchanged from robot2 at 0.22 m/s, deliberately: it keeps the
+# two robots' corridor runs comparable and sits under robot1's own governor cap
+# of 0.35 m/s (yahboomcar_safety/governor.py:41-60). Not a robot1 measurement.
+#
+# robot_radius is now 0.128, the CIRCUMSCRIBED radius of robot1's 0.20 x 0.16 m
+# chassis: hypot(0.10, 0.08) = 0.1281. It was 0.12, inherited from robot2 and
+# flagged UNVERIFIED, which told Nav2 the robot was 8 mm smaller than it is --
+# in the one place where 8 mm decides whether a path fits.
+#
+# Measured consequence of getting this wrong: A wedged against the next
+# street's south wall (authored y = -4.200) on both runs that reached B, at
+# y = -4.039 and y = -4.314, the second of which `is_clear` calls solid. Once
+# wedged, the wheels keep turning against a blocked body and the encoder yaw
+# channel lies 23x (docs/evidence/robot-a-gate/corner-probe-*.json), which is
+# the documented mechanism that fans the map.
+
+/**:
+  controller_server:
+    ros__parameters:
+      controller_frequency: 20.0
+      min_x_velocity_threshold: 0.001
+      min_theta_velocity_threshold: 0.001
+      failure_tolerance: 1.0
+      odom_topic: /odom
+      progress_checker_plugins: ["progress_checker"]
+      goal_checker_plugins: ["general_goal_checker"]
+      controller_plugins: ["FollowPath"]
+      progress_checker:
+        plugin: "nav2_controller::SimpleProgressChecker"
+        required_movement_radius: 0.1
+        movement_time_allowance: 20.0
+      general_goal_checker:
+        plugin: "nav2_controller::SimpleGoalChecker"
+        stateful: true
+        xy_goal_tolerance: 0.15
+        yaw_goal_tolerance: 0.6
+      FollowPath:
+        plugin: "nav2_mppi_controller::MPPIController"
+        # MPPI arm of the U3 comparison. Only the FollowPath block differs from
+        # nav2_robot1_corridor.yaml; costmaps, planner, behaviours, footprint and
+        # inflation are identical by construction (this file is a copy with one
+        # block replaced), so the comparison isolates the controller.
+        time_steps: 56
+        model_dt: 0.05
+        batch_size: 2000
+        # The SAME limits the DWB arm runs under, and for the same measured
+        # reason: the governor clamps yaw to max_yaw_near 0.4 rad/s inside
+        # stop_distance, which is most of a 1.26 m corridor, so planning past it
+        # means predicting trajectories the robot will never execute.
+        vx_max: 0.22
+        vx_min: -0.10
+        vy_max: 0.0
+        wz_max: 0.4
+        ax_max: 0.5
+        ax_min: -0.5
+        az_max: 0.5
+        iteration_count: 1
+        prune_distance: 1.0
+        transform_tolerance: 0.5
+        temperature: 0.3
+        gamma: 0.015
+        motion_model: "DiffDrive"
+        visualize: false
+        regenerate_noises: true
+        TrajectoryVisualizer:
+          trajectory_step: 5
+          time_step: 3
+        AckermannConstraints:
+          min_turning_r: 0.0
+        critics: ["ConstraintCritic", "CostCritic", "GoalCritic",
+                  "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic",
+                  "PathAngleCritic", "PreferForwardCritic"]
+        ConstraintCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 4.0
+        GoalCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 5.0
+          threshold_to_consider: 1.4
+        GoalAngleCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 3.0
+          threshold_to_consider: 0.5
+        PreferForwardCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 5.0
+          threshold_to_consider: 0.5
+        CostCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 3.81
+          critical_cost: 300.0
+          # false, because this robot is described to the costmaps as a CIRCLE
+          # (robot_radius 0.128, its measured circumscribed radius) and not as a
+          # footprint polygon. With true, controller_server refuses to configure:
+          # "Considering footprint in collision checking but no robot footprint
+          # provided in the costmap", which aborts the whole lifecycle bringup.
+          consider_footprint: false
+          collision_cost: 1000000.0
+          near_goal_distance: 1.0
+        PathAlignCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 14.0
+          max_path_occupancy_ratio: 0.05
+          trajectory_point_step: 4
+          threshold_to_consider: 0.5
+          offset_from_furthest: 20
+          use_path_orientations: false
+        PathFollowCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 5.0
+          offset_from_furthest: 5
+          threshold_to_consider: 1.4
+        PathAngleCritic:
+          enabled: true
+          cost_power: 1
+          cost_weight: 2.0
+          offset_from_furthest: 4
+          threshold_to_consider: 0.5
+          max_angle_to_furthest: 1.0
+          mode: 0
+
+  planner_server:
+    ros__parameters:
+      expected_planner_frequency: 1.0
+      planner_plugins: ["GridBased"]
+      GridBased:
+        plugin: "nav2_navfn_planner::NavfnPlanner"
+        tolerance: 0.15
+        use_astar: false
+        allow_unknown: true
+
+  behavior_server:
+    ros__parameters:
+      local_costmap_topic: local_costmap/costmap_raw
+      global_costmap_topic: global_costmap/costmap_raw
+      local_footprint_topic: local_costmap/published_footprint
+      global_footprint_topic: global_costmap/published_footprint
+      cycle_frequency: 10.0
+      behavior_plugins: ["spin", "backup", "drive_on_heading", "wait"]
+      spin:
+        plugin: "nav2_behaviors::Spin"
+      backup:
+        plugin: "nav2_behaviors::BackUp"
+      drive_on_heading:
+        plugin: "nav2_behaviors::DriveOnHeading"
+      wait:
+        plugin: "nav2_behaviors::Wait"
+      local_frame: odom
+      global_frame: map
+      robot_base_frame: base_footprint
+      transform_tolerance: 0.5
+      # Recovery motions also go through the governor (cmd_vel remapped in
+      # launch); reverse is capped there at 0.10 m/s — backup obeys the cap.
+      max_rotational_vel: 0.8
+      min_rotational_vel: 0.2
+      rotational_acc_lim: 1.5
+
+  bt_navigator:
+    ros__parameters:
+      global_frame: map
+      robot_base_frame: base_footprint
+      odom_topic: /odom
+      bt_loop_duration: 10
+      default_server_timeout: 20
+      wait_for_service_timeout: 1000
+
+  local_costmap:
+    local_costmap:
+      ros__parameters:
+        update_frequency: 5.0
+        publish_frequency: 2.0
+        global_frame: odom
+        robot_base_frame: base_footprint
+        transform_tolerance: 0.5
+        rolling_window: true
+        # 3 x 3 m held the whole 12 m-scale corridor in view; at robot scale
+        # the corridor is 2.4 m long, so a 3 m window is the entire world and
+        # the local planner loses its locality. 1.5 m keeps roughly the same
+        # ratio of window to corridor width as before.
+        # INTEGER metres -- nav2 declares these as integers and rejects a double
+        # outright (controller_server aborts with InvalidParameterTypeException,
+        # so the whole nav stack never comes up). 2 m spans the 1.2 m corridor
+        # width with margin without being the entire 2.4 m world.
+        width: 2
+        height: 2
+        # 0.05 m cells put only 12 across a 0.6 m corner. 0.02 gives 30, so the
+        # free channel is resolved rather than quantised away.
+        resolution: 0.02
+        robot_radius: 0.128        # MEASURED: circumscribed radius of the 0.20 x 0.16 m chassis
+        plugins: ["obstacle_layer", "inflation_layer"]
+        obstacle_layer:
+          plugin: "nav2_costmap_2d::ObstacleLayer"
+          enabled: true
+          observation_sources: scan
+          scan:
+            # THE filtered scan (§6): costmap sees exactly what the governor
+            # and matcher see. RELIABLE publisher + this best_effort sub is
+            # the compatible direction (§4 amendment).
+            topic: /scan
+            max_obstacle_height: 2.0
+            clearing: true
+            marking: true
+            data_type: "LaserScan"
+            raytrace_max_range: 3.5
+            raytrace_min_range: 0.0
+            obstacle_max_range: 2.5
+            obstacle_min_range: 0.0
+        inflation_layer:
+          plugin: "nav2_costmap_2d::InflationLayer"
+          cost_scaling_factor: 3.0
+          # 0.30, raised from 0.16. The old value's rationale was measured
+          # against a 0.6 m corner -- the abandoned 0.2-scale iteration -- where
+          # 0.35 m from both walls left no channel at all. At the committed
+          # factor 0.42 the corner is authored at 1.26 m, so 0.30 from both
+          # walls still leaves a 0.66 m uninflated band down the middle, four
+          # times the robot's 0.16 m width.
+          #
+          # It has to move because 0.16 is what let A sit 0.161 m from a wall
+          # and call it free space. Inflation is cost, not prohibition, so this
+          # biases the planner toward the centreline rather than forbidding the
+          # edges -- which is what a corridor demands.
+          inflation_radius: 0.18
+        always_send_full_costmap: true
+
+  global_costmap:
+    global_costmap:
+      ros__parameters:
+        update_frequency: 1.0
+        publish_frequency: 1.0
+        global_frame: map
+        robot_base_frame: base_footprint
+        robot_radius: 0.128        # MEASURED: circumscribed radius of the 0.20 x 0.16 m chassis
+        # Coarser than the local costmap on purpose: 16 m at 0.02 would be
+        # 640k cells to plan a route through a 1 m corridor. 0.05 still puts
+        # 20 cells across the narrowest point.
+        resolution: 0.05
+        # ROBOT-CENTRED AND FIXED-SIZE, deliberately. Sized by the static layer
+        # instead, the global costmap spans only what SLAM has already mapped --
+        # and A's goal is B on the NEXT STREET, which A has not driven yet. The
+        # planner then refuses with "Goal Coordinates ... was outside bounds"
+        # before allow_unknown ever gets a chance to plan through unknown cells
+        # [measured 2026-08-11]. 10 m around the robot contains the whole
+        # scenario at robot scale (B is ~3.7 m from spawn).
+        transform_tolerance: 0.5
+        rolling_window: true
+        # MUST span the goal. At the 0.5 scale the delivery standoff sits
+        # 8.76 m from A's spawn, so a 16 m window (+/-8 m) puts the goal
+        # outside its own costmap and reproduces the "outside bounds" refusal
+        # this rolling window exists to prevent. 24 m gives +/-12 m.
+        width: 24
+        height: 24
+        track_unknown_space: true
+        plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+        static_layer:
+          plugin: "nav2_costmap_2d::StaticLayer"
+          map_subscribe_transient_local: true
+          # ABSOLUTE on purpose [measured 2026-08-08]: a relative 'map' here
+          # resolves against the costmap node's NESTED namespace
+          # (/global_costmap/map — silently empty, "no map received",
+          # robot out of bounds, planner dead), not the robot namespace.
+          map_topic: /map
+        obstacle_layer:
+          plugin: "nav2_costmap_2d::ObstacleLayer"
+          enabled: true
+          observation_sources: scan
+          scan:
+            topic: /scan
+            max_obstacle_height: 2.0
+            clearing: true
+            marking: true
+            data_type: "LaserScan"
+            raytrace_max_range: 3.5
+            raytrace_min_range: 0.0
+            obstacle_max_range: 2.5
+            obstacle_min_range: 0.0
+        inflation_layer:
+          plugin: "nav2_costmap_2d::InflationLayer"
+          cost_scaling_factor: 3.0
+          inflation_radius: 0.18
+        always_send_full_costmap: true

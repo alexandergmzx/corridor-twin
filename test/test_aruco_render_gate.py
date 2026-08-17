@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from police_observer.synthetic import SyntheticCamera
 from scene.build import build_scene
+from scene.model import authored_config_path
 from scene.trajectory import trajectory_from_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +21,10 @@ import aruco_render_gate as gate  # noqa: E402
 @pytest.fixture()
 def rendered_sequence(tmp_path: Path) -> tuple[Path, Path, Path]:
     stage_path = tmp_path / "corridor.usda"
-    _, manifest_path = build_scene(None, stage_path, 6.0, 3.0)
+    # THE AUTHORED SCENE, explicitly. This gate is the v1 ArUco program and
+    # its stations (0.5-7.0 m) are authored-scale; the default config is now
+    # the 3.6 m scenario the robot drives, where x = 5.0 is past the corner.
+    _, manifest_path = build_scene(authored_config_path(), stage_path, 6.0, 3.0)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     profile = str(manifest["selected_profile"])
     camera = SyntheticCamera(manifest_path, profile)

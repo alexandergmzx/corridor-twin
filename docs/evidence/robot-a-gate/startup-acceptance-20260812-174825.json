@@ -1,0 +1,22 @@
+{
+  "bag": "20260812-174841-isaac-d67",
+  "thresholds": {
+    "max_pre_transit_rotation_deg": 45.0,
+    "max_seconds_to_progress": 30.0,
+    "max_closest_approach_m": 0.15
+  },
+  "measured": {
+    "available": true,
+    "truth_samples": 4069,
+    "progress_threshold_m": 0.3,
+    "goal_send_s_into_bag": 89.98,
+    "pre_goal_rotation_deg": 0.03,
+    "seconds_to_progress_after_goal": 1.47,
+    "pre_transit_rotation_deg": 3.47,
+    "seconds_to_progress": 91.18,
+    "never_moved": false
+  },
+  "closest_approach_m": 0.1285,
+  "pass": true,
+  "failures": []
+}

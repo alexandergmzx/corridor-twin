@@ -1,0 +1,87 @@
+{
+  "profile": "uniform_m6_n6",
+  "stage": "out/corridor.usda",
+  "camera_prim_pose_source": "manifest profiles.<profile>.p_cam",
+  "eye_xyz_m": [
+    5.235,
+    0.72,
+    1.5
+  ],
+  "forward_xyz": [
+    -0.953022,
+    -0.131075,
+    -0.273072
+  ],
+  "horizontal_fov_deg": 75.0,
+  "a_body_centre_height_m": 0.075,
+  "opaque_prims": 6,
+  "opaque_triangles": 72,
+  "stations": [
+    {
+      "station_s_m": 0.6965,
+      "a_xy_m": [
+        0.6965,
+        0.0
+      ],
+      "distance_m": 4.8111,
+      "bearing_off_axis_deg": 1.788,
+      "line_of_sight": true,
+      "in_frustum": true,
+      "usable": true
+    },
+    {
+      "station_s_m": 1.3931,
+      "a_xy_m": [
+        1.3931,
+        0.0
+      ],
+      "distance_m": 4.1605,
+      "bearing_off_axis_deg": 4.95,
+      "line_of_sight": true,
+      "in_frustum": true,
+      "usable": true
+    },
+    {
+      "station_s_m": 2.0896,
+      "a_xy_m": [
+        2.0896,
+        0.0
+      ],
+      "distance_m": 3.5274,
+      "bearing_off_axis_deg": 9.29,
+      "line_of_sight": true,
+      "in_frustum": true,
+      "usable": true
+    },
+    {
+      "station_s_m": 2.7861,
+      "a_xy_m": [
+        2.7861,
+        0.0
+      ],
+      "distance_m": 2.9233,
+      "bearing_off_axis_deg": 15.478,
+      "line_of_sight": true,
+      "in_frustum": true,
+      "usable": true
+    },
+    {
+      "station_s_m": 3.4827,
+      "a_xy_m": [
+        3.4827,
+        0.0
+      ],
+      "distance_m": 2.3706,
+      "bearing_off_axis_deg": 24.711,
+      "line_of_sight": true,
+      "in_frustum": true,
+      "usable": true
+    }
+  ],
+  "usable_stations": "5/5",
+  "distance_range_m": [
+    2.3706,
+    4.8111
+  ],
+  "pass": true
+}

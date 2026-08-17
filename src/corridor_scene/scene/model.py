@@ -89,6 +89,24 @@ class EastWallStubSpec:
 
 
 @dataclass(frozen=True)
+class CornerScreenSpec:
+    """ADR 0019's partition, which hides P from A's approach and early turn.
+
+    Authored in the scenario YAML rather than as constants in `geometry.py`,
+    because these are dimensions of the SCENE and must move when it is scaled.
+    They did not: at the committed 0.30 factor a 0.4 m north margin was still
+    0.4 m in a corridor whose corner is 0.9 m wide, which put the screen most of
+    a half-width north of where it belonged. The occlusion certificate then
+    failed on the scenario that runs -- P visible for the whole approach and the
+    first metre of the arc -- while passing on the authored one, which was the
+    only scene anything built.
+    """
+
+    north_margin_m: float
+    width_m: float
+
+
+@dataclass(frozen=True)
 class NextStreetSpec:
     """The perpendicular street A turns onto to reach B."""
 
@@ -115,9 +133,44 @@ class PoliceSpec:
     """
 
     body_size_xyz_m: Vec3
+    #: How high P's enforcement camera rides above the ground, on P's own
+    #: footprint. ADR 0019's corner screen hides P from A, and it hides the
+    #: corridor from P at P's own height -- 0/5 enforcement stations visible.
+    #: A mast clears it: measured 5/5 line of sight and 5/5 in-frustum at
+    #: 2.29-4.68 m range. Ratified 2026-08-12; see
+    #: docs/evidence/p_cam_candidates/NOTES.md.
+    #:
+    #: It SCALES with the scenario. The mast has to clear the screen and the
+    #: corridor walls, and those scale, so the ratio is what carries the
+    #: argument -- exactly ADR 0030's reason for scaling by a factor.
+    camera_mast_height_m: float
     east_wall_clearance_m: float
     north_offset_m: float
     minimum_clearance_m: float
+
+
+@dataclass(frozen=True)
+class ActorSpec:
+    """Body sizes of the scenario's actors.
+
+    Config-driven rather than hardcoded so they move with the scenario scale.
+    B in particular is not decoration: the RTX lidar sees render geometry, so
+    B's footprint is an obstacle in the costmap and it sets the standoff the
+    delivery goal has to keep.
+
+    Since ADR 0031 B **is** the cylinder -- one object at the delivery point,
+    rather than a box for the eye with a detectable post beside it.
+    """
+
+    #: B's radius, and the detector's single source of truth for the circle it
+    #: fits: it reaches the detector through the manifest so the expected size
+    #: and the authored size can never drift apart into two literals. ABSOLUTE
+    #: metres -- sized for the MS200, not for the scenario (scale_scenario's
+    #: NOT_LENGTHS).
+    b_radius_m: float
+    #: B's height, which describes a person and therefore DOES scale.
+    b_height_m: float
+    a_size_xyz_m: Vec3
 
 
 @dataclass(frozen=True)
@@ -131,11 +184,13 @@ class Scenario:
     building_height_m: float
     wall_thickness_m: float
     west_margin_m: float
+    corner_screen: CornerScreenSpec
     next_street: NextStreetSpec
     profiles: tuple[CorridorProfile, ...]
     default_profile: str
     camera: CameraSpec
     fiducials: FiducialSpec
+    actors: ActorSpec
     police: PoliceSpec
     speed_policy: dict[str, Any]
 
@@ -173,10 +228,37 @@ class Scenario:
         return -self.next_street.length_m
 
 
-def default_config_path() -> Path:
-    """Return the source-tree configuration path."""
+def authored_config_path() -> Path:
+    """The scenario as authored from the supplied drawing, at its own scale.
+
+    The source of record for every RATIO in this project. It is not what runs:
+    the corridor is 12 m long here, sized for nothing in particular, and robot1
+    is 0.20 x 0.16 m.
+    """
 
     return Path(__file__).resolve().parents[1] / "config" / "corridor.yaml"
+
+
+def default_config_path() -> Path:
+    """The scenario AS RUN: the authored one, scaled to the robot.
+
+    This is the default because a default that nothing runs is a trap. It was
+    the authored 12 m scene, so `scene.build` with no `--config` wrote a 12 m
+    stage and manifest into `out/`, and the composer -- which defaults to those
+    same paths -- built its arenas from them. The runner then defaulted to the
+    same 12 m manifest, and only an exported CORRIDOR_MANIFEST made a run plan
+    at the scale it was actually driving.
+
+    It did not, on 2026-08-12: every corridor run since the rescale drove a
+    0.30-scale plan inside a 1.0-scale arena. The goal sat about twelve metres
+    short of B, which is the whole of that run's 5.754 m delivery error and of
+    a landmark "confirmed" in a stage that contains no post.
+
+    `authored_config_path()` is still there, still the source of record, and
+    `--config` still takes either.
+    """
+
+    return Path(__file__).resolve().parents[1] / "config" / "corridor-robot-scale.yaml"
 
 
 def _xyz(value: Any, name: str) -> Vec3:
@@ -251,9 +333,16 @@ def load_scenario(path: Path | None = None) -> Scenario:
             gap_north_of_b_m=float(stub_raw["gap_north_of_b_m"]),
         ),
     )
+    actors_raw = raw["actors"]
+    actors = ActorSpec(
+        b_radius_m=float(actors_raw["b_radius_m"]),
+        b_height_m=float(actors_raw["b_height_m"]),
+        a_size_xyz_m=_xyz(actors_raw["a_size_xyz_m"], "actors.a_size_xyz_m"),
+    )
     police_raw = raw["police"]
     police = PoliceSpec(
         body_size_xyz_m=_xyz(police_raw["body_size_xyz_m"], "police.body_size_xyz_m"),
+        camera_mast_height_m=float(police_raw["camera_mast_height_m"]),
         east_wall_clearance_m=float(police_raw["east_wall_clearance_m"]),
         north_offset_m=float(police_raw["north_offset_m"]),
         minimum_clearance_m=float(police_raw["minimum_clearance_m"]),
@@ -266,11 +355,16 @@ def load_scenario(path: Path | None = None) -> Scenario:
         building_height_m=float(geometry["building_height_m"]),
         wall_thickness_m=float(geometry["wall_thickness_m"]),
         west_margin_m=float(geometry["west_margin_m"]),
+        corner_screen=CornerScreenSpec(
+            north_margin_m=float(geometry["corner_screen"]["north_margin_m"]),
+            width_m=float(geometry["corner_screen"]["width_m"]),
+        ),
         next_street=next_street,
         profiles=profiles,
         default_profile=default_names[0],
         camera=camera,
         fiducials=fiducials,
+        actors=actors,
         police=police,
         speed_policy=dict(raw["speed_policy"]),
     )

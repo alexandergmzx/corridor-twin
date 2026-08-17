@@ -8,7 +8,7 @@ Nothing in this module touches the sensor. Isaac's ``set_camera_view`` moves
 Kit's pre-existing ``/OmniverseKit_Persp``, which the GUI already owns; it
 creates no prim and no render product. The one-camera budget is counted over
 ``IsaacCreateRenderProduct`` graph nodes, which a viewpoint never adds to, and
-the ROS camera stays ``/World/Actors/A/CameraMount/FrontCamera``.
+the ROS camera stays ``/World/Actors/PCameraMast/PCam`` -- P's mast.
 
 The world is Z-up with metres as its unit, station runs along +X, and the
 corridor's fixed north face is at +Y, so a viewpoint at negative Y looks at the

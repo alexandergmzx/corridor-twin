@@ -1,0 +1,73 @@
+{
+  "question": "does corridor geometry order the matcher's acquisition station?",
+  "sample_size": 3,
+  "profiles": [
+    {
+      "profile": "nominal_m6_n3",
+      "acquisition_station_m": 5.8327,
+      "max_consecutive_withheld": 506,
+      "entry_width_m": 6.0,
+      "corner_width_m": 3.0,
+      "taper_m_per_m": -0.25,
+      "end_wall_x_m": 11.5,
+      "end_wall_distance_at_spawn_m": 11.5,
+      "end_wall_distance_at_acquisition_m": 5.712,
+      "local_clear_width_at_acquisition_m": 4.542,
+      "station_end_wall_enters_c1_range_m": 0.0,
+      "station_end_wall_enters_ms200_range_m": 3.5,
+      "midpoint_cov_xx": 0.00045807424534179245,
+      "midpoint_cov_yy": 2.6071746768417077e-05,
+      "midpoint_anisotropy": 17.57
+    },
+    {
+      "profile": "wide_corner_m6_n4_5",
+      "acquisition_station_m": 5.4144,
+      "max_consecutive_withheld": 459,
+      "entry_width_m": 6.0,
+      "corner_width_m": 4.5,
+      "taper_m_per_m": -0.125,
+      "end_wall_x_m": 11.5,
+      "end_wall_distance_at_spawn_m": 11.5,
+      "end_wall_distance_at_acquisition_m": 6.096,
+      "local_clear_width_at_acquisition_m": 5.323,
+      "station_end_wall_enters_c1_range_m": 0.0,
+      "station_end_wall_enters_ms200_range_m": 3.5,
+      "midpoint_cov_xx": 0.00047251760408631834,
+      "midpoint_cov_yy": 2.519191696940418e-05,
+      "midpoint_anisotropy": 18.76
+    },
+    {
+      "profile": "uniform_m6_n6",
+      "acquisition_station_m": 4.7682,
+      "max_consecutive_withheld": 391,
+      "entry_width_m": 6.0,
+      "corner_width_m": 6.0,
+      "taper_m_per_m": 0.0,
+      "end_wall_x_m": 11.5,
+      "end_wall_distance_at_spawn_m": 11.5,
+      "end_wall_distance_at_acquisition_m": 6.732,
+      "local_clear_width_at_acquisition_m": 6.0,
+      "station_end_wall_enters_c1_range_m": 0.0,
+      "station_end_wall_enters_ms200_range_m": 3.5,
+      "midpoint_cov_xx": 0.00046270400356645993,
+      "midpoint_cov_yy": 2.5103736626630082e-05,
+      "midpoint_anisotropy": 18.43
+    }
+  ],
+  "orderings": {
+    "taper_m_per_m": "decreases with acquisition station",
+    "local_clear_width_at_acquisition_m": "decreases with acquisition station",
+    "end_wall_distance_at_acquisition_m": "decreases with acquisition station",
+    "max_consecutive_withheld": "increases with acquisition station",
+    "midpoint_anisotropy": "no monotonic ordering"
+  },
+  "range_confound": {
+    "end_wall_distance_from_spawn_m": 11.5,
+    "c1_max_range_m": 12.0,
+    "ms200_max_range_m": 8.0,
+    "c1_can_range_end_wall_from_spawn": true,
+    "ms200_can_range_end_wall_from_spawn": false,
+    "note": "robot1 (MS200, 8.0 m) cannot range the end wall until station 3.5 m; robot2 (C1, 12.0 m) can from station 0. A robot1-vs-robot2 acquisition comparison is therefore two sensors as well as two odometry architectures."
+  },
+  "claim_limit": "n=3, and taper covaries with local width and with end-wall geometry. Orderings are reported; no mechanism, fit, or correlation coefficient is claimed. ADR 0027 refuses that claim and this analysis does not quietly acquire it."
+}

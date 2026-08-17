@@ -1,0 +1,11 @@
+{
+  "profile": "uniform_m6_n6",
+  "gated": false,
+  "goal_map_frame": [
+    16.7934,
+    -8.0
+  ],
+  "tolerance_m": 0.15,
+  "failure": "navigate_to_pose action server absent; is the nav stack up?",
+  "pass": false
+}

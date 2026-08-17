@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "declared": {
+    "declared": true,
+    "samples": 40,
+    "moving": 40,
+    "duty": 1.0,
+    "max_governed_vx": 0.05,
+    "range_m": 0.34,
+    "target_radius_m": 0.12
+  },
+  "control": {
+    "declared": false,
+    "samples": 40,
+    "moving": 0,
+    "duty": 0.0,
+    "max_governed_vx": 0.0,
+    "range_m": 0.34,
+    "target_radius_m": 0.12
+  }
+}

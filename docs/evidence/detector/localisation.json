@@ -1,0 +1,16 @@
+{
+  "lo": {
+    "n": 411,
+    "median_iou": 0.926,
+    "median_centre_error_px": 0.419,
+    "p90_centre_error_px": 0.774,
+    "median_centre_error_frac_width": 0.000655
+  },
+  "hi": {
+    "n": 413,
+    "median_iou": 0.9559,
+    "median_centre_error_px": 0.443,
+    "p90_centre_error_px": 0.939,
+    "median_centre_error_frac_width": 0.000346
+  }
+}

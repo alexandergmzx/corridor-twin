@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from police_observer.estimator import MarkerMap, normalized_speed_rules
 from scene.build import build_scene
+from scene.model import authored_config_path
 
 # The limits ADR 0016 fixes for the shipped configuration.
 EXPECTED_LIMITS = [(2.0, 1.5), (4.0, 1.2), (6.0, 1.2), (8.0, 0.8), (10.0, 0.8)]
@@ -26,7 +27,13 @@ EXPECTED_LIMITS = [(2.0, 1.5), (4.0, 1.2), (6.0, 1.2), (8.0, 0.8), (10.0, 0.8)]
 @pytest.fixture(scope="module")
 def manifest(tmp_path_factory: pytest.TempPathFactory) -> Path:
     output = tmp_path_factory.mktemp("speed_policy") / "corridor.usda"
-    _, manifest_path = build_scene(None, output, 6.0, 3.0)
+    # THE AUTHORED SCENE, explicitly. These tests describe the v1 camera
+    # enforcement program -- surveyed ArUco stations, the shipped speed policy's
+    # width thresholds -- and all of it is stated in authored metres. The
+    # default config is now the 0.30-scale scenario the robot drives, where
+    # (6.0, 3.0) is not a profile at all and resolve_profiles would append it
+    # as a 6 m entry inside a 3.6 m corridor.
+    _, manifest_path = build_scene(authored_config_path(), output, 6.0, 3.0)
     return manifest_path
 
 
@@ -100,4 +107,45 @@ def test_normalization_is_idempotent_and_ascending() -> None:
     assert once == ((4.0, 0.8), (5.0, 1.2), (1000.0, 1.5))
     assert once == normalized_speed_rules(
         [{"maximum_width_m": width, "limit_mps": limit} for width, limit in once]
+    )
+
+
+def test_a_policy_boundary_is_not_decided_by_the_sixteenth_decimal() -> None:
+    """**ADR 0016's two-gate floor had been void at robot scale since 0030.**
+
+    The nominal profile's gate at station 2.4 sits at the corridor's midpoint
+    on a linear taper, so its clear width is exactly 1.2 m by construction --
+    the strict rule's threshold. Evaluated in floats it is 1.2000000000000002,
+    and a bare `<=` put it in the permissive zone. The strict zone held ONE
+    gate; `consecutive_estimates` is 2; a corner-confined violation could
+    therefore never be confirmed, and the demonstration's central claim would
+    have produced zero events with nothing to point at.
+
+    Scale-dependent, which is why no test caught it: v1's own arithmetic,
+    `6.0 + (8.0 / 12.0) * (3.0 - 6.0)`, is exactly 4.0.
+    """
+
+    from police_observer.estimator import covered_by
+
+    robot_scale_width = 1.8 + (2.4 / 3.6) * (0.9 - 1.8)
+    assert robot_scale_width != 1.2, "the float error is gone; this test is moot"
+    assert covered_by(robot_scale_width, 1.2), (
+        "gate 2.4 is outside the strict zone again, by 2.2e-16 m"
+    )
+
+    v1_width = 6.0 + (8.0 / 12.0) * (3.0 - 6.0)
+    assert v1_width == 4.0
+    assert covered_by(v1_width, 4.0), "v1's exact boundary stopped holding"
+
+
+def test_the_boundary_tolerance_is_far_below_anything_physical() -> None:
+    """A tolerance wide enough to move a real decision would be a moved
+    threshold wearing a disguise. One nanometre is 8 orders of magnitude below
+    the narrowest width this scenario distinguishes (0.15 m between tiers)."""
+
+    from police_observer.estimator import POLICY_WIDTH_EPSILON_M, covered_by
+
+    assert POLICY_WIDTH_EPSILON_M < 1e-6
+    assert not covered_by(1.2 + 1e-6, 1.2), (
+        "a micrometre over the threshold is now inside the zone"
     )

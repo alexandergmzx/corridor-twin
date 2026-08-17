@@ -22,8 +22,15 @@ from police_observer.estimator import (
 @pytest.fixture()
 def marker_map(tmp_path):
     from scene.build import build_scene
+    from scene.model import authored_config_path
 
-    _, manifest = build_scene(None, tmp_path / "corridor.usda", 6.0, 3.0)
+    # THE AUTHORED SCENE, explicitly. These tests describe the v1 camera
+    # enforcement program -- surveyed ArUco stations, the shipped speed policy's
+    # width thresholds -- and all of it is stated in authored metres. The
+    # default config is now the 0.30-scale scenario the robot drives, where
+    # (6.0, 3.0) is not a profile at all and resolve_profiles would append it
+    # as a 6 m entry inside a 3.6 m corridor.
+    _, manifest = build_scene(authored_config_path(), tmp_path / "corridor.usda", 6.0, 3.0)
     return MarkerMap.from_manifest(manifest)
 
 

@@ -1,0 +1,27 @@
+{
+  "samples": {
+    "ekf": 4533,
+    "truth": 4982,
+    "correction": 22562
+  },
+  "odometry_vs_truth": {
+    "final_position_error_m": 1.974,
+    "max_position_error_m": 2.0938,
+    "final_yaw_error_deg": 172.357,
+    "max_yaw_error_deg": 179.112,
+    "signed_rotation_ekf_deg": 982.72,
+    "signed_rotation_truth_deg": 810.37,
+    "yaw_scale_ratio": 1.2127
+  },
+  "slam_correction": {
+    "total_travel_m": 68.5769,
+    "max_step_m": 2.8319,
+    "max_step_deg": 31.868,
+    "jumps_over_0.10_m": 113,
+    "jumps_over_5_deg": 68,
+    "final_offset_m": 3.0292,
+    "final_offset_deg": -32.98
+  },
+  "bag": "/home/alexmint/Development/robot-fleet/src/MicroROS/MicroROS-assets/bags/20260811-225511-isaac-d67",
+  "verdict": "BOTH: odometry drifted AND SLAM relocalised. The jumps may be SLAM correctly chasing bad odometry, so this run does not isolate a cause."
+}

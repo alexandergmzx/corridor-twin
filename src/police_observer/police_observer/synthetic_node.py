@@ -40,8 +40,8 @@ class SyntheticPublisherNode(Node):
         self.declare_parameter("start_station_m", 0.0)
         self.declare_parameter("end_station_m", 7.2)
         self.declare_parameter("publish_clock", False)
-        self.declare_parameter("image_topic", "robot/front_camera/image_raw")
-        self.declare_parameter("camera_info_topic", "robot/front_camera/camera_info")
+        self.declare_parameter("image_topic", "p_cam/image_raw")
+        self.declare_parameter("camera_info_topic", "p_cam/camera_info")
         self.declare_parameter("truth_topic", "test/ground_truth/speed")
         manifest_value = str(self.get_parameter("manifest_path").value)
         if not manifest_value:

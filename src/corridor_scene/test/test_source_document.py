@@ -18,7 +18,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
-from scene.model import load_scenario
+from scene.model import authored_config_path, load_scenario
 
 REPO = Path(__file__).resolve().parents[3]
 SOURCE_PDF = REPO / "docs/ROBO_TASK.pdf"
@@ -60,7 +60,7 @@ def test_every_configured_profile_satisfies_m_ge_n() -> None:
     existing check while inverting the scenario the source describes.
     """
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     assert scenario.profiles, "the scenario declares no corridor profiles"
     for profile in scenario.profiles:
         assert profile.entry_width_m >= profile.corner_width_m, (

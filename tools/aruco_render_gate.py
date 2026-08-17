@@ -24,7 +24,7 @@ RENDER_GATE_CRITERIA = {
     "maximum_rate_hz": 15.5,
     "expected_width": 640,
     "expected_height": 360,
-    "expected_frame_id": "robot_front_camera_optical_frame",
+    "expected_frame_id": "p_cam_optical_frame",
     "expected_encoding": "rgb8",
     # Production delivers cx=width/2 to within 1.5e-05 px. A tolerance of 0.5
     # would silently accept the (width-1)/2 convention, which differs by

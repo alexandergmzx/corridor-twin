@@ -26,9 +26,37 @@ geometry:
   building_height_m: 4.0
   wall_thickness_m: 0.5
   west_margin_m: 2.0
+  # ADR 0019's corner screen, authored HERE rather than as constants in
+  # geometry.py, because they are dimensions of the scene and must scale with
+  # it. They did not: at the committed 0.30 factor a 0.4 m north margin was
+  # still 0.4 m in a corridor whose corner is 0.9 m wide, so the screen sat
+  # most of a half-width north of where it belonged and stopped blocking
+  # anything. The certificate then failed on the scenario that actually runs --
+  # P visible for the whole approach and the first metre of the arc -- while
+  # passing on the authored one, which is the only scene anything tested.
+  corner_screen:
+    # South face clearance above the highest point A's own path reaches at the
+    # corner. A proxy for the trajectory solve this module cannot reach without
+    # an import cycle; validate_layout still checks the real route via is_clear.
+    north_margin_m: 0.4
+    # The screen only has to separate P from a source already close to it in X.
+    # 0.1 m already holds visible=() on nominal; 0.4 is the wider, still-narrow
+    # margin that keeps clear of the north-wall reference plates.
+    width_m: 0.4
   next_street:
     clear_width_m: 6.0
-    length_m: 10.0
+    # 20.0, from 10.0. The street grows SOUTHWARD, and southward is exactly
+    # where A was getting stuck: the south wall sat at y = -4.2 at robot scale
+    # and A stopped against it at y = -4.04 and y = -4.31 on the two runs that
+    # reached B. Moving that wall out leaves 6.72 m of open street south of B
+    # instead of 0.84 m -- room to turn, and room for the lidar to see B from
+    # several metres rather than from inside a pocket.
+    #
+    # This is the only street knob that is free: `clear_width_m` is capped at
+    # ~6.198 by test_trajectory.py:307-329, and it, `turn_radius_m`,
+    # `b_distance_m` and `corridor_length_m` each move the pinned route legs
+    # (test_route_legs_are_pinned, 24.601 m). Length alone leaves them.
+    length_m: 20.0
     turn_radius_m: 2.0
     b_distance_m: 8.0
     # B's lateral position across the street, measured from the drawing: the
@@ -53,6 +81,13 @@ geometry:
       gap_north_of_b_m: 1.05
   profiles:
     nominal_m6_n3:
+      # Left at the authored 6.0/3.0 deliberately. Narrowing the corridor by
+      # editing these instead of by the scale factor changes the scenario's
+      # RATIOS, and the geometric arguments are built on those: doing it broke
+      # the ADR 0019 occlusion certificate outright (P visible along the whole
+      # approach and arc) and moved the pinned route legs. The corridor is
+      # narrowed by the uniform scale factor instead, which preserves every
+      # ratio by construction.
       entry_width_m: 6.0
       corner_width_m: 3.0
       default: true
@@ -65,7 +100,7 @@ geometry:
 
 camera:
   count: 1
-  frame_id: robot_front_camera_optical_frame
+  frame_id: p_cam_optical_frame
   width_px: 640
   height_px: 360
   rate_hz: 15.0
@@ -132,6 +167,46 @@ fiducials:
       # clamp keeps it clear of the corner mass exactly as before.
       - {surface: east_face,  along_m: 0.05, height_m: 1.0, size_m: 0.60, cant_deg: 0.0}
 
+actors:
+  # B IS THE CYLINDER (ADR 0031). One object at the delivery point, not a box
+  # for the eye with a detectable post standing 0.8 m away from it. The two
+  # descriptions cost a phantom arming at 0.910 m while B's real post stood
+  # five metres off, and every argument for keeping them apart was an argument
+  # about clustering two things that never needed to be two.
+  #
+  # B is not decoration: the RTX lidar sees render geometry, so B is an
+  # obstacle in the costmap and the delivery goal has to stand off from it.
+  # It is also the only measurement of B that survives a diverged map, because
+  # it is taken in the laser frame and does not care what the map believes.
+  #
+  # GEOMETRIC, never reflective. A cylinder is circular in section, so it
+  # returns an arc of known radius from every bearing, which a flat wall and a
+  # convex corner do not. Detecting by RETURN INTENSITY was considered and
+  # rejected: sim-vs-real intensity fidelity is an unowned contract question,
+  # and a detector that works only in Isaac proves nothing about the robot.
+  #
+  # THE RADIUS IS THE SENSOR'S AND THE HEIGHT IS THE PERSON'S.
+  #
+  # b_radius_m is ABSOLUTE metres -- scale_scenario deliberately does NOT scale
+  # it (see its NOT_LENGTHS). It is set by the MS200's 1 deg angular
+  # resolution, not by the scenario: at the 3.0 m arming radius a beam lands
+  # every 5.2 cm, so a 0.24 m body gives ~4.6 returns against the 4 the circle
+  # fit needs. At the 0.09 m it briefly shrank to, that was 1.7 -- undetectable
+  # at range, and small enough that corner geometry fitted the same circle.
+  # The radius reaches the detector through the manifest, never as a second
+  # literal.
+  #
+  # b_height_m DOES scale: it describes a person, and at the committed 0.30
+  # factor 1.7 m becomes 0.51 m. The cost of the sensor keeping the radius is
+  # that B is stout at robot scale -- 0.24 m across and 0.51 m tall. Recorded
+  # in ADR 0031 rather than quietly traded away.
+  b_radius_m: 0.12
+  b_height_m: 1.7
+  # A's v1 stand-in. The corridor composer deactivates its visual when the twin
+  # is placed (the twin IS A in v2), but the size is authored here so the
+  # scenario has no hardcoded lengths left in the actor block.
+  a_size_xyz_m: [0.65, 0.45, 0.5]
+
 police:
   # P stands inside the next street's east side, on the near (inner) side of
   # its east wall -- the side the supplied diagram measures P's label on, 28
@@ -143,6 +218,13 @@ police:
   # moves P with the geometry instead of stranding it inside a wall.
   body_size_xyz_m: [0.6, 0.6, 1.8]
   # West of the east wall's inner face, so P stands inside the channel.
+  # P's enforcement camera rides a mast on P's own footprint (ADR 0021 makes
+  # the single render product P's instrument). 5.0 m authored is 1.50 m at the
+  # committed 0.30 factor, which is the pose ratified on 2026-08-12: 5/5
+  # line of sight to the enforcement stations in 3-D and 5/5 in frustum, at
+  # 2.29-4.68 m. At P's own height it is 0/5 -- ADR 0019's corner screen, which
+  # hides P from A, also hides the corridor from P.
+  camera_mast_height_m: 5.0
   east_wall_clearance_m: 0.25
   # South of the north wall's inner face, which is m/2. Closer to that face
   # than ADR 0017's 1.20 m, both because it matches the drawing more closely
@@ -155,6 +237,11 @@ police:
 speed_policy:
   status: demonstration_only
   kind: piecewise_constant_by_clear_width
+  # v2 [to pin after first profile run]: ADR 0023 re-pins these limits to
+  # robot scale (the fleet robots cap at 0.22 m/s, below every tier here).
+  # The values below remain the v1 policy and keep driving the current tests
+  # until the measured profile run pins the v2 numbers, under ADR 0007's
+  # owner-approval rule and 0016's two-gate no-spare constraint.
   # The strict zone begins at 4.0 m clear width, which is x >= 8 on the nominal
   # taper, so gates 8 and 10 both fall inside it. At the previous 3.5 m only
   # gate 10 did, leaving exactly one measurement in the zone; with a two-estimate

@@ -1,0 +1,134 @@
+{
+  "profile": "nominal_m6_n3",
+  "scenarios": {
+    "cone_leak": {
+      "mask_mode": "cone",
+      "slow_zone_exempt": false,
+      "slip": false,
+      "state": "ARRIVED_UNPROVEN",
+      "contacted": false,
+      "final_true_range_m": 0.4031,
+      "contact_range_m": 0.2175,
+      "elapsed_s": 25.1,
+      "pin": {
+        "declared_range_m": 0.4029,
+        "true_range_m": 0.4031,
+        "leaked_min_m": 0.2831,
+        "leaked_max_m": 0.3436,
+        "reason": "obstacle at 0.34 m",
+        "held_s": 20.6
+      },
+      "duty": {
+        "0.70-0.42": 1.0,
+        "0.42-0.38": 0.014,
+        "0.38-0.35": null,
+        "0.35-0.00": null
+      },
+      "trace_len": 251
+    },
+    "disc": {
+      "mask_mode": "disc",
+      "slow_zone_exempt": true,
+      "slip": false,
+      "state": "DELIVERED_CONFIRMED",
+      "contacted": true,
+      "final_true_range_m": 0.2181,
+      "contact_range_m": 0.2175,
+      "elapsed_s": 9.4,
+      "pin": null,
+      "duty": {
+        "0.70-0.42": 1.0,
+        "0.42-0.38": 1.0,
+        "0.38-0.35": 1.0,
+        "0.35-0.00": 0.974
+      },
+      "trace_len": 94
+    },
+    "forgery": {
+      "mask_mode": "cone",
+      "slow_zone_exempt": false,
+      "slip": false,
+      "state": "DOCKING",
+      "contacted": false,
+      "final_true_range_m": 0.4031,
+      "contact_range_m": 0.2175,
+      "elapsed_s": 25.0,
+      "pin": {
+        "declared_range_m": 0.4029,
+        "true_range_m": 0.4031,
+        "leaked_min_m": 0.3436,
+        "leaked_max_m": 0.3436,
+        "reason": "obstacle at 0.34 m",
+        "held_s": 20.5
+      },
+      "duty": {
+        "0.70-0.42": 1.0,
+        "0.42-0.38": 0.014,
+        "0.38-0.35": null,
+        "0.35-0.00": null
+      },
+      "trace_len": 250
+    },
+    "misaligned": {
+      "mask_mode": "disc",
+      "slow_zone_exempt": true,
+      "slip": false,
+      "state": "DELIVERED_CONFIRMED",
+      "contacted": true,
+      "final_true_range_m": 0.2189,
+      "contact_range_m": 0.2175,
+      "elapsed_s": 11.4,
+      "pin": null,
+      "duty": {
+        "0.70-0.42": 0.661,
+        "0.42-0.38": 1.0,
+        "0.38-0.35": 1.0,
+        "0.35-0.00": 0.974
+      },
+      "trace_len": 114
+    },
+    "slip": {
+      "mask_mode": "disc",
+      "slow_zone_exempt": true,
+      "slip": true,
+      "state": "DELIVERED_CONFIRMED",
+      "contacted": true,
+      "final_true_range_m": 0.2181,
+      "contact_range_m": 0.2175,
+      "elapsed_s": 9.4,
+      "pin": null,
+      "duty": {
+        "0.70-0.42": 1.0,
+        "0.42-0.38": 1.0,
+        "0.38-0.35": 1.0,
+        "0.35-0.00": 0.974
+      },
+      "trace_len": 94
+    },
+    "slow_zone_false_stall": {
+      "mask_mode": "cone",
+      "slow_zone_exempt": false,
+      "slip": false,
+      "state": "DOCKING",
+      "contacted": false,
+      "final_true_range_m": 0.4031,
+      "contact_range_m": 0.2175,
+      "elapsed_s": 25.0,
+      "pin": {
+        "declared_range_m": 0.4029,
+        "true_range_m": 0.4031,
+        "leaked_min_m": 0.3436,
+        "leaked_max_m": 0.3436,
+        "reason": "obstacle at 0.34 m",
+        "held_s": 20.5
+      },
+      "duty": {
+        "0.70-0.42": 1.0,
+        "0.42-0.38": 0.014,
+        "0.38-0.35": null,
+        "0.35-0.00": null
+      },
+      "trace_len": 250
+    }
+  }
+}

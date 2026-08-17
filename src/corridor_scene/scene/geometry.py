@@ -497,6 +497,73 @@ def street_drive_center_x_m(scenario: Scenario) -> float:
     return (scenario.street_west_m + stub_west) / 2.0
 
 
+def p_cam_pose(scenario: Scenario, profile: CorridorProfile) -> dict:
+    """Where P's enforcement camera stands, and which way it looks.
+
+    ADR 0021 made the single render product P's instrument; nothing had ever
+    PLACED it, and placing it turned out to be a decision. ADR 0019's corner
+    screen is authored so that A cannot see P. It works, and it also blocks the
+    reverse sightline: from a camera at P's own height, 0 of 5 enforcement
+    stations are visible, and so is every point of A's approach. Raising the
+    same footprint onto a mast clears all five. **The constraint is height, not
+    position** -- measured 2026-08-12 with `scene.occlusion`'s own raycaster
+    against the stage's opaque triangles, and ratified the same evening.
+
+    Eye: the midpoint of P's authored bounds in plan, at
+    `police.camera_mast_height_m`. Derived from P's own body rather than
+    written down, so the camera follows P when a profile or a scale moves it.
+
+    Aim: the corridor entry at the origin, which is where A comes from. Every
+    enforcement station then falls within a degree of dead ahead.
+
+    ONE function, so the authored prim and the manifest the adapter and the
+    certificate read can never describe two different cameras.
+    """
+
+    low, high = police_bounds(scenario, profile)
+    eye = (
+        (low[0] + high[0]) / 2.0,
+        (low[1] + high[1]) / 2.0,
+        scenario.police.camera_mast_height_m,
+    )
+    look_at = (0.0, 0.0, 0.0)
+
+    forward = tuple(target - origin for target, origin in zip(look_at, eye, strict=True))
+    norm = math.sqrt(sum(component * component for component in forward))
+    if norm < 1e-9:
+        raise ValueError("P's camera cannot look at its own eye point")
+    forward = tuple(component / norm for component in forward)
+
+    # USD cameras look down local -Z with +Y up, so the basis is
+    # (right, image-up, -forward). Right comes from world up, which is the
+    # convention that keeps the horizon level; image-up is then exact rather
+    # than approximated.
+    world_up = (0.0, 0.0, 1.0)
+    right = (
+        forward[1] * world_up[2] - forward[2] * world_up[1],
+        forward[2] * world_up[0] - forward[0] * world_up[2],
+        forward[0] * world_up[1] - forward[1] * world_up[0],
+    )
+    right_norm = math.sqrt(sum(component * component for component in right))
+    if right_norm < 1e-9:
+        raise ValueError("P's camera looks straight up or down; the roll is undefined")
+    right = tuple(component / right_norm for component in right)
+    up = (
+        right[1] * forward[2] - right[2] * forward[1],
+        right[2] * forward[0] - right[0] * forward[2],
+        right[0] * forward[1] - right[1] * forward[0],
+    )
+
+    return {
+        "eye_xyz_m": eye,
+        "look_at_xyz_m": look_at,
+        "forward_xyz": forward,
+        "up_xyz": up,
+        "right_xyz": right,
+        "mast_height_m": scenario.police.camera_mast_height_m,
+    }
+
+
 def person_b_xyz(scenario: Scenario) -> Vec3:
     """Return B's position in the pocket behind the east-wall stub.
 
@@ -550,7 +617,10 @@ def police_bounds(scenario: Scenario, profile: CorridorProfile) -> tuple[Vec3, V
 # of clearance up to m=10), and it is a proxy: ``validate_layout`` still
 # checks the built profile's actual route against the screen via ``is_clear``
 # rather than trusting this number alone.
-CORNER_SCREEN_NORTH_MARGIN_M = 0.4
+# MOVED TO THE SCENARIO YAML (geometry.corner_screen.north_margin_m). It is a
+# dimension of the scene, so it must scale with the scene; as a constant here
+# it stayed 0.4 m in a corridor whose corner is 0.9 m wide.
+# (see geometry.corner_screen in the scenario YAML)
 
 # The screen only has to separate P from a source that is already close to it
 # in X -- a ray from anywhere on the approach or the early turn crosses the
@@ -562,7 +632,8 @@ CORNER_SCREEN_NORTH_MARGIN_M = 0.4
 # profile; this is a wider, still-narrow margin, and it keeps clear of the
 # north-wall reference plates at along_m 13 and 15 (and 17, moved to 15.6 by
 # this same ADR), which a screen reaching further west would otherwise occlude.
-CORNER_SCREEN_WIDTH_M = 0.4
+# MOVED TO THE SCENARIO YAML (geometry.corner_screen.width_m), same reason.
+# (see geometry.corner_screen in the scenario YAML)
 
 
 def corner_screen_bounds(
@@ -600,9 +671,9 @@ def corner_screen_bounds(
     police_min, _ = police_bounds(scenario, profile)
     x_max = police_min[0] - scenario.police.minimum_clearance_m
     return (
-        max(0.0, x_max - CORNER_SCREEN_WIDTH_M),
+        max(0.0, x_max - scenario.corner_screen.width_m),
         x_max,
-        centerline_at_corner + CORNER_SCREEN_NORTH_MARGIN_M,
+        centerline_at_corner + scenario.corner_screen.north_margin_m,
         north_face,
     )
 
@@ -665,6 +736,31 @@ def validate_layout(scenario: Scenario, profile: CorridorProfile) -> None:
         raise ValueError(
             f"profile {profile.name}: P reaches y={pmin[1]:.3f}, past the street's south end"
         )
+
+    # B must stand in FREE SPACE, footprint and all.
+    #
+    # This check exists because B's detectable body shipped inside a wall twice
+    # and nothing objected: offset north it landed in the east wall stub
+    # (`is_clear` False at (5.038, -1.800) against a stub spanning y -2.085 to
+    # -1.767), and its size stopped scaling with the scene while its neighbours
+    # kept scaling. A landmark inside geometry is worse than no landmark -- the
+    # detector cannot see it, and the delivery has a marker that is not there.
+    #
+    # Since ADR 0031 there is one object to check rather than two, and the old
+    # B-to-post separation floor is gone with the second object: it existed
+    # only so the detector could cluster them apart.
+    b_x, b_y, _ = person_b_xyz(scenario)
+    radius = scenario.actors.b_radius_m
+    for index in range(12):
+        bearing = index * math.pi / 6.0
+        probe_x = b_x + radius * math.cos(bearing)
+        probe_y = b_y + radius * math.sin(bearing)
+        if not is_clear(scenario, profile, probe_x, probe_y):
+            raise ValueError(
+                f"profile {profile.name}: B at "
+                f"({b_x:.3f}, {b_y:.3f}) r={radius} is not in free space -- "
+                f"blocked at bearing {math.degrees(bearing):.0f} deg"
+            )
     # P's body must not overlap the corner screen that hides it. Guaranteed by
     # construction -- corner_screen_bounds derives its east face from P's own
     # west edge -- but checked directly rather than trusted, since the two are

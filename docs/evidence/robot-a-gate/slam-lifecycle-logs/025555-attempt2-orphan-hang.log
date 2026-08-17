@@ -1,0 +1,9 @@
+[INFO] [launch]: All log files can be found below /home/alexmint/.ros/log/2026-08-14-02-59-07-577293-asustek-1265169
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [async_slam_toolbox_node-1]: process started with pid [1265234]
+[INFO] [lifecycle_manager-2]: process started with pid [1265235]
+[lifecycle_manager-2] [INFO] [1786697947.734044367] [lifecycle_manager_slam]: Creating
+[lifecycle_manager-2] [INFO] [1786697947.738837255] [lifecycle_manager_slam]: [34m[1mCreating and initializing lifecycle service clients[0m[0m
+[async_slam_toolbox_node-1] [INFO] [1786697947.738950719] [slam_toolbox]: Node using stack size 40000000
+[lifecycle_manager-2] [INFO] [1786697947.826066722] [lifecycle_manager_slam]: [34m[1mStarting managed nodes bringup...[0m[0m
+[lifecycle_manager-2] [INFO] [1786697947.826126605] [lifecycle_manager_slam]: [34m[1mConfiguring slam_toolbox[0m[0m

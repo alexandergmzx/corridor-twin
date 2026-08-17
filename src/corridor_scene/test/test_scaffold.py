@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from scene.build import resolve_profiles
-from scene.model import load_scenario, validate_scenario
+from scene.model import authored_config_path, load_scenario, validate_scenario
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,14 +34,14 @@ def test_scenario_records_metric_z_up_stage() -> None:
 # exhaustive sweep of a mechanical, uniformly-applied check.
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_a_non_finite_top_level_dimension_is_rejected_by_name(value: float) -> None:
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     candidate = replace(scenario, corridor_length_m=value)
     with pytest.raises(ValueError, match=r"geometry\.corridor_length_m must be finite"):
         validate_scenario(candidate)
 
 
 def test_a_non_finite_next_street_field_is_rejected_by_name() -> None:
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     candidate = replace(
         scenario, next_street=replace(scenario.next_street, turn_radius_m=float("nan"))
     )
@@ -52,21 +52,21 @@ def test_a_non_finite_next_street_field_is_rejected_by_name() -> None:
 
 
 def test_a_non_finite_police_field_is_rejected_by_name() -> None:
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     candidate = replace(scenario, police=replace(scenario.police, north_offset_m=float("inf")))
     with pytest.raises(ValueError, match=r"police\.north_offset_m must be finite"):
         validate_scenario(candidate)
 
 
 def test_a_non_finite_camera_field_is_rejected_by_name() -> None:
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     candidate = replace(scenario, camera=replace(scenario.camera, rate_hz=float("nan")))
     with pytest.raises(ValueError, match=r"camera\.rate_hz must be finite"):
         validate_scenario(candidate)
 
 
 def test_a_non_finite_profile_width_is_rejected_by_name() -> None:
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     profiles = tuple(
         replace(profile, entry_width_m=float("nan")) if index == 0 else profile
         for index, profile in enumerate(scenario.profiles)
@@ -87,7 +87,7 @@ def test_an_impossibly_narrow_lane_is_rejected_with_a_specific_message() -> None
     and not only once the radius is also inflated to make room for it.
     """
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     candidate = replace(
         scenario,
         next_street=replace(
@@ -103,7 +103,7 @@ def test_an_impossibly_narrow_lane_is_rejected_with_a_specific_message() -> None
 def test_resolve_profiles_rejects_non_finite_command_line_dimensions() -> None:
     """--m/--n reach resolve_profiles before a Scenario exists to validate them."""
 
-    scenario = load_scenario()
+    scenario = load_scenario(authored_config_path())
     with pytest.raises(ValueError, match=r"--m must be finite"):
         resolve_profiles(scenario.profiles, float("nan"), 3.0)
     with pytest.raises(ValueError, match=r"--n must be finite"):

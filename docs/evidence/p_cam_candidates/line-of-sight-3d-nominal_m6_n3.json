@@ -1,0 +1,186 @@
+{
+  "note": "3-D line of sight from each candidate to A's body centre at five stations, raycast against the stage's opaque meshes (scene.occlusion primitives)",
+  "a_body_centre_height_m": 0.075,
+  "candidates": [
+    {
+      "name": "at_P_down_the_corridor",
+      "eye_xyz_m": [
+        5.235,
+        0.72,
+        0.21
+      ],
+      "usable_3d": 0,
+      "stations": [
+        {
+          "station_m": 0.6,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        },
+        {
+          "station_m": 1.2,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        },
+        {
+          "station_m": 1.8,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        },
+        {
+          "station_m": 2.4,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        },
+        {
+          "station_m": 3.0,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        }
+      ]
+    },
+    {
+      "name": "at_P_raised",
+      "eye_xyz_m": [
+        5.235,
+        0.72,
+        0.63
+      ],
+      "usable_3d": 0,
+      "stations": [
+        {
+          "station_m": 0.6,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        },
+        {
+          "station_m": 1.2,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        },
+        {
+          "station_m": 1.8,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        },
+        {
+          "station_m": 2.4,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        },
+        {
+          "station_m": 3.0,
+          "line_of_sight_3d": false,
+          "blocked_by": "CornerScreen"
+        }
+      ]
+    },
+    {
+      "name": "north_wall_before_the_screen",
+      "eye_xyz_m": [
+        3.3000000000000003,
+        0.8099999999999999,
+        0.42
+      ],
+      "usable_3d": 5,
+      "stations": [
+        {
+          "station_m": 0.6,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 1.2,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 1.8,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 2.4,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 3.0,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "name": "corner_mast_over_the_screen",
+      "eye_xyz_m": [
+        5.235,
+        0.72,
+        1.5
+      ],
+      "usable_3d": 5,
+      "stations": [
+        {
+          "station_m": 0.6,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 1.2,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 1.8,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 2.4,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 3.0,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        }
+      ]
+    },
+    {
+      "name": "north_wall_midpoint",
+      "eye_xyz_m": [
+        1.8,
+        0.8099999999999999,
+        0.42
+      ],
+      "usable_3d": 5,
+      "stations": [
+        {
+          "station_m": 0.6,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 1.2,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 1.8,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 2.4,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        },
+        {
+          "station_m": 3.0,
+          "line_of_sight_3d": true,
+          "blocked_by": null
+        }
+      ]
+    }
+  ]
+}

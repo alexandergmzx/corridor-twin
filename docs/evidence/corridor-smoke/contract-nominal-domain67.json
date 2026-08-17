@@ -1,0 +1,32 @@
+{
+  "/robot2/scan": {
+    "hz_measured": 10.04,
+    "frames": [
+      "robot2/laser_frame"
+    ],
+    "reliability": [
+      "BEST_EFFORT"
+    ]
+  },
+  "/robot2/scan_filtered": {
+    "hz_measured": 10.11,
+    "frames": [
+      "robot2/laser_frame"
+    ],
+    "reliability": [
+      "RELIABLE"
+    ]
+  },
+  "/robot2/imu": {
+    "hz_measured": 52.35,
+    "frames": [
+      "robot2/imu_frame"
+    ],
+    "reliability": [
+      "BEST_EFFORT"
+    ]
+  },
+  "odometry_topics_robot_side": []
+}
+
+all contract checks passed

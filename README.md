@@ -1,17 +1,35 @@
 # corridor-twin
 
 An interview-sized digital-twin scenario for OpenUSD, ROS 2 Jazzy, and NVIDIA
-Isaac Sim. Robot A delivers a package to person B through a tapered corridor.
-Police observer P runs on a **separate ROS communication domain** from A and has
-no direct line of sight to it, but is permitted to consume A's front-camera feed
-through one allowlisted gateway and detect speed violations from surveyed ArUco
-markers.
+Isaac Sim. Robot A navigates **autonomously** on its own lidar to deliver a
+package to person B through a tapered corridor and around a corner onto the next
+street. Traffic police P runs on a **separate ROS communication domain** from A
+and measures A's speed from **P's own roadside camera** — a learned detector,
+with a classical ArUco baseline — crossing the domain boundary through one
+allowlisted, one-way gateway. A carries no camera, and P stays out of A's
+sightline.
+
+> The paragraph above describes v2, the delivered system (ADRs 0021–0024). In
+> v1 the camera was A's and the fiducials were surveyed wall markers; the v1
+> figures in the milestone table below are true of the runs they describe and
+> are quotable only as v1 (ADR 0022).
 
 ## Current status
 
-The demonstration runs end to end: one command drives A along the authored
-route in Isaac Sim while the police observer recovers its speed from that one
-camera alone.
+**Delivered 2026-08-14 — read [`DELIVERY.md`](DELIVERY.md) first.** It maps the
+three corrections from the 2026-08-04 review to their mechanisms, artifacts and
+measured numbers, and lists what is deliberately not claimed.
+
+The v2 headline: the isolation certificate is green with its mutation control
+red; A delivers autonomously and touches B, reproducibly to 3.5 mm across seven
+runs while the map quality varies 4.3x; and P's learned detector recovers speed
+at all five gates from pixels alone, with the estimator's own contribution to
+the error measured at **+0.62%** once a newly-characterised recording-path
+timing defect is accounted for.
+
+The table below is the milestone history. **Every 2026-07 row is a v1 figure**
+and ADR 0022 retires all v1 certificate numbers for v2 purposes; they remain
+true of the runs they describe and are quotable only as v1.
 
 | Date | Milestone | State | Measured result | Evidence |
 |---|---|---|---|---|
@@ -30,7 +48,7 @@ known failure; each is a measurement that has not been taken.
 | Open item | Why it is not claimed | Consequence |
 |---|---|---|
 | No canonical **static** qualification | The recorded dwell run reported a *requested* renderer mode as measured. Its summary is preserved unmodified as `qualification-summary-v1-request-echo-invalidated.json` | Its pixel, calibration, rate and mirror-control results stand; its renderer claim does not. A fresh paired capture is required |
-| Pose-to-render latency uncharacterised | Whether a pose written before `app.update()` lands in that frame or the next was never measured | One camera period is 0.066 m at 1.0 m/s, which bounds but does not measure the effect. No offset compensates for it |
+| ~~Pose-to-render latency uncharacterised~~ **MEASURED 2026-08-14, and far worse than the bound** | It is not a latency but a rate deficit: image content advances at 0.888x the clock on a 33 s run and 0.713x on a 92 s one | Any speed read off those header stamps is low by 11-29%. Measured, attributed, and **not corrected for** — see [the estimator evidence](docs/evidence/estimator/NOTES.md). Fixing how frames are stamped is future work |
 | Every GPU figure predates ADR 0019 | The scene changed shape after the last capture: P moved sides and a `CornerScreen` was added | The figures above describe the pre-correction geometry and are pending refresh, not withdrawn |
 | Host is unsupported | NVIDIA's checker rejects Linux Mint regardless of the passing hardware and live-stream gates | Recorded as a platform risk; Ubuntu 24.04 remains the fallback |
 

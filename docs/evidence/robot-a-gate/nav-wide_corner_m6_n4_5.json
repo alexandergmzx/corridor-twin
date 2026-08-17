@@ -1,0 +1,22 @@
+{
+  "profile": "wide_corner_m6_n4_5",
+  "gated": true,
+  "goal_map_frame": [
+    16.2617,
+    -9.032
+  ],
+  "tolerance_m": 0.15,
+  "goal_accepted": true,
+  "action_status": "ABORTED",
+  "travelled_m": 0.0,
+  "final_pose_map_frame": [
+    1.0488,
+    -0.2114
+  ],
+  "goal_error_m": 17.585,
+  "failures": [
+    "action status ABORTED, not SUCCEEDED",
+    "map-frame goal error 17585 mm exceeds 150 mm (ADR 0022)"
+  ],
+  "pass": false
+}
